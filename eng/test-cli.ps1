@@ -17,4 +17,6 @@ $invalid = Join-Path $output 'invalid.sol'
 Set-Content -LiteralPath $invalid -Value 'func missingModule() {}' -Encoding utf8NoBOM
 & dotnet $cli $invalid --emit=cst -o (Join-Path $output 'invalid.cst.json') 2>&1 | Out-Host
 if ($LASTEXITCODE -ne 1 -or (Test-Path (Join-Path $output 'invalid.cst.json'))) { throw 'Invalid source produced output.' }
+# Expected negative cases must not become the PowerShell step's final native exit code.
+$global:LASTEXITCODE = 0
 Write-Host 'CLI process smoke tests passed.'
