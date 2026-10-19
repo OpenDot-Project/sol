@@ -1,0 +1,9 @@
+
+/.codex/
+/.dotnet/
+**/bin/
+**/obj/
+/out/
+/.vs/
+*.user
+*.suo
