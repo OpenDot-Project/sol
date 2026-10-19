@@ -12,6 +12,12 @@ public enum NodeKind
     LiteralExpression, NameExpression, PositionalExpression, UnaryExpression,
     BinaryExpression, CallExpression, ArgumentList, MemberExpression, IndexExpression,
     TupleExpression, ArrayExpression, LambdaExpression, Error,
+    IfStatement, ForStatement, ForCondition, ForInitializer, ForUpdate, ForEachBinding,
+    SwitchStatement, SwitchCase, TypePattern, PayloadPattern, PatternBindings,
+    TryStatement, TryExpression, CatchClause, FinallyClause, DeferStatement, UnsafeStatement,
+    BreakStatement, ContinueStatement, Destructuring, LambdaParameters, LambdaParameter,
+    LabelledExpression, AnonymousFunctionExpression, ThrowExpression, TypeTestExpression, CastExpression,
+    Argument, RefArgument, OutArgument, OutVariable, SpreadArgument, RefExpression,
 }
 
 /// <summary>Snapshot-relative concrete structure; original tokens and trivia remain in SyntaxTree.</summary>

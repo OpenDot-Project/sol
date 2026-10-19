@@ -11,7 +11,7 @@ using static OpenDot.Sol.Cst.SyntaxKind;
 namespace OpenDot.Sol.Cst;
 
 /// <summary>Initial declaration/expression parser. Unsupported productions fail explicitly.</summary>
-internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, CancellationToken cancellation)
+internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth, CancellationToken cancellation)
 {
     private readonly List<Diagnostic> _diagnostics = [.. lex.Diagnostics];
     private readonly Dictionary<SyntaxNode, int> _nodeDepths = new(ReferenceEqualityComparer.Instance);
@@ -193,13 +193,16 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
             }
             else if (Take(OpenParenToken))
             {
+                bool hasPassingMode = false;
                 while (!AtEnd && Kind != CloseParenToken)
                 {
+                    if (Kind is RefKeyword or OutKeyword) { hasPassingMode = true; Advance(); }
                     children.Add(ParseType());
                     if (!Take(CommaToken)) { break; }
                 }
                 Expect(CloseParenToken);
                 if (Take(ArrowToken)) { children.Add(ParseType()); }
+                else if (hasPassingMode) { Error("SOL1101", "Ref/out type modes require a function type."); }
             }
             else if (!Take(BangToken))
             {
@@ -222,15 +225,15 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
         finally { _depth--; }
     }
 
-    private SyntaxNode ParseBinding(int start)
+    private SyntaxNode ParseBinding(int start, bool terminate = true, bool allowDestructuring = false)
     {
         if (Take(ConstKeyword)) { Expect(ValKeyword); }
         else { Advance(); }
-        var children = new List<SyntaxNode> { ConsumeName() };
+        var children = new List<SyntaxNode> { allowDestructuring ? ParseBindingTarget() : ConsumeName() };
         if (Take(ColonToken)) { children.Add(ParseType()); }
         if (Take(EqualsToken)) { children.Add(ParseExpression()); }
         else if (IsText("by")) { Advance(); children.Add(ParseExpression()); }
-        Terminate();
+        if (terminate) { Terminate(); }
         return Node(NodeKind.Binding, start, children);
     }
 
@@ -244,7 +247,7 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
         {
             Expect(OpenBraceToken);
             var statements = new List<SyntaxNode>();
-            while (!AtEnd && Kind != CloseBraceToken)
+            while (!AtEnd && Kind is not (CloseBraceToken or ElseKeyword or CatchKeyword or FinallyKeyword or CaseKeyword or DefaultKeyword))
             {
                 if (Take(SemicolonToken)) { continue; }
                 int before = _index;
@@ -260,24 +263,52 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
     private SyntaxNode ParseStatement()
     {
         int start = Start;
-        if (Kind is ValKeyword or VarKeyword or ConstKeyword) { return ParseBinding(start); }
+        if (!Enter()) { return Recover(start); }
+        try { return ParseStatementCore(); }
+        finally { _depth--; }
+    }
+
+    private SyntaxNode ParseStatementCore()
+    {
+        int start = Start;
+        switch (Kind)
+        {
+            case IfKeyword: return ParseIf();
+            case ForKeyword: return ParseFor();
+            case SwitchKeyword: return ParseSwitch();
+            case TryKeyword: return ParseTry(NodeKind.TryStatement);
+            case DeferKeyword: return ParseCleanup(NodeKind.DeferStatement);
+            case UnsafeKeyword: return ParseCleanup(NodeKind.UnsafeStatement);
+            case BreakKeyword:
+            case ContinueKeyword:
+                var kind = Kind == BreakKeyword ? NodeKind.BreakStatement : NodeKind.ContinueStatement;
+                Advance();
+                Terminate();
+                return Node(kind, start, []);
+        }
+        if (Kind is ValKeyword or VarKeyword or ConstKeyword) { return ParseBinding(start, allowDestructuring: true); }
         if (Kind == FuncKeyword) { return ParseFunction(start); }
         if (Kind is ReturnKeyword or ThrowKeyword)
         {
             bool throwing = Kind == ThrowKeyword;
             Advance();
             var children = new List<SyntaxNode>();
+            if (!throwing && !Boundary && Take(AtToken)) { children.Add(ConsumeName()); }
             if (throwing || (!Boundary && Kind is not (CloseBraceToken or EndOfFileToken or SemicolonToken)))
             {
-                children.Add(ParseExpression());
+                if (!throwing && Kind == RefKeyword)
+                {
+                    int refStart = Start;
+                    Advance();
+                    children.Add(Node(NodeKind.RefExpression, refStart, [ParseExpression()]));
+                }
+                else { children.Add(ParseExpression()); }
             }
             Terminate();
             return Node(throwing ? NodeKind.ThrowStatement : NodeKind.ReturnStatement, start, children);
         }
         var expression = ParseExpression();
-        if (!Boundary && Kind is EqualsToken or PlusEqualsToken or MinusEqualsToken or StarEqualsToken
-            or SlashEqualsToken or PercentEqualsToken or AmpersandEqualsToken or PipeEqualsToken
-            or CaretEqualsToken or LessLessEqualsToken or GreaterGreaterEqualsToken)
+        if (!Boundary && IsAssignment(Kind))
         {
             Advance();
             var value = ParseExpression();
@@ -288,7 +319,7 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
         return Node(NodeKind.ExpressionStatement, start, [expression]);
     }
 
-    private SyntaxNode ParseExpression(int minimum = 0)
+    private SyntaxNode ParseExpression(int minimum = 0, bool allowTrailingLambda = true)
     {
         int start = Start;
         if (!Enter()) { return Recover(start); }
@@ -298,14 +329,20 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
             if (Kind is PlusToken or MinusToken or BangToken or TildeToken or PlusPlusToken or MinusMinusToken)
             {
                 Advance();
-                left = Node(NodeKind.UnaryExpression, start, [ParseExpression(14)]);
+                left = Node(NodeKind.UnaryExpression, start, [ParseExpression(14, allowTrailingLambda)]);
             }
             else { left = ParseAtom(); }
             while (!AtEnd && !Boundary)
             {
                 if (Kind == OpenParenToken)
                 {
-                    left = Node(NodeKind.CallExpression, start, [left, ParseSequence(OpenParenToken, CloseParenToken, NodeKind.ArgumentList)]);
+                    left = Node(NodeKind.CallExpression, start, [left, ParseArguments()]);
+                    continue;
+                }
+                if (allowTrailingLambda && Kind == OpenBraceToken && left.Kind == NodeKind.CallExpression
+                    && left.Children.Length == 2)
+                {
+                    left = Node(NodeKind.CallExpression, start, left.Children.Add(ParseLambda()));
                     continue;
                 }
                 if (Kind is DotToken or QuestionDotToken)
@@ -325,11 +362,20 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
                     left = Node(NodeKind.UnaryExpression, start, [left]);
                     continue;
                 }
+                if (minimum <= 11 && (Kind is AsKeyword or IsKeyword || Kind == BangToken && Peek(1).Kind == IsKeyword))
+                {
+                    bool cast = Kind == AsKeyword;
+                    if (Take(BangToken)) { Expect(IsKeyword); }
+                    else { Advance(); }
+                    if (cast) { Take(QuestionToken); }
+                    left = Node(cast ? NodeKind.CastExpression : NodeKind.TypeTestExpression, start, [left, ParseType()]);
+                    continue;
+                }
                 int precedence = Precedence(Kind);
                 if (precedence < minimum || precedence < 0) { break; }
                 bool rightAssociative = Kind == QuestionColonToken;
                 Advance();
-                left = Node(NodeKind.BinaryExpression, start, [left, ParseExpression(precedence + (rightAssociative ? 0 : 1))]);
+                left = Node(NodeKind.BinaryExpression, start, [left, ParseExpression(precedence + (rightAssociative ? 0 : 1), allowTrailingLambda)]);
             }
             return left;
         }
@@ -339,6 +385,16 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
     private SyntaxNode ParseAtom()
     {
         int start = Start;
+        if (Kind == TryKeyword) { return ParseTry(NodeKind.TryExpression); }
+        if (Take(ThrowKeyword)) { return Node(NodeKind.ThrowExpression, start, [ParseExpression()]); }
+        if (Kind == FuncKeyword) { return ParseAnonymousFunction(); }
+        if (Kind == IdentifierToken && Peek(1).Kind == AtToken)
+        {
+            var label = ConsumeName();
+            Advance();
+            if (Kind != OpenBraceToken) { Error("SOL1101", "A label must introduce a lambda."); }
+            return Node(NodeKind.LabelledExpression, start, [label, ParseLambda()]);
+        }
         if (Kind is IntegerLiteralToken or FloatLiteralToken or StringLiteralToken or RuneLiteralToken
             or TrueKeyword or FalseKeyword or NullKeyword)
         {
@@ -353,34 +409,7 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
         if (Take(PositionalParameterToken)) { return Node(NodeKind.PositionalExpression, start, []); }
         if (Kind == OpenParenToken) { return ParseSequence(OpenParenToken, CloseParenToken, NodeKind.TupleExpression); }
         if (Kind == OpenBracketToken) { return ParseSequence(OpenBracketToken, CloseBracketToken, NodeKind.ArrayExpression); }
-        if (Kind == OpenBraceToken)
-        {
-            int previousSuppression = _suppressedNewlines;
-            _suppressedNewlines = 0;
-            try
-            {
-                Advance();
-                var children = new List<SyntaxNode>();
-                // Recognize the untyped named header without inventing an implicit parameter.
-                int probe = _index;
-                while (PeekAbsolute(probe).Kind is IdentifierToken or CommaToken) { probe++; }
-                if (PeekAbsolute(probe).Kind == ArrowToken)
-                {
-                    while (_index < probe) { if (Kind == IdentifierToken) { children.Add(ConsumeName()); } else { Advance(); } }
-                    Advance();
-                }
-                else { Take(ArrowToken); }
-                while (!AtEnd && Kind != CloseBraceToken)
-                {
-                    int before = _index;
-                    children.Add(ParseStatement());
-                    EnsureProgress(before);
-                }
-                Expect(CloseBraceToken);
-                return Node(NodeKind.LambdaExpression, start, children);
-            }
-            finally { _suppressedNewlines = previousSuppression; }
-        }
+        if (Kind == OpenBraceToken) { return ParseLambda(); }
         Error("SOL1101", "Expected an expression; this production is missing or not yet implemented.");
         if (!AtEnd && Kind is not (CloseParenToken or CloseBracketToken or CloseBraceToken)) { Advance(); }
         return Node(NodeKind.Error, start, []);
@@ -397,8 +426,6 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
             while (!AtEnd && Kind != close)
             {
                 int before = _index;
-                if (Kind == IdentifierToken && Peek(1).Kind == EqualsToken) { Advance(); Advance(); }
-                if (Kind is RefKeyword or OutKeyword) { Advance(); }
                 children.Add(ParseExpression());
                 EnsureProgress(before);
                 if (!Take(CommaToken)) { break; }
@@ -443,7 +470,8 @@ internal sealed class Parser(LexResult lex, int errorLimit, int maxDepth, Cancel
     private static bool CanEnd(SyntaxKind kind) => kind is IdentifierToken or IntegerLiteralToken
         or FloatLiteralToken or StringLiteralToken or RuneLiteralToken or TrueKeyword or FalseKeyword
         or NullKeyword or BreakKeyword or ContinueKeyword or ReturnKeyword or CloseParenToken
-        or CloseBracketToken or CloseBraceToken or BangBangToken or PositionalParameterToken;
+        or CloseBracketToken or CloseBraceToken or BangBangToken or PositionalParameterToken
+        or ThisKeyword or SuperKeyword or PlusPlusToken or MinusMinusToken;
 
     private bool Enter()
     {

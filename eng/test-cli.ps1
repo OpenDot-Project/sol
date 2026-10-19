@@ -11,6 +11,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Version smoke failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'CST smoke failed.' }
 $tree = Get-Content -LiteralPath (Join-Path $output 'main.cst.json') -Raw | ConvertFrom-Json
 if ($tree.module -ne 'arbitrary.entry' -or $tree.root.kind -ne 'CompilationUnit') { throw 'CST content mismatch.' }
+& dotnet $cli (Join-Path $root 'tests/fixtures/control-flow.sol') --emit=cst -o (Join-Path $output 'control-flow.cst.json')
+if ($LASTEXITCODE -ne 0) { throw 'Control-flow CST smoke failed.' }
+$control = Get-Content -LiteralPath (Join-Path $output 'control-flow.cst.json') -Raw | ConvertFrom-Json
+if ($control.module -ne 'fixtures.control' -or $control.root.kind -ne 'CompilationUnit') { throw 'Control-flow CST content mismatch.' }
 & dotnet $cli run 2>&1 | Out-Host
 if ($LASTEXITCODE -ne 2) { throw 'Compiler subcommand was not rejected.' }
 $invalid = Join-Path $output 'invalid.sol'

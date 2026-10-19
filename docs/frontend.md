@@ -145,10 +145,118 @@ rune literals must close on the same physical line; rune contents must contain o
 Malformed UTF-8 is diagnosed even inside comments and quoted literals. Numeric base digits and
 underscore placement are checked; numeric suffixes are not implemented.
 
-## Important unsupported areas
+## Control flow in the development branch (Unreleased)
+
+The following additions require a current source build; the published 0.0.1 component does not
+contain them. They extend syntax inspection without adding semantic validation or execution.
+
+```sol
+module examples.control
+
+func inspect(items: []int): int {
+    var total = 0
+    for var i: int = 0; i < items.length; i += 1 {
+        if items[i] < 0 {
+            continue
+        } else {
+            total += items[i]
+        }
+    }
+    for val item in items {
+        total += item
+    }
+    for total < 100 {
+        total += 1
+    }
+    for {
+        break
+    }
+    switch total {
+        case 0:
+            return 0
+        default:
+            return total
+    }
+}
+```
+
+Each loop has a `ForStatement` node. Header children distinguish an absent header, `ForCondition`,
+`ForInitializer`/`ForCondition`/`ForUpdate`, and `ForEachBinding` plus collection expression.
+Local and iteration bindings may use flat destructuring, such as `val (key, _)`; this does not
+introduce a destructuring property declaration at module scope. Three-clause updates use assignment
+statements. `break` and `continue` have dedicated nodes; legal targets require later flow analysis.
+
+`if` is a statement requiring braces, not an expression. Its `else` must share a logical line with
+the preceding `}`. Control body braces share their header's logical line. To use a trailing lambda
+inside a condition, parenthesize that call so the following control body remains unambiguous.
+
+```sol
+module examples.handlers
+
+func readValue(): int {
+    defer { close() }
+    val value = try {
+        read()
+    } catch (error: IOException) {
+        fallback()
+    } finally {
+        release()
+    }
+    unsafe { nativeCall() }
+    value
+}
+
+func dispatch(command: Command) {
+    switch command {
+        case Command.Move(x, _):
+            move(x)
+        case is Failure:
+            report()
+        default:
+            return
+    }
+}
+```
+
+A `TryExpression` is distinct from a standalone `TryStatement`; both preserve body, individual
+`CatchClause` nodes, and an optional `FinallyClause`. At least one catch or finally is required.
+No exception type hierarchy, cleanup effect restriction, or return-result type is resolved yet.
+Switch cases keep independent statement lists, flat payload bindings, and type-pattern nodes.
+Nested payload patterns are not implemented. Exhaustiveness and duplicate/unreachable cases require FIR.
+The parser can recover a missing try-body brace at `catch` without discarding that handler.
+
+```sol
+module examples.callbacks
+
+val increment = { x: int -> x + 1 }
+val write = done@ { ref x: int, out y: int ->
+    y = x
+    return@done
+}
+val anonymous = func(x: int): int { return x + 1 }
+val result = combine(20, 22) { x, y -> x + y }
+
+func parse(text: String) {
+    tryRead(text = text, result = out var value)
+    swap(left = ref first, right = ref second)
+    consume(*items)
+    val cast = value as? Item
+    val matches = value !is Item
+    val required = cast ?: throw Failure("missing")
+}
+```
+
+Lambda headers have `LambdaParameters`/`LambdaParameter` children with source-preserved modes/types;
+labels have `LabelledExpression` nodes. Each call argument has an `Argument` node containing its
+optional name and value, with dedicated `RefArgument`, `OutArgument`, `OutVariable`, or `SpreadArgument`
+structure where applicable. This preserves storage/declaration intent for later binding. Such markers
+are not allowed in array or tuple literals. Semantic constraints such as valid writable storage,
+label scope, ref escape, and callback type compatibility remain unimplemented.
+
+## Remaining unsupported areas
 
 The full class/struct/ref-struct model, accessors, annotations, delegation with `by`, generic
-declarations, the complete statement grammar, and later semantic stages still require work.
+declarations, remaining expression forms, and later semantic stages still require work.
 Nested generic closers and other incomplete productions must not be assumed to work merely because
 their tokens are recognized. See [status and roadmap](status.md) for implementation order.
 When extending a production, add tests for both valid spelling and malformed recovery.

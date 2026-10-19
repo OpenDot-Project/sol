@@ -21,8 +21,19 @@ syntax subset and developing source analysis infrastructure. It cannot compile o
 
 ## Implementation order
 
-1. Complete CST grammar and recovery coverage, including type declarations, accessors, annotations,
-   delegation, generics, and statements.
+### Current development branch (Unreleased)
+
+The CST parser now includes braced `if/else`, the four `for` forms, `switch` with flat payload/type
+patterns, `try/catch/finally` in statement/value contexts, `defer`, and `unsafe`. Function expressions
+add typed/ref/out lambda headers, local return labels, anonymous functions, trailing lambdas, and
+structured named/ref/out/spread call arguments. Casts and type tests are parsed with their precedence.
+These additions are not in the published 0.0.1 component. They remain syntax support, without
+type/effect/escape/exhaustiveness validation or executable output. See the [frontend guide](frontend.md).
+
+### Remaining stages
+
+1. Complete remaining CST grammar and recovery coverage, including type declarations, accessors,
+   annotations, delegation, generic declarations/adjacent closers, and remaining expression forms.
 2. Add PSI/AST views, source origins, module/import binding, and partial declaration composition.
 3. Resolve symbols, types, overloads, nullability, checked exceptions, ref/out storage, and ref-struct
    escape rules into verified FIR.
