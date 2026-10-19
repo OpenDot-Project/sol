@@ -4,6 +4,11 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ## [Unreleased]
 
+### Added
+
+- Project README and contribution guide, with installation, build, validation, and review instructions.
+- DocFX guides covering the released CLI, frontend APIs, architecture, and implementation status.
+
 ## [0.0.1] - 2026-10-19
 
 ### Added

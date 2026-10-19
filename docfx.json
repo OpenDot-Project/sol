@@ -17,6 +17,10 @@
   "build": {
     "content": [
       {
+        "files": ["*.md", "toc.yml"],
+        "src": "docs"
+      },
+      {
         "files": ["**/*.yml"],
         "src": "out/docfx/metadata",
         "dest": "api"
@@ -25,7 +29,7 @@
     "dest": "out/docfx/site",
     "template": ["default", "modern"],
     "globalMetadata": {
-      "_appTitle": "Sol API",
+      "_appTitle": "Sol",
       "_disableContribution": true
     },
     "disableGitFeatures": true
