@@ -1,0 +1,50 @@
+name: DocFX
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+concurrency:
+  group: docfx-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+
+jobs:
+  api:
+    name: API metadata and documentation validation
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - run: dotnet restore Sol.slnx --locked-mode
+      - run: dotnet tool restore
+      - run: dotnet build Sol.slnx --no-restore --configuration Release
+      - name: Validate DocFX metadata and build
+        run: dotnet docfx docfx.json --warningsAsErrors
+      - name: Verify generated documentation boundary
+        shell: pwsh
+        run: |
+          if (-not (Test-Path out/docfx/site/api/toc.html)) { throw 'DocFX API output is missing.' }
+          if (Get-ChildItem out/docfx -Recurse -File | Select-String -SimpleMatch '.codex/tasarim') { throw 'Private notes leaked into DocFX output.' }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docfx-validation
+          path: out/docfx/site/
+          if-no-files-found: error
+          retention-days: 7

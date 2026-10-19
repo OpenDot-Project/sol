@@ -1,0 +1,18 @@
+<Project DefaultTargets="Build">
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <RestoreLockedMode Condition="'$(RestoreLockedMode)' == ''">true</RestoreLockedMode>
+    <DotNetExecutable Condition="'$(DotNetExecutable)' == ''">$(MSBuildToolsPath)/../../dotnet.exe</DotNetExecutable>
+  </PropertyGroup>
+  <Target Name="Restore">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)Sol.slnx" Targets="Restore"
+             Properties="Configuration=$(Configuration);RestoreLockedMode=$(RestoreLockedMode)" />
+  </Target>
+  <Target Name="Build" DependsOnTargets="Restore">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)Sol.slnx" Targets="Build"
+             Properties="Configuration=$(Configuration)" BuildInParallel="true" />
+  </Target>
+  <Target Name="Test" DependsOnTargets="Build">
+    <Exec Command="&quot;$(DotNetExecutable)&quot; test --solution &quot;$(MSBuildThisFileDirectory)Sol.slnx&quot; --no-build --no-restore --configuration $(Configuration)" />
+  </Target>
+</Project>

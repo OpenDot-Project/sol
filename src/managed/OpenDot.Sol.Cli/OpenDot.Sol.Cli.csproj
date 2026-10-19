@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>OpenDot.Sol.Cli</AssemblyName>
+    <RuntimeFrameworkVersion>10.0.13</RuntimeFrameworkVersion>
+    <RollForward>Disable</RollForward>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../OpenDot.Sol.Driver/OpenDot.Sol.Driver.csproj" />
+  </ItemGroup>
+</Project>
