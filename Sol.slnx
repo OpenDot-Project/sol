@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/managed/">
+    <Project Path="src/managed/OpenDot.Sol.Text/OpenDot.Sol.Text.csproj" />
+    <Project Path="src/managed/OpenDot.Sol.Diagnostics/OpenDot.Sol.Diagnostics.csproj" />
+    <Project Path="src/managed/OpenDot.Sol.Cst/OpenDot.Sol.Cst.csproj" />
+    <Project Path="src/managed/OpenDot.Sol.Driver/OpenDot.Sol.Driver.csproj" />
+    <Project Path="src/managed/OpenDot.Sol.Cli/OpenDot.Sol.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OpenDot.Sol.Tests/OpenDot.Sol.Tests.csproj" />
+  </Folder>
+</Solution>

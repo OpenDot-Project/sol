@@ -1,0 +1,83 @@
+name: Dependency and workflow security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '43 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workflow-audit:
+    name: Zizmor static audit
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download and verify pinned zizmor
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'zizmor.zip'
+          Invoke-WebRequest 'https://github.com/zizmorcore/zizmor/releases/download/v1.31.1/zizmor-x86_64-pc-windows-msvc.zip' -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne '4DE30371C8A3B483AECBCF0DEC1FD6A2B6AAE65051CA226B4F6527BAAC6A8C7A') { throw 'zizmor hash mismatch' }
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'zizmor')
+      - name: Audit all workflows without credentials
+        shell: pwsh
+        run: |
+          $tool = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'zizmor') -Filter zizmor.exe -Recurse | Select-Object -First 1
+          & $tool.FullName --offline --persona auditor .github/workflows
+          if ($LASTEXITCODE -ne 0) { throw 'zizmor audit failed' }
+
+  actionlint:
+    name: Actionlint workflow validation
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download and verify actionlint
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'actionlint.zip'
+          Invoke-WebRequest 'https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_windows_amd64.zip' -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne '6E7241B51E6817EA6A047693D8E6FED13B31819C9A0DD6C5A726E1592D22F6E9') { throw 'actionlint hash mismatch' }
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'actionlint')
+          $tool = Join-Path $env:RUNNER_TEMP 'actionlint/actionlint.exe'
+          & $tool -color
+          if ($LASTEXITCODE -ne 0) { throw 'actionlint validation failed' }
+
+  dependencies:
+    name: OSV package lock audit
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download and verify pinned OSV-Scanner
+        shell: pwsh
+        run: |
+          $tool = Join-Path $env:RUNNER_TEMP 'osv-scanner.exe'
+          Invoke-WebRequest 'https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_windows_amd64.exe' -OutFile $tool
+          if ((Get-FileHash $tool -Algorithm SHA256).Hash -ne '9964ED64EC9A387391EB4CC006AD5C531154821AEF29B793E02C448DE4686438') { throw 'OSV-Scanner hash mismatch' }
+          $locks = @(& git ls-files -- '**/packages.lock.json')
+          if ($LASTEXITCODE -ne 0 -or $locks.Count -eq 0) { throw 'No tracked NuGet lockfiles found.' }
+          $arguments = @('scan', 'source')
+          foreach ($lock in $locks) { $arguments += "--lockfile=$lock" }
+          & $tool @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'OSV dependency audit failed' }

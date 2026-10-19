@@ -1,0 +1,33 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "files": ["src/managed/OpenDot.Sol.Text/*.csproj", "src/managed/OpenDot.Sol.Diagnostics/*.csproj", "src/managed/OpenDot.Sol.Cst/*.csproj", "src/managed/OpenDot.Sol.Driver/*.csproj"]
+        }
+      ],
+      "dest": "out/docfx/metadata",
+      "disableGitFeatures": true,
+      "properties": {
+        "TargetFramework": "net10.0-windows",
+        "Configuration": "Release"
+      }
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": ["**/*.yml"],
+        "src": "out/docfx/metadata",
+        "dest": "api"
+      }
+    ],
+    "dest": "out/docfx/site",
+    "template": ["default", "modern"],
+    "globalMetadata": {
+      "_appTitle": "Sol API",
+      "_disableContribution": true
+    },
+    "disableGitFeatures": true
+  }
+}
