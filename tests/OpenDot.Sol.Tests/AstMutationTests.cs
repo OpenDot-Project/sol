@@ -117,6 +117,13 @@ public sealed class AstMutationTests
             Assert.Same(source, diagnostic.Source);
             source.Validate(diagnostic.Span);
         });
+        var bodies = BodyAnalysis.Create(binding, TestContext.Current.CancellationToken);
+        Assert.True(bodies.Diagnostics.Length <= 50);
+        Assert.All(bodies.Diagnostics, diagnostic =>
+        {
+            Assert.Same(source, diagnostic.Source);
+            source.Validate(diagnostic.Span);
+        });
         return ast;
     }
 }

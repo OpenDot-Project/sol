@@ -14,11 +14,14 @@ public enum CompilerCommand { Compile, Help, Version, Print, Explain }
 public enum CompilerBackend { Aot, Orc }
 public enum ArtifactType { Bin, Cdylib, Staticlib, Solib }
 public enum EmitKind { Cst, Link, Ast }
+public enum SolrtLinkage { Dynamic, Static }
 
 public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<string> Sources,
     EmitKind Emit, CompilerBackend Backend, ArtifactType Artifact, string? Output,
     string OutputDirectory, bool JsonErrors, int ErrorLimit, string? Query, bool Verbose, string Color)
 {
+    public SolrtLinkage RuntimeLinkage { get; init; } = SolrtLinkage.Dynamic;
+
     public static CompilerOptions Parse(IEnumerable<string> arguments)
     {
         var args = Expand(arguments);
@@ -50,6 +53,12 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
                 SetCommand(option == "--print" ? CompilerCommand.Print : CompilerCommand.Explain);
                 if (query is not null && query != text) { throw new CommandLineException($"Conflicting {option} values."); }
                 query = text;
+                continue;
+            }
+            if (option == "--static-solrt-lib")
+            {
+                if (value is not null) { throw new CommandLineException("--static-solrt-lib does not accept a value."); }
+                SetScalar(option, "true");
                 continue;
             }
             if (option is "--emit" or "--artifact-type" or "--edition" or "--target" or "--error-format"
@@ -134,7 +143,10 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
             "solib" => ArtifactType.Solib,
             _ => throw new CommandLineException("--artifact-type must be bin, cdylib, staticlib, or solib."),
         }, scalars.GetValueOrDefault("-o"), Get("--out-dir", Directory.GetCurrentDirectory()),
-            errorFormat == "json", limit, query, verbose, Get("--color", "auto"));
+            errorFormat == "json", limit, query, verbose, Get("--color", "auto"))
+        {
+            RuntimeLinkage = scalars.ContainsKey("--static-solrt-lib") ? SolrtLinkage.Static : SolrtLinkage.Dynamic,
+        };
 
         void SetCommand(CompilerCommand next)
         {

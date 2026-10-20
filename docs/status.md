@@ -48,6 +48,17 @@ named varargs, default origins/inheritance, and outside-lambda destinations. The
 [source specification](source-specification.md) also explains planned language/runtime behavior;
 its syntax/AST gate does not certify complete semantic implementation or native execution.
 
+The optional [body analysis](body-analysis.md) adds receiver/member lookup, contextual expression and
+lambda checking, constructor/override checks, structured definite assignment and smart casts, checked
+effects, and conservative storage/capture checks. Its unverified source locations remain queryable;
+full inherited overload/conversion/lambda solving, exceptional flow, and borrow-origin proof are still
+incomplete. It does not produce verified FIR or native output.
+
+The [Yellow Tea design](yellow-tea/index.md) documents the planned native collector, root/barrier ABI,
+weak/sweep races, pacing, and validation gates. No collector implementation or measured latency is
+available. SolRT linkage defaults to dynamic; `--static-solrt-lib` records static selection in source
+builds, while actual native runtime linking remains unimplemented.
+
 ### Remaining stages
 
 1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.

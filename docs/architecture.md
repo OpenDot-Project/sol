@@ -59,6 +59,11 @@ concurrent mark/sweep with short coordination phases; production collection must
 to a full-heap stop-the-world scan. It is not implemented or benchmarked yet. Sol program objects
 will live in the native runtime's heap, separately from the compiler's CLR objects.
 
+The [Yellow Tea documentation](yellow-tea/index.md) specifies heap allocation, roots, handshakes,
+barrier publication, weak references, sweeping, pacing, and validation. SolRT will link dynamically
+by default; `--static-solrt-lib` selects static linkage. The frontend currently records this choice
+without generating a native link command.
+
 ## Repository scope
 
 This repository owns Solc, the shared frontend APIs, the planned native Sol runtime/Yellow Tea,

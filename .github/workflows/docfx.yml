@@ -43,8 +43,11 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path out/docfx/site/api/toc.html)) { throw 'DocFX API output is missing.' }
-          foreach ($page in @('index', 'getting-started', 'cli', 'frontend', 'psi', 'ast', 'analysis', 'source-binding', 'generic-calls', 'arguments', 'source-specification', 'architecture', 'development', 'status')) {
+          foreach ($page in @('index', 'getting-started', 'cli', 'frontend', 'psi', 'ast', 'analysis', 'source-binding', 'generic-calls', 'arguments', 'body-analysis', 'source-specification', 'architecture', 'development', 'status')) {
             if (-not (Test-Path "out/docfx/site/$page.html")) { throw "DocFX guide is missing: $page" }
+          }
+          foreach ($page in @('index', 'heap-and-allocation', 'roots-and-safepoints', 'collection-cycle', 'barriers-and-memory-ordering', 'weak-references-and-sweeping', 'compiler-runtime-abi', 'pacing-and-diagnostics', 'validation-and-delivery')) {
+            if (-not (Test-Path "out/docfx/site/yellow-tea/$page.html")) { throw "Yellow Tea guide is missing: $page" }
           }
           if (-not (Test-Path out/docfx/site/spec/Functions.sol)) { throw 'Published source contracts are missing.' }
           if (-not (Test-Path out/docfx/site/spec/examples/calls/ArgumentOrdering.sol)) { throw 'Published source examples are missing.' }

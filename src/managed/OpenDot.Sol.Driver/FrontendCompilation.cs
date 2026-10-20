@@ -44,6 +44,11 @@ public sealed record FrontendCompilation(ImmutableArray<SyntaxTree> Trees,
         return CallAnalysis.Create(AnalyzeSources(options, cancellationToken), cancellationToken);
     }
 
+    public BodyAnalysis AnalyzeBodies(AnalysisOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        return BodyAnalysis.Create(AnalyzeSources(options, cancellationToken), cancellationToken);
+    }
+
     public static FrontendCompilation Parse(IEnumerable<SourceText> sources, int errorLimit = 100,
         CancellationToken cancellationToken = default)
     {

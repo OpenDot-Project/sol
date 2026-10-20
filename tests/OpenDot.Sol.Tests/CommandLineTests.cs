@@ -10,6 +10,15 @@ namespace OpenDot.Sol.Tests;
 public sealed class CommandLineTests
 {
     [Fact]
+    public void SolrtLinkageDefaultsToDynamicAndStaticIsAnExplicitFlag()
+    {
+        Assert.Equal(SolrtLinkage.Dynamic, CompilerOptions.Parse(["main.sol"]).RuntimeLinkage);
+        Assert.Equal(SolrtLinkage.Static, CompilerOptions.Parse(["main.sol", "--static-solrt-lib"]).RuntimeLinkage);
+        Assert.Equal(SolrtLinkage.Static, CompilerOptions.Parse(["--static-solrt-lib", "main.sol", "--static-solrt-lib"]).RuntimeLinkage);
+        Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["main.sol", "--static-solrt-lib=true"]));
+        Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["--help", "--static-solrt-lib"]));
+    }
+    [Fact]
     public void RootCompilerOptionsAreTyped()
     {
         var options = CompilerOptions.Parse(["input.sol", "--emit=cst", "--artifact-type", "solib",

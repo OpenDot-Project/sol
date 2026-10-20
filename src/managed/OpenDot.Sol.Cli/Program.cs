@@ -60,6 +60,7 @@ internal static class Program
                     --edition=2026            Source edition
                     --target TRIPLE           x86_64-pc-windows-msvc
                     --artifact-type TYPE      bin|cdylib|staticlib|solib
+                    --static-solrt-lib        Select static SolRT linkage (default: dynamic)
                     -C llvm-compiler=aot|orc   Backend selection
                     --error-format human|json Diagnostic output on stderr
                     --error-limit N           Maximum diagnostics per source; default 100

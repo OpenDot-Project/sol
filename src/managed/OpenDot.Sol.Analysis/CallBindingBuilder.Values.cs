@@ -110,8 +110,16 @@ internal sealed partial class CallBindingBuilder
         };
     }
 
+    internal static bool NumericLiteralFits(string spelling, ResolvedType target) => LiteralFits(spelling, target);
+
     private static bool TryInteger(string spelling, out BigInteger value)
     {
+        if (spelling.StartsWith('-'))
+        {
+            bool success = TryInteger(spelling[1..], out value);
+            value = -value;
+            return success;
+        }
         int radix = spelling.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? 16
             : spelling.StartsWith("0b", StringComparison.OrdinalIgnoreCase) ? 2
             : spelling.StartsWith("0o", StringComparison.OrdinalIgnoreCase) ? 8 : 10;
