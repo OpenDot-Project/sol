@@ -89,7 +89,7 @@ internal sealed class LexicalBuilder
                 {
                     Add(scope, parameter.Name, LocalSymbolKind.Parameter, parameter.NameOrigin,
                         parameter.Type, parameter.PassingMode is AstPassingMode.Ref or AstPassingMode.Out,
-                        parameter.NameOrigin.Span.End);
+                        parameter.DefaultValue?.Origin.Span.End ?? parameter.NameOrigin.Span.End);
                 }
                 if (callable is AstAccessor { Name: "set" or "init" })
                 {

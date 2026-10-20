@@ -70,7 +70,7 @@ public sealed partial class AstSnapshot
         }
         foreach (var lambda in children.OfType<AstLambda>())
         {
-            arguments.Add(new(null, AstArgumentMode.Value, lambda, lambda.Origin));
+            arguments.Add(new(null, AstArgumentMode.Value, lambda, lambda.Origin, IsTrailingLambda: true));
         }
         return arguments.ToImmutable();
     }

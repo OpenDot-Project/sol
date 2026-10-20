@@ -18,5 +18,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="../fixtures/declarations.sol" Link="fixtures/declarations.sol" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../spec/**/*.sol" Link="spec/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

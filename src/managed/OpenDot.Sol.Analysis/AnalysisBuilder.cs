@@ -187,7 +187,12 @@ internal sealed partial class AnalysisBuilder
         return "`" + typeNames.Length + "(" + string.Join(',', callable.Parameters.Select(parameter =>
         {
             string type = parameter.Type is null ? "<missing>" : SignatureType(parameter.Type, typeNames);
-            string mode = parameter.PassingMode is AstPassingMode.Ref or AstPassingMode.Out ? "ref " : "";
+            string mode = parameter.PassingMode switch
+            {
+                AstPassingMode.Ref or AstPassingMode.Out => "ref ",
+                AstPassingMode.Vararg => "vararg ",
+                _ => "",
+            };
             return mode + type;
         })) + ")";
     }

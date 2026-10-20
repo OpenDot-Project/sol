@@ -133,7 +133,7 @@ public sealed class AnalysisPartialTests
     [InlineData("func f(a,a:int) {}", "SOL2005")]
     [InlineData("func f(a,b:int=1) {}", "SOL2005")]
     [InlineData("func f(vararg a,b:int) {}", "SOL2005")]
-    [InlineData("func f(vararg a:int,b:int) {}", "SOL2005")]
+    [InlineData("func f(vararg a:int,vararg b:int) {}", "SOL2005")]
     [InlineData("func f(ref a:int=1) {}", "SOL2005")]
     [InlineData("class C(val a,b:int) {}", "SOL2005")]
     [InlineData("class C { val x:int { get; get; } }", "SOL2006")]

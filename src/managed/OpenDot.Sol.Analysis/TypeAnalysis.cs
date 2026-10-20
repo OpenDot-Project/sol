@@ -13,11 +13,13 @@ namespace OpenDot.Sol.Analysis;
 public sealed class TypeAnalysis
 {
     private readonly Dictionary<AstType, ResolvedType> _references;
+    private readonly Dictionary<AstDeclaration, ImmutableArray<ResolvedType>> _parameters;
 
     private TypeAnalysis(TypeBindingBuilder builder)
     {
         Declarations = builder.Session;
         _references = builder.References;
+        _parameters = builder.Parameters;
         Types = builder.Types.ToImmutableArray();
         Diagnostics = builder.Diagnostics.OrderBy(d => d.Source.Path, StringComparer.Ordinal)
             .ThenBy(d => d.Span.Start).ThenBy(d => d.Code, StringComparer.Ordinal).ToImmutableArray();
@@ -42,6 +44,13 @@ public sealed class TypeAnalysis
         ArgumentNullException.ThrowIfNull(reference);
         return _references.TryGetValue(reference, out var type) ? type
             : throw new ArgumentException("The type reference is not owned by this analysis.", nameof(reference));
+    }
+
+    public ImmutableArray<ResolvedType> GetTypeParameters(AstDeclaration owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        return _parameters.TryGetValue(owner, out var parameters) ? parameters
+            : throw new ArgumentException("The declaration is not owned by this analysis.", nameof(owner));
     }
 
     public void ValidateOwnership(ResolvedType type)
