@@ -49,7 +49,8 @@ public sealed record AstArgument(
     string? Name,
     AstArgumentMode Mode,
     AstNode Value,
-    AstOrigin Origin);
+    AstOrigin Origin,
+    bool IsTrailingLambda = false);
 
 public sealed class AstCall : AstExpression
 {

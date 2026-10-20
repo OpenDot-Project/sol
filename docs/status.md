@@ -43,6 +43,10 @@ checks explicit bases and inheritance cycles, and indexes lexical scopes and cap
 The optional [generic and call analysis](generic-calls.md) now substitutes owned type parameters,
 checks specialized nominal constraints, maps direct module-function arguments, and selects supported
 overloads. Unsupported receiver, lambda, inference, and conversion paths remain explicitly deferred.
+The [argument contract](arguments.md) now covers ordered mixed calls, middle varargs, array-valued
+named varargs, default origins/inheritance, and outside-lambda destinations. The commented
+[source specification](source-specification.md) also explains planned language/runtime behavior;
+its syntax/AST gate does not certify complete semantic implementation or native execution.
 
 ### Remaining stages
 

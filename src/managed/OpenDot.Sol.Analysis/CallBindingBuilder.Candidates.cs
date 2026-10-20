@@ -13,73 +13,30 @@ internal sealed partial class CallBindingBuilder
     {
         var function = (AstFunction)symbol.Parts[0];
         var parameters = function.Parameters;
-        var mappings = ImmutableArray.CreateBuilder<CallArgumentBinding>();
-        var defaults = ImmutableArray.CreateBuilder<int>();
+        var defaultContract = Sources.Defaults.GetDefaults(function);
+        var mappingResult = CallArgumentMapper.Map(call, function, defaultContract, _cancellation);
+        var mappings = mappingResult.Arguments;
+        var defaults = mappingResult.Defaults;
+        bool expands = mappingResult.UsesVararg;
         var ranks = ImmutableArray.CreateBuilder<int>();
         var typeParameters = Sources.Types.GetTypeParameters(function);
         var substitution = new Dictionary<ResolvedType, ResolvedType>();
         var argumentTypes = new List<ArgumentValue>();
         var writtenTypes = parameters.Select(p => p.Type is null ? null : Sources.Types.GetType(p.Type)).ToArray();
-        var occupied = new bool[parameters.Length];
-        var named = new HashSet<string>(StringComparer.Ordinal);
-        int position = 0;
-        bool expands = false;
-        bool sawNamed = false;
-
         CallCandidate Fail(string reason, bool deferred = false) => new(symbol,
             deferred ? CallCandidateStatus.Deferred : CallCandidateStatus.Rejected, reason, [], [], null, [],
-            mappings.ToImmutable(), defaults.ToImmutable(), ranks.ToImmutable(), expands);
+            mappings, defaults, ranks.ToImmutable(), expands)
+        {
+            EmptyVarargParameters = mappingResult.EmptyVarargs,
+            DefaultArguments = defaults.Select(index => defaultContract.Parameters[index]!).ToImmutableArray(),
+        };
 
+        if (!defaultContract.IsComplete) { return Fail("Inherited default lookup is incomplete.", true); }
+        if (mappingResult.Error is not null) { return Fail(mappingResult.Error); }
         if (!explicitTypes.IsDefault)
         {
             if (explicitTypes.Length != typeParameters.Length) { return Fail("Explicit generic arity mismatch."); }
             for (int index = 0; index < typeParameters.Length; index++) { substitution.Add(typeParameters[index], explicitTypes[index]); }
-        }
-        for (int argumentIndex = 0; argumentIndex < call.Arguments.Length; argumentIndex++)
-        {
-            _cancellation.ThrowIfCancellationRequested();
-            var argument = call.Arguments[argumentIndex];
-            int parameterIndex;
-            if (argument.Name is { } name)
-            {
-                sawNamed = true;
-                if (!named.Add(name)) { return Fail("Duplicate named argument."); }
-                parameterIndex = -1;
-                for (int index = 0; index < parameters.Length; index++)
-                {
-                    if (parameters[index].Name == name) { parameterIndex = index; break; }
-                }
-                if (parameterIndex < 0) { return Fail("Unknown named parameter."); }
-            }
-            else
-            {
-                if (sawNamed) { return Fail("A positional argument cannot follow a named argument."); }
-                parameterIndex = position;
-            }
-            if (parameterIndex >= parameters.Length) { return Fail("Too many arguments."); }
-            var parameter = parameters[parameterIndex];
-            bool vararg = parameter.PassingMode == AstPassingMode.Vararg;
-            if (occupied[parameterIndex] && (!vararg || argument.Name is not null)) { return Fail("A parameter was supplied more than once."); }
-            occupied[parameterIndex] = true;
-            if (argument.Name is null && !vararg) { position++; }
-            bool spread = argument.Mode == AstArgumentMode.Spread;
-            expands |= vararg;
-            mappings.Add(new(argumentIndex, parameterIndex, vararg && !spread, spread));
-            bool marker = parameter.PassingMode switch
-            {
-                AstPassingMode.Ref => argument.Mode == AstArgumentMode.Ref,
-                AstPassingMode.Out => argument.Mode is AstArgumentMode.Out or AstArgumentMode.OutVariable,
-                AstPassingMode.Vararg => argument.Mode is AstArgumentMode.Value or AstArgumentMode.Spread,
-                _ => argument.Mode == AstArgumentMode.Value,
-            };
-            if (!marker) { return Fail("Argument passing mode mismatch."); }
-        }
-        for (int index = 0; index < parameters.Length; index++)
-        {
-            if (occupied[index]) { continue; }
-            if (parameters[index].PassingMode == AstPassingMode.Vararg) { expands = true; continue; }
-            if (parameters[index].DefaultValue is null) { return Fail("A required parameter is missing."); }
-            defaults.Add(index);
         }
         foreach (var mapping in mappings)
         {
@@ -91,9 +48,9 @@ internal sealed partial class CallBindingBuilder
             {
                 return Fail("Argument expression typing is not available.", true);
             }
-            if (mapping.IsSpread)
+            if (mapping.IsSpread || mapping.IsArrayArgument)
             {
-                if (value.Type?.Kind != ResolvedTypeKind.Array) { return Fail("A spread argument requires a managed array."); }
+                if (value.Type?.Kind != ResolvedTypeKind.Array) { return Fail("A spread or named vararg argument requires a managed array."); }
                 value = value with { Type = value.Type.Arguments[0], Literal = null };
             }
             argumentTypes.Add(value);
@@ -142,12 +99,37 @@ internal sealed partial class CallBindingBuilder
                 if (!LiteralFits(argument.Literal, literalTarget)) { return Fail("The numeric literal is outside the target domain."); }
             }
             var conversion = Types.ClassifyConversion(argument.Type!, target, _cancellation);
+            if (mapping.IsArrayArgument && !mapping.IsSpread && conversion != IntrinsicConversion.Identity)
+            {
+                return Fail("A named vararg array must match the invariant element type.");
+            }
             if (conversion == IntrinsicConversion.None)
             {
                 if (argument.Literal is not null && LiteralFits(argument.Literal, target)) { ranks.Add(1); continue; }
                 return Fail(_hasUserConversions ? "User conversion analysis is not available." : "Argument type mismatch.", _hasUserConversions);
             }
             ranks.Add((int)conversion);
+        }
+        foreach (int index in defaults)
+        {
+            var expression = defaultContract.Parameters[index]!.Expression;
+            var value = Value(expression, depth);
+            if (value.Type is null) { return Fail("Default expression typing is not available.", true); }
+            var actual = Types.Substitute(value.Type, substitution, _cancellation);
+            var target = parameters[index].PassingMode == AstPassingMode.Vararg ? Types.GetArray(specialized[index]) : specialized[index];
+            var literalTarget = target.IsNullable ? target.Arguments[0] : target;
+            if (value.Literal is not null)
+            {
+                if (literalTarget.Kind != ResolvedTypeKind.Primitive) { literalTarget = actual; }
+                if (literalTarget.Name == "quad") { return Fail("Binary128 default literal rounding is not available.", true); }
+                if (!LiteralFits(value.Literal, literalTarget)) { return Fail("The default literal is outside the target domain."); }
+            }
+            var conversion = Types.ClassifyConversion(actual, target, _cancellation);
+            if (conversion == IntrinsicConversion.None
+                && !(value.Literal is not null && LiteralFits(value.Literal, target)))
+            {
+                return Fail("Default expression type mismatch or unsupported user conversion.", _hasUserConversions);
+            }
         }
         if (function.ReturnsByReference) { return Fail("Ref-return location analysis is not available.", true); }
         ResolvedType? result = function.ReturnType is { } resultType ? Types.Substitute(Sources.Types.GetType(resultType), substitution, _cancellation)
@@ -165,7 +147,11 @@ internal sealed partial class CallBindingBuilder
             }
         }
         return new(symbol, CallCandidateStatus.Applicable, null, typeArguments, specialized, result, effects,
-            mappings.ToImmutable(), defaults.ToImmutable(), ranks.ToImmutable(), expands);
+            mappings, defaults, ranks.ToImmutable(), expands)
+        {
+            EmptyVarargParameters = mappingResult.EmptyVarargs,
+            DefaultArguments = defaults.Select(index => defaultContract.Parameters[index]!).ToImmutableArray(),
+        };
     }
 
     private bool Infer(ResolvedType template, ResolvedType actual, ImmutableArray<ResolvedType> parameters,

@@ -27,6 +27,9 @@
       }
     ],
     "dest": "out/docfx/site",
+    "resource": [
+      { "files": ["spec/**/*.sol", "spec/**/*.md"] }
+    ],
     "template": ["default", "modern"],
     "globalMetadata": {
       "_appTitle": "Sol",

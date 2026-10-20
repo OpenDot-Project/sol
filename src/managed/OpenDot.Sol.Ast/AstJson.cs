@@ -106,6 +106,7 @@ public static class AstJson
                     writer.WriteString("name", argument.Name);
                     writer.WriteString("mode", argument.Mode.ToString());
                     writer.WriteNumber("value", argument.Value.Id);
+                    writer.WriteBoolean("trailingLambda", argument.IsTrailingLambda);
                     writer.WriteEndObject();
                 }
                 writer.WriteEndArray();

@@ -86,9 +86,12 @@ Each candidate records the following independently:
 - Defaulted parameter indexes, expanded vararg elements, and managed-array spread arguments.
 - Applicability, rejection/defer reason, and conversion ranks.
 
-Binding first validates argument structure. Positional arguments precede named arguments; names
+Binding first validates argument structure. Ordered named/positional mixing is allowed; after a
+named argument skips or reorders parameters, ordinary following arguments must be named. Names
 must exist and cannot fill an occupied parameter again. Required parameters must be present.
-The final vararg accepts expanded values or `*array`. Defaults are recorded without evaluating them.
+The one vararg may occur anywhere; later parameters are named or a final function parameter is
+supplied by an outside lambda. Named vararg takes an array, with or without `*`. Defaults and empty
+varargs have separate records. See [argument contracts](arguments.md) for the complete rules.
 Ref/out markers must match; supported ref/out locations are mutable typed locals and ref/out
 parameters, with exact storage type. `out var name` can receive a selected parameter's type at the
 call, but uses of that new local still need later inference/flow analysis. Property access is not
@@ -128,7 +131,9 @@ a type mismatch requiring that missing search is deferred.
 `HasErrors` includes input source errors and call diagnostics. `IsComplete` means the input is free
 of reported source errors and every inspected call is bound; it does not mean the program is fully
 type checked, effect safe, or executable. `SOL2130` is an unresolved direct call, `SOL2131` no applicable
-overload, `SOL2132` ambiguity, and `SOL2134` a bounded specialization failure.
+overload, `SOL2132` ambiguity, and `SOL2134` a bounded specialization failure. Default analysis adds
+`SOL2135` for replacement override defaults, `SOL2136` for unavailable own/later parameter reads,
+`SOL2137` for competing inherited default origins, and `SOL2138` for bounded default lookup failures.
 
 `CallBindingJson.Serialize` writes version-1 inspection JSON containing file indexes, owned type
 identities, parameter owners/ordinals, candidate outcomes, argument mappings, defaults, effects, and

@@ -5,7 +5,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $scratch = Join-Path $root "out/docs-smoke/$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 $cli = Join-Path $root "src/managed/OpenDot.Sol.Cli/bin/$Configuration/net10.0-windows/OpenDot.Sol.Cli.dll"
-$files = @(Get-Item (Join-Path $root 'README.md'), (Join-Path $root 'CONTRIBUTING.md')) + @(Get-ChildItem (Join-Path $root 'docs') -Filter '*.md')
+$files = @(Get-Item (Join-Path $root 'README.md'), (Join-Path $root 'CONTRIBUTING.md')) + @(Get-ChildItem (Join-Path $root 'docs') -Filter '*.md') + @(Get-ChildItem (Join-Path $root 'spec') -Filter '*.md' -Recurse)
 $count = 0
 foreach ($file in $files) {
     $text = Get-Content -LiteralPath $file.FullName -Raw

@@ -81,6 +81,18 @@ public static class CallBindingJson
                 WriteIds(writer, "parameterTypes", candidate.ParameterTypes.Select(t => t.Id));
                 WriteIds(writer, "effects", candidate.Effects.Select(t => t.Id));
                 WriteIds(writer, "defaults", candidate.DefaultParameters);
+                WriteIds(writer, "emptyVarargs", candidate.EmptyVarargParameters);
+                writer.WriteStartArray("defaultExpressions");
+                foreach (var value in candidate.DefaultArguments)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteNumber("parameter", value.ParameterIndex);
+                    writer.WriteNumber("file", files[value.DeclaredBy]);
+                    writer.WriteNumber("owner", value.DeclaredBy.Id);
+                    writer.WriteNumber("expression", value.Expression.Id);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
                 WriteIds(writer, "ranks", candidate.ConversionRanks);
                 writer.WriteBoolean("expandsVararg", candidate.ExpandsVararg);
                 if (candidate.ReturnType is not null) { writer.WriteNumber("returnType", candidate.ReturnType.Id); }
@@ -92,6 +104,8 @@ public static class CallBindingJson
                     writer.WriteNumber("parameter", argument.ParameterIndex);
                     writer.WriteBoolean("expanded", argument.IsExpandedVararg);
                     writer.WriteBoolean("spread", argument.IsSpread);
+                    writer.WriteBoolean("arrayArgument", argument.IsArrayArgument);
+                    writer.WriteBoolean("trailingLambda", argument.IsTrailingLambda);
                     writer.WriteEndObject();
                 }
                 writer.WriteEndArray();

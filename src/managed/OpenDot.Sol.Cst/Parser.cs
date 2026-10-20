@@ -177,6 +177,12 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
                     left = Node(NodeKind.CallExpression, start, left.Children.Add(ParseLambda()));
                     continue;
                 }
+                if (allowTrailingLambda && Kind == OpenBraceToken
+                    && left.Kind is NodeKind.NameExpression or NodeKind.MemberExpression or NodeKind.GenericExpression)
+                {
+                    left = Node(NodeKind.CallExpression, start, [left, ParseLambda()]);
+                    continue;
+                }
                 if (Kind is DotToken or QuestionDotToken)
                 {
                     Advance();

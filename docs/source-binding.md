@@ -138,7 +138,8 @@ It is not a loader, executable artifact, or stable external semantic schema.
 
 The optional [generic specialization and call analysis](generic-calls.md) extends these tables with
 substitution, nominal constraints, and a supported subset of direct-call overload selection.
-It does not change the scope or guarantees of `SourceAnalysis`.
+`SourceAnalysis.Defaults` additionally indexes declaration-owned/inherited defaults and checks
+their parameter scope. See [argument contracts](arguments.md) for these query guarantees and limits.
 
 Complete expression typing, contextual inference, overload selection, conversions, generic body constraints,
 checked effects, smart casts, definite assignment, ref escape, verified FIR, and native code generation

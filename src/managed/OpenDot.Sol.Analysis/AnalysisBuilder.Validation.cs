@@ -65,13 +65,17 @@ internal sealed partial class AnalysisBuilder
         {
             Report("SOL2005", "Duplicate parameter name: " + group.Key, callable);
         }
+        if (callable.Parameters.Count(p => p.PassingMode == AstPassingMode.Vararg) > 1)
+        {
+            Report("SOL2005", "Only one vararg parameter is permitted.", callable);
+        }
+        if (callable.Modifiers.Contains("override") && callable.Parameters.Any(p => p.DefaultValue is not null))
+        {
+            Report("SOL2135", "An override inherits defaults and cannot declare its own default expressions.", callable);
+        }
         for (int index = 0; index < callable.Parameters.Length; index++)
         {
             var parameter = callable.Parameters[index];
-            if (parameter.PassingMode == AstPassingMode.Vararg && index != callable.Parameters.Length - 1)
-            {
-                Report("SOL2005", "A vararg parameter must be last.", callable);
-            }
             int groupSize = callable.Parameters.Count(p => ReferenceEquals(p.GroupOrigin.Element, parameter.GroupOrigin.Element));
             bool firstInGroup = index == 0 || !ReferenceEquals(callable.Parameters[index - 1].GroupOrigin.Element, parameter.GroupOrigin.Element);
             if (groupSize > 1 && firstInGroup && (parameter.DefaultValue is not null

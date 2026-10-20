@@ -16,6 +16,10 @@
   href: source-binding.md
 - name: Generic specialization and calls
   href: generic-calls.md
+- name: Argument and default contracts
+  href: arguments.md
+- name: Source language specification
+  href: source-specification.md
 - name: Architecture
   href: architecture.md
 - name: Development and validation

@@ -6,6 +6,10 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Commented source language contracts in `spec/*.sol` and usage examples in `spec/examples/**/*.sol`,
+  including planned semantics, implementation boundaries, syntax/AST tests, and published DocFX resources.
+- Default-expression ownership and inherited override-default queries, parameter scope diagnostics,
+  empty-vararg/default distinction, and original default expression origins in call inspection.
 - Generic substitution workspace, parameter owner/ordinal queries, substituted base/constraint checks,
   and optional direct-function call analysis with candidate diagnostics and inspection JSON.
 - Named/default/vararg argument mapping, exact local ref/out checks, structural generic inference,
@@ -29,6 +33,9 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Changed
 
+- Accept ordered named/positional mixing and a single vararg at any parameter position; named varargs
+  require arrays and vararg defaults are used only when omitted. Preserve trailing lambda destinations
+  across defaults/varargs, including calls without parentheses. Overrides cannot redefine defaults.
 - Preserve vararg passing mode in both structural and resolved declaration signatures.
 - Distinguish statement-start `default<T>()` from a switch `default:` recovery boundary.
 - Array prefixes include the nullable element type: `[]String?` equals `[](String?)`;
