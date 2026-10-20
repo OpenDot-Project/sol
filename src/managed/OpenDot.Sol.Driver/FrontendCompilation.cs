@@ -33,6 +33,12 @@ public sealed record FrontendCompilation(ImmutableArray<SyntaxTree> Trees,
         return AnalysisSession.Create(CreateAst(cancellationToken), options, cancellationToken);
     }
 
+    public SourceAnalysis AnalyzeSources(AnalysisOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        return SourceAnalysis.Create(AnalyzeDeclarations(options, cancellationToken), cancellationToken);
+    }
+
     public static FrontendCompilation Parse(IEnumerable<SourceText> sources, int errorLimit = 100,
         CancellationToken cancellationToken = default)
     {

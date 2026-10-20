@@ -6,6 +6,8 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Written type identity and lexical binding SDKs, explicit base/cycle checks, source generic parameters,
+  ref-like argument gates, scope/capture inspection, and source-analysis driver composition.
 - Structural AST library and `--emit=ast` inspection output, with grouped-parameter expansion,
   source ownership, normalized type shapes, explicit body/argument models, and invariant verification.
 - Declaration-analysis SDK for explicit source distributions: module/member/import lookup,

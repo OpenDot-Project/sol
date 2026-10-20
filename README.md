@@ -55,6 +55,7 @@ Every source declares its logical module explicitly. The module name does not ha
 - [PSI source views](docs/psi.md): typed source inspection available in development builds.
 - [Structural AST](docs/ast.md): source origins, parameter expansion, and normalized type spelling.
 - [Declaration analysis](docs/analysis.md): explicit modules, source imports, and partial composition.
+- [Types and lexical scopes](docs/source-binding.md): written type binding and source name lookup.
 - [Architecture](docs/architecture.md): existing projects, ownership, and future compiler stages.
 - [Development and validation](docs/development.md): build, tests, coverage, DocFX, and packaging.
 - [Status and roadmap](docs/status.md): implemented capabilities and the order of upcoming work.

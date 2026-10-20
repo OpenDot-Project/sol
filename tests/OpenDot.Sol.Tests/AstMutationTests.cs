@@ -104,6 +104,12 @@ public sealed class AstMutationTests
             Assert.Same(source, diagnostic.Source);
             source.Validate(diagnostic.Span);
         });
+        var binding = SourceAnalysis.Create(session, TestContext.Current.CancellationToken);
+        Assert.All(binding.Diagnostics, diagnostic =>
+        {
+            Assert.Same(source, diagnostic.Source);
+            source.Validate(diagnostic.Span);
+        });
         return ast;
     }
 }
