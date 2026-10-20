@@ -159,6 +159,23 @@ public sealed partial class TypeSpecialization
         }
     }
 
+    public ResolvedType GetFunction(IEnumerable<ResolvedType> parameters, ResolvedType result,
+        IEnumerable<AstPassingMode> modes, IEnumerable<ResolvedType>? effects = null)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        ArgumentNullException.ThrowIfNull(modes);
+        lock (_gate)
+        {
+            var arguments = parameters.Append(result).ToImmutableArray();
+            var passing = modes.ToImmutableArray();
+            var thrown = (effects ?? []).Distinct().OrderBy(t => t.Id).ToImmutableArray();
+            if (passing.Length != arguments.Length - 1 || passing.Any(m => m == AstPassingMode.Vararg))
+            { throw new ArgumentException("Function values require one non-vararg passing mode per parameter.", nameof(modes)); }
+            foreach (var type in arguments.Concat(thrown)) { ValidateOwnership(type); }
+            return Construct(ResolvedTypeKind.Function, "", null, null, arguments, passing, thrown);
+        }
+    }
+
     private ResolvedType Construct(ResolvedTypeKind kind, string name, DeclarationSymbol? declaration,
         GenericParameterIdentity? parameter, ImmutableArray<ResolvedType> arguments,
         ImmutableArray<AstPassingMode> modes, ImmutableArray<ResolvedType> effects)

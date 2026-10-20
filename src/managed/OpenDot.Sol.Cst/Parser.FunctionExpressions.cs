@@ -23,8 +23,14 @@ internal sealed partial class Parser
                 do
                 {
                     int parameterStart = Start;
-                    if (Kind is RefKeyword or OutKeyword) { Advance(); }
-                    var parameter = new List<SyntaxNode> { ConsumeName() };
+                    var parameter = new List<SyntaxNode>();
+                    if (Kind is RefKeyword or OutKeyword)
+                    {
+                        int modeStart = Start;
+                        Advance();
+                        parameter.Add(Node(NodeKind.PassingMode, modeStart, []));
+                    }
+                    parameter.Add(ConsumeName());
                     if (Take(ColonToken)) { parameter.Add(ParseType()); }
                     parameters.Add(Node(NodeKind.LambdaParameter, parameterStart, parameter));
                 } while (Take(CommaToken));

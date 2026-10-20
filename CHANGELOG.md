@@ -6,6 +6,12 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Optional source-owned body analysis: receiver/call/lambda typing, access and override diagnostics,
+  constructor initialization, structured assignment/null/effect checks, delegation contracts, and
+  explicit unverified proof locations. No verified FIR or executable output is produced.
+- Yellow Tea design documentation covering allocation, roots, barriers, collection phases,
+  weak/sweep races, ABI, pacing, and validation; the native collector remains unimplemented.
+- `--static-solrt-lib` option modeling; SolRT defaults to dynamic linkage. Native linking is pending.
 - Commented source language contracts in `spec/*.sol` and usage examples in `spec/examples/**/*.sol`,
   including planned semantics, implementation boundaries, syntax/AST tests, and published DocFX resources.
 - Default-expression ownership and inherited override-default queries, parameter scope diagnostics,

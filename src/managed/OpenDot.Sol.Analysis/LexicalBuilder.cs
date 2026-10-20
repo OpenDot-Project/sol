@@ -113,7 +113,8 @@ internal sealed class LexicalBuilder
                     var name = parameter.Children.FirstOrDefault(n => n.SyntaxKind == NodeKind.Name);
                     if (name is null) { continue; }
                     Add(scope, name.Origin.Text, LocalSymbolKind.Parameter, name.Origin,
-                        parameter.Children.OfType<AstType>().FirstOrDefault(), false, name.Origin.Span.End);
+                        parameter.Children.OfType<AstType>().FirstOrDefault(),
+                        parameter.Children.Any(n => n.SyntaxKind == NodeKind.PassingMode && n.Origin.Text is "ref" or "out"), name.Origin.Span.End);
                 }
                 break;
             case AstCatch handler:

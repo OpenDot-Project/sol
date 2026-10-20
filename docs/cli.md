@@ -9,6 +9,8 @@ solc <SOURCE.sol>... [OPTIONS]
 Development builds additionally accept `--emit=ast`, producing `<source-basename>.ast.json`.
 This Unreleased option writes the [structural AST](ast.md), without running declaration/type analysis.
 It uses the same full-input preflight and transactional output protections as CST emission.
+They also accept `--static-solrt-lib` to record static SolRT selection for the future native linker;
+this option is not in the published 0.0.1 component.
 
 There are no `run`, `check`, or `explain` subcommands, and no `--entry` option.
 Diagnostic explanation uses the `--explain CODE` option. The CLI parser belongs to Solc;
@@ -39,6 +41,7 @@ options, or with a different information request. Unknown query keys and diagnos
 | `--edition` | Only `2026`; default `2026`. |
 | `--target` | Only `x86_64-pc-windows-msvc`; the default. |
 | `--artifact-type` | `bin`, `cdylib`, `staticlib`, or `solib`; default `bin`. Accepted and validated, but does not generate these artifacts in this release. |
+| `--static-solrt-lib` | Unreleased: select static SolRT linkage; the default is dynamic. A flag without a value. Accepted and represented in compiler options; native runtime linking is not implemented yet. |
 | `-C llvm-compiler=VALUE` | `aot` or `orc`; default `aot`. Accepted and validated; neither backend is implemented yet. |
 | `--error-format` | `human` or `json`; default `human`. |
 | `--error-limit N` | Positive integer, default 100 diagnostics per source. |

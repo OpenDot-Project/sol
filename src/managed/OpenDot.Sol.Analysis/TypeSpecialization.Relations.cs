@@ -60,6 +60,12 @@ public sealed partial class TypeSpecialization
         if (ReferenceEquals(source, target)) { return IntrinsicConversion.Identity; }
         if (source.Kind == ResolvedTypeKind.Bottom) { return IntrinsicConversion.Reference; }
         if (!visited.Add((source.Id, target.Id))) { return IntrinsicConversion.None; }
+        if (source.Kind == ResolvedTypeKind.Function && target.Kind == ResolvedTypeKind.Function
+            && source.ParameterModes.SequenceEqual(target.ParameterModes) && source.Arguments.Length == target.Arguments.Length
+            && source.Arguments.Take(source.Arguments.Length - 1).SequenceEqual(target.Arguments.Take(target.Arguments.Length - 1))
+            && Conversion(source.Arguments[^1], target.Arguments[^1], new(), depth + 1, cancellation) != IntrinsicConversion.None
+            && source.Effects.All(effect => target.Effects.Any(budget => Conversion(effect, budget, new(), depth + 1, cancellation) != IntrinsicConversion.None)))
+        { return IntrinsicConversion.Reference; }
         if (target.IsNullable)
         {
             var value = source.IsNullable ? source.Arguments[0] : source;

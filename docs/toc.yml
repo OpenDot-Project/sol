@@ -18,10 +18,32 @@
   href: generic-calls.md
 - name: Argument and default contracts
   href: arguments.md
+- name: Body types and flow analysis
+  href: body-analysis.md
 - name: Source language specification
   href: source-specification.md
 - name: Architecture
   href: architecture.md
+- name: Yellow Tea
+  items:
+    - name: Overview and status
+      href: yellow-tea/index.md
+    - name: Heap and allocation
+      href: yellow-tea/heap-and-allocation.md
+    - name: Roots and safepoints
+      href: yellow-tea/roots-and-safepoints.md
+    - name: Collection cycle
+      href: yellow-tea/collection-cycle.md
+    - name: Barriers and memory ordering
+      href: yellow-tea/barriers-and-memory-ordering.md
+    - name: Weak references and sweeping
+      href: yellow-tea/weak-references-and-sweeping.md
+    - name: Compiler/runtime ABI
+      href: yellow-tea/compiler-runtime-abi.md
+    - name: Pacing and diagnostics
+      href: yellow-tea/pacing-and-diagnostics.md
+    - name: Validation and delivery
+      href: yellow-tea/validation-and-delivery.md
 - name: Development and validation
   href: development.md
 - name: Status and roadmap
