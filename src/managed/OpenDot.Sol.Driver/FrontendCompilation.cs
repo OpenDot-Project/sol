@@ -5,6 +5,9 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using OpenDot.Sol.Cst;
+using OpenDot.Sol.Analysis;
+using OpenDot.Sol.Ast;
+using OpenDot.Sol.Psi;
 using OpenDot.Sol.Diagnostics;
 using OpenDot.Sol.Text;
 
@@ -16,6 +19,19 @@ public sealed record FrontendCompilation(ImmutableArray<SyntaxTree> Trees,
 {
     public bool HasErrors => Trees.Any(tree => tree.HasErrors);
     public IEnumerable<Diagnostic> Diagnostics => Trees.SelectMany(tree => tree.Diagnostics);
+
+    public ImmutableArray<AstSnapshot> CreateAst(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Trees.Select(tree => AstSnapshot.Create(PsiSnapshot.Create(tree, cancellationToken),
+            cancellationToken)).ToImmutableArray();
+    }
+
+    public AnalysisSession AnalyzeDeclarations(AnalysisOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        return AnalysisSession.Create(CreateAst(cancellationToken), options, cancellationToken);
+    }
 
     public static FrontendCompilation Parse(IEnumerable<SourceText> sources, int errorLimit = 100,
         CancellationToken cancellationToken = default)

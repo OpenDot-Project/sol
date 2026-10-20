@@ -6,6 +6,10 @@ This page describes Sol 0.0.1. The compiler accepts source paths and options dir
 solc <SOURCE.sol>... [OPTIONS]
 ```
 
+Development builds additionally accept `--emit=ast`, producing `<source-basename>.ast.json`.
+This Unreleased option writes the [structural AST](ast.md), without running declaration/type analysis.
+It uses the same full-input preflight and transactional output protections as CST emission.
+
 There are no `run`, `check`, or `explain` subcommands, and no `--entry` option.
 Diagnostic explanation uses the `--explain CODE` option. The CLI parser belongs to Solc;
 other tools have their own command-line contracts.

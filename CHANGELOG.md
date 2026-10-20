@@ -6,6 +6,10 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Structural AST library and `--emit=ast` inspection output, with grouped-parameter expansion,
+  source ownership, normalized type shapes, explicit body/argument models, and invariant verification.
+- Declaration-analysis SDK for explicit source distributions: module/member/import lookup,
+  public re-exports and aliases, dependency SCCs, partial composition, and structural signature checks.
 - Nominal/member CST syntax: class, struct/ref struct, interface, enum payloads, constructors,
   properties/accessors/indexers, annotations, delegation, generics/constraints, and extern signatures.
 - Contextual generic closing and explicit generic applications without rewriting lexer tokens.

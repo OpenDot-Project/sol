@@ -222,6 +222,18 @@
           "xunit.v3.runner.common": "[4.0.2]"
         }
       },
+      "opendot.sol.analysis": {
+        "type": "Project",
+        "dependencies": {
+          "OpenDot.Sol.Ast": "[0.0.1, )"
+        }
+      },
+      "opendot.sol.ast": {
+        "type": "Project",
+        "dependencies": {
+          "OpenDot.Sol.Psi": "[0.0.1, )"
+        }
+      },
       "opendot.sol.cli": {
         "type": "Project",
         "dependencies": {
@@ -244,6 +256,7 @@
       "opendot.sol.driver": {
         "type": "Project",
         "dependencies": {
+          "OpenDot.Sol.Analysis": "[0.0.1, )",
           "OpenDot.Sol.Cst": "[0.0.1, )"
         }
       },

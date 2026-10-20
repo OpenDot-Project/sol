@@ -13,7 +13,7 @@ public sealed class CommandLineException(string message) : Exception(message);
 public enum CompilerCommand { Compile, Help, Version, Print, Explain }
 public enum CompilerBackend { Aot, Orc }
 public enum ArtifactType { Bin, Cdylib, Staticlib, Solib }
-public enum EmitKind { Cst, Link }
+public enum EmitKind { Cst, Link, Ast }
 
 public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<string> Sources,
     EmitKind Emit, CompilerBackend Backend, ArtifactType Artifact, string? Output,
@@ -114,10 +114,11 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
         {
             throw new CommandLineException("--error-limit requires a positive integer.");
         }
-        if (scalars.ContainsKey("-o") && sources.Count != 1) { throw new CommandLineException("-o requires exactly one source for CST output."); }
+        if (scalars.ContainsKey("-o") && sources.Count != 1) { throw new CommandLineException("-o requires exactly one source for frontend output."); }
         return new(command, sources.ToImmutable(), emit switch
         {
             "cst" => EmitKind.Cst,
+            "ast" => EmitKind.Ast,
             "link" => EmitKind.Link,
             _ => throw new CommandLineException($"Emission '{emit}' is not available in this build."),
         }, backend switch

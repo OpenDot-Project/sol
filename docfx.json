@@ -3,7 +3,7 @@
     {
       "src": [
         {
-          "files": ["src/managed/OpenDot.Sol.Text/*.csproj", "src/managed/OpenDot.Sol.Diagnostics/*.csproj", "src/managed/OpenDot.Sol.Cst/*.csproj", "src/managed/OpenDot.Sol.Psi/*.csproj", "src/managed/OpenDot.Sol.Driver/*.csproj"]
+          "files": ["src/managed/OpenDot.Sol.Text/*.csproj", "src/managed/OpenDot.Sol.Diagnostics/*.csproj", "src/managed/OpenDot.Sol.Cst/*.csproj", "src/managed/OpenDot.Sol.Psi/*.csproj", "src/managed/OpenDot.Sol.Ast/*.csproj", "src/managed/OpenDot.Sol.Analysis/*.csproj", "src/managed/OpenDot.Sol.Driver/*.csproj"]
         }
       ],
       "dest": "out/docfx/metadata",

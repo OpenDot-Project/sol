@@ -7,6 +7,8 @@ using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using OpenDot.Sol.Diagnostics;
+using OpenDot.Sol.Ast;
+using OpenDot.Sol.Psi;
 using OpenDot.Sol.Driver;
 using OpenDot.Sol.Text;
 
@@ -52,7 +54,7 @@ internal static class Program
                     --verbose                 Show build capabilities with --version
                     --print KEY               edition-list or target-list
                     --explain CODE            Explain a frontend diagnostic
-                    --emit=cst                Write lossless CST JSON (initial frontend subset)
+                    --emit=cst|ast            Write CST or normalized structural AST JSON
                     -o PATH                   Output for one source
                     --out-dir DIR             Output directory; defaults to the current directory
                     --edition=2026            Source edition
@@ -64,13 +66,13 @@ internal static class Program
                     --color auto|always|never  Diagnostic color policy
 
                     @FILE: UTF-8 response file, one argument per line. No subcommands.
-                    This build emits CST only. Native code generation and execution are not implemented.
-                    Unsupported syntax is rejected explicitly; CST output does not imply semantic validation.
+                    Native code generation and execution are not implemented.
+                    CST/AST output does not imply type checking or executable code.
                     """);
                 return 0;
             case CompilerCommand.Version:
                 Console.WriteLine($"solc {Version}");
-                if (options.Verbose) { Console.WriteLine("edition: 2026\ntarget: x86_64-pc-windows-msvc\nfrontend: initial CST subset\ncodegen: not implemented\nLLVM target version: 23.1.3"); }
+                if (options.Verbose) { Console.WriteLine("edition: 2026\ntarget: x86_64-pc-windows-msvc\nfrontend: CST, PSI, AST; declaration analysis SDK\ncodegen: not implemented\nLLVM target version: 23.1.3"); }
                 return 0;
             case CompilerCommand.Print:
                 Console.WriteLine(options.Query switch
@@ -88,9 +90,9 @@ internal static class Program
                 }
                 throw new CommandLineException("Unknown diagnostic code.");
         }
-        if (options.Emit != EmitKind.Cst)
+        if (options.Emit == EmitKind.Link)
         {
-            WriteError("SOL0001", "Native code generation is not implemented in this build. Use --emit=cst for the implemented frontend.", options);
+            WriteError("SOL0001", "Native code generation is not implemented in this build. Use --emit=cst or --emit=ast for the frontend.", options);
             return 1;
         }
 
@@ -112,10 +114,13 @@ internal static class Program
         foreach (var tree in compilation.Trees)
         {
             string path = Path.GetFullPath(options.Output ?? Path.Combine(options.OutputDirectory,
-                Path.GetFileNameWithoutExtension(tree.Source.Path) + ".cst.json"));
+                Path.GetFileNameWithoutExtension(tree.Source.Path) + (options.Emit == EmitKind.Ast ? ".ast.json" : ".cst.json")));
             if (inputPaths.Contains(path)) { throw new CommandLineException("An output cannot overwrite a source file."); }
-            if (!outputPaths.Add(path)) { throw new CommandLineException("CST output paths collide. Use distinct source basenames."); }
-            outputs.Add((path, CstWriter.Serialize(tree)));
+            if (!outputPaths.Add(path)) { throw new CommandLineException("Frontend output paths collide. Use distinct source basenames."); }
+            byte[] bytes = options.Emit == EmitKind.Ast
+                ? System.Text.Encoding.UTF8.GetBytes(AstJson.Serialize(AstSnapshot.Create(PsiSnapshot.Create(tree, cancellation), cancellation), cancellation))
+                : CstWriter.Serialize(tree);
+            outputs.Add((path, bytes));
         }
         // Preflight the entire source set before creating or replacing any output.
         foreach (var source in sources)

@@ -19,6 +19,11 @@ if ($control.module -ne 'fixtures.control' -or $control.root.kind -ne 'Compilati
 if ($LASTEXITCODE -ne 0) { throw 'Declaration CST smoke failed.' }
 $models = Get-Content -LiteralPath (Join-Path $output 'declarations.cst.json') -Raw | ConvertFrom-Json
 if ($models.module -ne 'fixtures.models' -or $models.root.kind -ne 'CompilationUnit') { throw 'Declaration CST content mismatch.' }
+& dotnet $cli (Join-Path $root 'tests/fixtures/declarations.sol') --emit=ast -o (Join-Path $output 'declarations.ast.json')
+if ($LASTEXITCODE -ne 0) { throw 'Declaration AST smoke failed.' }
+$ast = Get-Content -LiteralPath (Join-Path $output 'declarations.ast.json') -Raw | ConvertFrom-Json
+if ($ast.schema -ne 1 -or $ast.module -ne 'fixtures.models' -or $ast.hasSyntaxErrors) { throw 'AST content mismatch.' }
+if (@($ast.nodes | Where-Object kind -eq 'ClassDeclaration').Count -eq 0) { throw 'AST declarations are missing.' }
 & dotnet $cli run 2>&1 | Out-Host
 if ($LASTEXITCODE -ne 2) { throw 'Compiler subcommand was not rejected.' }
 $invalid = Join-Path $output 'invalid.sol'

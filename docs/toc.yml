@@ -8,6 +8,10 @@
   href: frontend.md
 - name: PSI source views
   href: psi.md
+- name: Structural AST
+  href: ast.md
+- name: Declaration analysis
+  href: analysis.md
 - name: Architecture
   href: architecture.md
 - name: Development and validation
