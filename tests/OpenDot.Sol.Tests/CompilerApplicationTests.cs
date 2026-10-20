@@ -93,11 +93,11 @@ public sealed class CompilerApplicationTests : IDisposable
     }
 
     [Fact]
-    public void UnimplementedNativeCodegenFailsWithoutCreatingAnExecutable()
+    public void UnimplementedOrcBackendFailsWithoutCreatingAnExecutable()
     {
         string source = Write("main.sol", "module app\n");
         string output = Path.Combine(_directory, "main.exe");
-        var result = Run(source, "-o", output);
+        var result = Run(source, "-o", output, "-Cllvm-compiler=orc");
         Assert.Equal(1, result.Exit);
         Assert.Contains("SOL0001", result.Stderr);
         Assert.False(File.Exists(output));

@@ -6,6 +6,7 @@
     <RollForward>Disable</RollForward>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../OpenDot.Sol.Lowering/OpenDot.Sol.Lowering.csproj" />
     <ProjectReference Include="../OpenDot.Sol.Driver/OpenDot.Sol.Driver.csproj" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{4AC54269-1CC0-4B93-B3E8-F39E87179521}</ProjectGuid>
+    <Keyword>ManagedCProj</Keyword>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworkIdentifier>.NETCoreApp</TargetFrameworkIdentifier>
+    <TargetFrameworkVersion>v10.0</TargetFrameworkVersion>
+    <ImportNETCoreSdkFromVCTargets>false</ImportNETCoreSdkFromVCTargets>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <CLRSupport>NetCore</CLRSupport>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(MSBuildThisFileDirectory)..\..\..\out\native\llvm-bridge\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\..\..\out\obj\llvm-bridge\</IntDir>
+    <TargetName>OpenDot.Sol.LlvmBridge</TargetName>
+    <LLVMRoot Condition="'$(LLVMRoot)' == ''">$(LLVM_ROOT)</LLVMRoot>
+    <DotNetPackRoot Condition="'$(DotNetPackRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\.dotnet\packs</DotNetPackRoot>
+    <ReferencePackVersion Condition="'$(ReferencePackVersion)' == ''">10.0.13</ReferencePackVersion>
+    <NativeHostPath>$(DotNetPackRoot)\Microsoft.NETCore.App.Host.win-x64\$(ReferencePackVersion)\runtimes\win-x64\native</NativeHostPath>
+    <IjwHostSourcePath>$(NativeHostPath)\ijwhost.dll</IjwHostSourcePath>
+    <UseIJWHost>true</UseIJWHost>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError>
+      <DisableSpecificWarnings>4679;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <ExceptionHandling>Async</ExceptionHandling>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(LLVMRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>/utf-8 /Brepro %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
+      <AdditionalLibraryDirectories>$(LLVMRoot)\lib;$(NativeHostPath);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>LLVM-C.lib;ijwhost.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions>/Brepro /PDBALTPATH:%_PDB% %(AdditionalOptions)</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <Reference Include="OpenDot.Sol.Lowering"><HintPath>..\..\managed\OpenDot.Sol.Lowering\bin\Release\net10.0-windows\OpenDot.Sol.Lowering.dll</HintPath></Reference>
+    <ClCompile Include="Compiler.cpp" />
+    <ClCompile Include="NativeCompiler.cpp"><CompileAsManaged>false</CompileAsManaged><ExceptionHandling>Sync</ExceptionHandling></ClCompile>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="GetReferenceAssemblyPaths">
+    <PropertyGroup>
+      <_TargetFrameworkDirectories>$(DotNetPackRoot)\Microsoft.NETCore.App.Ref\$(ReferencePackVersion)\ref\net10.0</_TargetFrameworkDirectories>
+      <_FullFrameworkReferenceAssemblyPaths>$(_TargetFrameworkDirectories)</_FullFrameworkReferenceAssemblyPaths>
+    </PropertyGroup>
+  </Target>
+  <Target Name="ResolveReferences">
+    <Error Condition="!Exists('$(DotNetPackRoot)\Microsoft.NETCore.App.Ref\$(ReferencePackVersion)\ref\net10.0\System.Runtime.dll')" Text="The selected .NET 10 reference pack is missing." />
+    <ItemGroup>
+      <ReferencePath Include="$(DotNetPackRoot)\Microsoft.NETCore.App.Ref\$(ReferencePackVersion)\ref\net10.0\*.dll" />
+      <ReferencePath Include="$(MSBuildThisFileDirectory)..\..\managed\OpenDot.Sol.Lowering\bin\Release\net10.0-windows\OpenDot.Sol.Lowering.dll" />
+    </ItemGroup>
+  </Target>
+</Project>

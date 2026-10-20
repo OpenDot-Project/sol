@@ -6,12 +6,19 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Verified native-subset FIR, independent type/call/literal and CFG assignment verification,
+  `--emit=fir`/`--emit=llvm-ir`, and a qualified LLVM 23.1.3 AOT executable path.
+- C++20/CLI LLVM bridge with native RAII, pre/post-pass verification, and COFF object generation.
+- Provisional native SolRT with dynamic/static linking, UTF-8 arguments, scalar/String output,
+  checked arithmetic/bounds failures, native execution/import tests, and an ASan ABI harness.
+- Separate Windows native-backend CI with pinned LLVM acquisition and native CodeQL build coverage.
 - Optional source-owned body analysis: receiver/call/lambda typing, access and override diagnostics,
   constructor initialization, structured assignment/null/effect checks, delegation contracts, and
-  explicit unverified proof locations. No verified FIR or executable output is produced.
+  explicit unverified proof locations. This API alone does not certify native eligibility.
 - Yellow Tea design documentation covering allocation, roots, barriers, collection phases,
   weak/sweep races, ABI, pacing, and validation; the native collector remains unimplemented.
-- `--static-solrt-lib` option modeling; SolRT defaults to dynamic linkage. Native linking is pending.
+- `--static-solrt-lib` selection; SolRT defaults to dynamic linkage, with both modes implemented
+  by the qualified native AOT bootstrap.
 - Commented source language contracts in `spec/*.sol` and usage examples in `spec/examples/**/*.sol`,
   including planned semantics, implementation boundaries, syntax/AST tests, and published DocFX resources.
 - Default-expression ownership and inherited override-default queries, parameter scope diagnostics,

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="../OpenDot.Sol.Analysis/OpenDot.Sol.Analysis.csproj" /></ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../stdlib/std/core/Core.sol" LogicalName="SolRT.Core.sol" />
+    <EmbeddedResource Include="../../stdlib/std/stdio/Stdio.sol" LogicalName="SolRT.Stdio.sol" />
+  </ItemGroup>
+</Project>

@@ -4,6 +4,10 @@ This page specifies the first planned native GC ABI. No shipped header, generate
 native implementation currently establishes compatibility with it. The frontend's existing managed
 APIs do not constitute this ABI.
 
+The development branch now has a separate [native bootstrap ABI](../fir-native.md#solrt-bootstrap-lifetime)
+with provisional descriptor version 0. Its entry-lifetime argument arena has no collection, root
+frames, or barriers and does not implement the collectible ABI specified here.
+
 ## Descriptor responsibilities
 
 A type descriptor is immutable process-lifetime metadata. It includes the object or variable-layout
@@ -56,8 +60,8 @@ selects static SolRT linkage instead. This selects runtime linkage independently
 requesting a `staticlib` artifact does not itself select static SolRT, and selecting static SolRT
 does not turn a binary artifact into a library.
 
-The CLI now records this selection, but native linking is not implemented. No runtime DLL, static
-runtime library, or working native link command is supplied by the frontend release. Neither mode
+The development [native bootstrap](../fir-native.md) implements both modes with a provisional native
+runtime. The published 0.0.1 frontend release contains neither mode's native components. Neither mode
 changes the collector's root/barrier/EH contract or replaces the tools' separately packaged .NET runtime.
 
 Static embedding must not create two independent collector/handle registries that exchange managed

@@ -12,6 +12,8 @@ Sol's implementation is primarily C# 14 on .NET 10, built with MSBuild. The curr
 | `OpenDot.Sol.Psi` | Typed immutable source views, snapshot identity/navigation, and explicit module grouping (Unreleased). |
 | `OpenDot.Sol.Ast` | Immutable structural normalization, source origins, parameter expansion, and type shapes (Unreleased). |
 | `OpenDot.Sol.Analysis` | Declaration/import lookup, module graphs, and partial composition in an explicit source distribution (Unreleased). |
+| `OpenDot.Sol.Fir` | Closed native-subset FIR, compiler-owned bootstrap declarations, verification, and CFG definite assignment (Unreleased). |
+| `OpenDot.Sol.Lowering` | C# LLVM emission, native bridge contract/loading, COFF/link execution (Unreleased). |
 | `OpenDot.Sol.Driver` | Explicit-source parsing, CST/AST output, and declaration-analysis entry points. |
 | `OpenDot.Sol.Cli` | Solc's independent argument parser, process entry, diagnostics, and output transactions. |
 
@@ -33,8 +35,9 @@ UTF-8 source -> Lexer -> CST -> PSI -> AST -> FIR -> LLVM IR
 
 Only source handling, lexing, and an initial CST subset are implemented in 0.0.1.
 Source development additionally covers nominal/member declarations, typed PSI views, structural AST,
-and declaration analysis. See [AST](ast.md) and [analysis](analysis.md) for implemented boundaries.
-The later stages have the following intended boundaries:
+and declaration/body analysis. It also implements a closed [verified FIR/native subset](fir-native.md).
+See [AST](ast.md) and [analysis](analysis.md) for the wider frontend boundaries.
+The stages have the following responsibilities; complete language coverage remains pending:
 
 - **CST** preserves spelling, tokens, trivia, and syntax structure.
 - **PSI** provides typed source-structure views over syntax snapshots.
@@ -49,10 +52,11 @@ instead of copying its grammar or starting a second semantic implementation.
 
 ## Native boundary and memory ownership
 
-LLVM 23.1.3 is the selected backend version. A C++20/CLI DLL will be introduced when actual LLVM
-C++ API operations are implemented. Compiler semantics and lowering decisions remain in C#;
-the bridge will own native API handles, marshaling, and lifetime/error translation. No C++/CLI
-project is currently needed for the managed-only frontend.
+LLVM 23.1.3 is the selected backend version. Compiler semantics and lowering decisions remain in C#;
+the bridge owns native API handles, marshaling, and lifetime/error translation. No C++/CLI
+project was needed for the initial managed-only frontend. The development native bootstrap has
+a C++20/CLI adapter and an unmanaged LLVM C-interface translation unit. It performs parse/verify/pass/
+verify/object operations; instruction and semantic policy remains in C#. See [native AOT](fir-native.md).
 
 Yellow Tea is the planned native Sol garbage collector. Its design uses precise, non-moving,
 concurrent mark/sweep with short coordination phases; production collection must not fall back
@@ -61,8 +65,8 @@ will live in the native runtime's heap, separately from the compiler's CLR objec
 
 The [Yellow Tea documentation](yellow-tea/index.md) specifies heap allocation, roots, handshakes,
 barrier publication, weak references, sweeping, pacing, and validation. SolRT will link dynamically
-by default; `--static-solrt-lib` selects static linkage. The frontend currently records this choice
-without generating a native link command.
+by default; `--static-solrt-lib` selects static linkage. The native bootstrap now implements both
+link modes. Its argument-lifetime arena and static literals do not implement Yellow Tea collection.
 
 ## Repository scope
 
@@ -71,5 +75,6 @@ and the planned standard library. Its documentation covers those components and 
 Other tools document their own implementations in their own repositories.
 
 The standard library belongs to the native Sol program environment, not the compiler's .NET runtime.
-Its implementation will be added with the compiler/runtime contracts it requires. Imports are
-currently syntax only; this release does not provide standard-library implementations.
+The development bootstrap embeds compiler-owned `std.core` declarations and specialized scalar/String
+`std.stdio` output adapters. The wider standard library still needs implementation and runtime support.
+In the published 0.0.1 release imports are syntax only.

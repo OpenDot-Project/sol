@@ -64,6 +64,7 @@ internal sealed partial class BodyBindingBuilder
     internal readonly Dictionary<AstExpression, ExpressionBinding> Expressions = new(ReferenceEqualityComparer.Instance);
     internal readonly Dictionary<AstCallable, BodySummary> Bodies = new(ReferenceEqualityComparer.Instance);
     internal readonly List<Diagnostic> Diagnostics = [];
+    internal readonly Dictionary<AstCall, BodyCallBinding> Calls = new(ReferenceEqualityComparer.Instance);
     internal SourceAnalysis Sources { get; }
     internal TypeSpecialization Types { get; }
     internal bool Deferred => _deferred.Count != 0;

@@ -61,6 +61,8 @@ internal sealed partial class BodyBindingBuilder
             return new(null);
         }
         var selected = best[0];
+        Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.Parameters,
+            selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults);
         if (context.Callable is AstConstructor && targetExpression is AstMember { Receiver: AstAtom { Spelling: "this" } }
             && (selected.Target.Callable.Modifiers.Contains("open") || selected.Target.Callable.Modifiers.Contains("override")))
         { Report("SOL2272", "A constructor cannot perform virtual dispatch on its uninitialized receiver.", call); }
@@ -222,7 +224,15 @@ internal sealed partial class BodyBindingBuilder
             { if (type.Kind is not (ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)) { return null; } ranks.Add(0); continue; }
             if (value?.Literal is not null)
             {
-                if (!CallBindingBuilder.NumericLiteralFits(value.Literal, type)) { return null; }
+                var literalType = type.IsNullable ? type.Arguments[0] : type;
+                if (literalType.Kind != ResolvedTypeKind.Primitive)
+                {
+                    if (value.Type is null || !CallBindingBuilder.NumericLiteralFits(value.Literal, value.Type)) { return null; }
+                    int conversion = ConversionRank(value.Type, type);
+                    if (conversion < 0) { return null; }
+                    ranks.Add(conversion); continue;
+                }
+                if (!CallBindingBuilder.NumericLiteralFits(value.Literal, literalType)) { return null; }
                 string defaultType = value.Literal.Contains('.', StringComparison.Ordinal) || value.Literal.Contains('e', StringComparison.OrdinalIgnoreCase) ? "double" : "int";
                 ranks.Add(type.Name == defaultType ? 0 : 1); continue;
             }

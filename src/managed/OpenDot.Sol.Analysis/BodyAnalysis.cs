@@ -21,6 +21,10 @@ public sealed record BodySummary(AstCallable Declaration, ResolvedType? ReturnTy
 /// <summary>Receiver lookup retains the substituted declaring type for generic base members.</summary>
 public sealed record MemberBinding(DeclarationSymbol Symbol, ResolvedType DeclaringType);
 
+public sealed record BodyCallBinding(AstCall Call, AstCallable Target, ResolvedType? Receiver,
+    ImmutableArray<ResolvedType> ParameterTypes, ResolvedType? ReturnType,
+    ImmutableArray<CallArgumentBinding> Arguments, ImmutableArray<int> DefaultParameters);
+
 /// <summary>
 /// Optional body checking over an immutable source set. Deferred facts are explicit proof gaps;
 /// HasErrors=false alone never certifies a program. No FIR or executable output is produced.
@@ -35,6 +39,7 @@ public sealed class BodyAnalysis
     {
         Sources = builder.Sources;
         Types = builder.Types;
+        Calls = builder.Calls.Values.ToImmutableArray();
         _expressions = builder.Expressions.ToImmutableDictionary();
         _bodies = builder.Bodies.ToImmutableDictionary();
         _nodes = builder.Files.Keys.ToImmutableHashSet();
@@ -52,6 +57,7 @@ public sealed class BodyAnalysis
 
     public SourceAnalysis Sources { get; }
     public TypeSpecialization Types { get; }
+    public ImmutableArray<BodyCallBinding> Calls { get; }
     public ImmutableArray<ExpressionBinding> Expressions { get; }
     public ImmutableArray<BodySummary> Bodies { get; }
     public ImmutableArray<Diagnostic> Diagnostics { get; }

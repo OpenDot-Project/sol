@@ -5,6 +5,10 @@ fixtures, not runnable programs in the current release. Every file carries its o
 status. Native execution, standard library implementations, and full semantic verification remain
 planned even where the syntax is already accepted.
 
+The development-only [first native program](native/FirstProgram.sol) is the executable exception to
+that planned status. It uses the qualified scalar/SolRT bootstrap described in the
+[native guide](../../docs/fir-native.md); it does not imply native support for the other examples.
+
 | Example | Explicit source set | Intended behavior |
 |---|---|---|
 | [Console greeting](console/Greeting.sol) | One file, plus the future standard library | Main prints a greeting and each argument |
@@ -18,6 +22,7 @@ planned even where the syntax is already accepted.
 | [Delegated settings](delegation/Settings.sol) | One file, plus the future standard library | Separate owner state and shared property descriptor |
 | [Generic bounds](generics/NamedItems.sol) | One file | Nominal constraints and explicit generic calls |
 | [Native clock](native/Clock.sol) | One file | Verified unsafe Windows C call in a later backend |
+| [First native program](native/FirstProgram.sol) | One file plus the compiler-owned bootstrap library | Development AOT executable with dynamic or static SolRT |
 | [Partial type](modules/Panel.Storage.sol) | Both `Panel.Storage.sol` and [Panel.Behavior.sol](modules/Panel.Behavior.sol) | One type split across files of the same logical module |
 | [Conventional layout](layout/src/myproject/example/Greeter.sol) | `Greeter.sol` and [Main.sol](layout/src/myproject/example/Main.sol), rooted at `layout/` | Lowercase module directories and PascalCase source files |
 

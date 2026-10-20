@@ -1,8 +1,11 @@
 <Solution>
+  <Folder Name="/src/" />
   <Folder Name="/src/managed/">
     <Project Path="src/managed/OpenDot.Sol.Text/OpenDot.Sol.Text.csproj" />
     <Project Path="src/managed/OpenDot.Sol.Diagnostics/OpenDot.Sol.Diagnostics.csproj" />
     <Project Path="src/managed/OpenDot.Sol.Cst/OpenDot.Sol.Cst.csproj" />
+    <Project Path="src/managed/OpenDot.Sol.Fir/OpenDot.Sol.Fir.csproj" />
+    <Project Path="src/managed/OpenDot.Sol.Lowering/OpenDot.Sol.Lowering.csproj" />
     <Project Path="src/managed/OpenDot.Sol.Psi/OpenDot.Sol.Psi.csproj" />
     <Project Path="src/managed/OpenDot.Sol.Ast/OpenDot.Sol.Ast.csproj" />
     <Project Path="src/managed/OpenDot.Sol.Analysis/OpenDot.Sol.Analysis.csproj" />

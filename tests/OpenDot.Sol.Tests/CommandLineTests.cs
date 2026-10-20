@@ -61,7 +61,8 @@ public sealed class CommandLineTests
         Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["main.sol", "--artifact-type=bin", "--artifact-type=solib"]));
         Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["--help", "--version"]));
         Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["main.sol", "-o"]));
-        Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["main.sol", "second.sol", "-o", "output.json"]));
+        Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["main.sol", "second.sol", "--emit=ast", "-o", "output.json"]));
+        Assert.Equal("output.exe", CompilerOptions.Parse(["main.sol", "second.sol", "-o", "output.exe"]).Output);
         Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(Array.Empty<string>()));
     }
 

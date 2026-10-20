@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+using System;
+using System.Collections.Immutable;
+using System.Linq;
+using OpenDot.Sol.Analysis;
+using OpenDot.Sol.Ast;
+using OpenDot.Sol.Cst;
+
+namespace OpenDot.Sol.Fir;
+
+internal sealed partial class FirBuilder
+{
+    private FirExpression Expression(AstExpression expression)
+    {
+        _cancellation.ThrowIfCancellationRequested();
+        var binding = _analysis.GetExpression(expression);
+        var type = binding?.Type;
+        if (type is null || binding!.Status != BodyBindingStatus.Bound) { return Invalid(expression); }
+        switch (expression)
+        {
+            case AstAtom { SyntaxKind: NodeKind.LiteralExpression } atom:
+                return new FirConstant(atom.Spelling, type, atom.Origin);
+            case AstAtom { SyntaxKind: NodeKind.NameExpression } atom:
+                var locals = _analysis.Sources.Lexical.Lookup(atom, atom.Spelling).Locals;
+                if (locals is [var local] && _slots.TryGetValue(local, out var slot)) { return new FirRead(slot.Id, slot.Type, atom.Origin); }
+                return Invalid(atom);
+            case AstSequence { IsGrouping: true } grouping when grouping.Elements.SingleOrDefault() is { } inner:
+                return Expression(inner);
+            case AstSequence { SyntaxKind: NodeKind.TupleExpression } empty when !empty.Elements.Any():
+                return new FirConstant("()", Empty, empty.Origin);
+            case AstOperation operation:
+                var values = operation.Operands.ToArray();
+                if (operation.Operation == "-" && values is [AstAtom { SyntaxKind: NodeKind.LiteralExpression } literal])
+                { return new FirConstant("-" + literal.Spelling, type, operation.Origin); }
+                if (operation.TargetType is not null || operation.Operation is "++" or "--" or "!!" or "?:") { return Invalid(operation); }
+                if (values.Length == 1) { return new FirUnary(operation.Operation, Expression(values[0]), type, operation.Origin); }
+                if (values.Length == 2) { return new FirBinary(operation.Operation, Expression(values[0]), Expression(values[1]), type, operation.Origin); }
+                return Invalid(operation);
+            case AstMember { Name: "length", Receiver: not null, IsSafe: false } member:
+                return new FirArrayLength(Expression(member.Receiver), type, member.Origin);
+            case AstCall call:
+                if (!_calls.TryGetValue(call, out var selected) || !_functions.TryGetValue(selected.Target, out int target)) { return Invalid(call); }
+                if (!selected.DefaultParameters.IsEmpty || call.Target is AstMember { IsSafe: true }) { return Invalid(call); }
+                var arguments = ImmutableArray.CreateBuilder<FirArgument>();
+                foreach (var mapping in selected.Arguments)
+                {
+                    var argument = call.Arguments[mapping.ArgumentIndex];
+                    if (argument.Value is not AstExpression argumentExpression || mapping.IsArrayArgument || mapping.IsSpread) { return Invalid(call); }
+                    var mode = selected.Target.Parameters[mapping.ParameterIndex].PassingMode;
+                    arguments.Add(new(mapping.ParameterIndex, mode == AstPassingMode.Vararg ? AstPassingMode.Value : mode, Expression(argumentExpression)));
+                }
+                return new FirCall(target, arguments.ToImmutable(), type, call.Origin);
+            default:
+                if (expression.SyntaxKind == NodeKind.IndexExpression)
+                {
+                    var receiver = expression.Children.OfType<AstExpression>().FirstOrDefault();
+                    var indices = expression.Children.Where(n => n.SyntaxKind == NodeKind.ArgumentList).SelectMany(n => n.Children)
+                        .SelectMany(n => n is AstExpression e ? new[] { e } : n.Children.OfType<AstExpression>()).ToArray();
+                    if (receiver is not null && indices is [var index])
+                    { return new FirArrayIndex(Expression(receiver), Expression(index), type, expression.Origin); }
+                }
+                return Invalid(expression);
+        }
+    }
+
+    private FirBlock Block(AstBlock block, bool functionTail = false)
+    {
+        var statements = ImmutableArray.CreateBuilder<FirStatement>();
+        for (int index = 0; index < block.Statements.Length; index++)
+        {
+            var node = block.Statements[index];
+            bool tail = functionTail && index == block.Statements.Length - 1
+                && _analysis.GetBody(_current)?.ReturnType != Empty;
+            if (tail && node is AstExpressionStatement { Expression: not null } expression)
+            { statements.Add(new FirReturn(Expression(expression.Expression), node.Origin)); }
+            else if (Statement(node) is { } statement) { statements.Add(statement); }
+        }
+        return new(statements.ToImmutable(), block.Origin);
+    }
+
+    private FirStatement? Statement(AstNode node)
+    {
+        switch (node)
+        {
+            case AstBlock block: return Block(block);
+            case AstExpressionStatement { Expression: not null } expression: return new FirEvaluate(Expression(expression.Expression), node.Origin);
+            case AstProperty property:
+                var local = _analysis.Sources.Lexical.Scopes.SelectMany(s => s.Symbols).FirstOrDefault(s => ReferenceEquals(s.Origin.Element, property.Origin.Element));
+                var initializer = property.Initializer is null ? null : Expression(property.Initializer);
+                var type = property.Type is null ? initializer?.Type : _analysis.Sources.Types.GetType(property.Type);
+                if (local is null || type is null || property.BindingNames.Count() != 1 || property.Delegate is not null) { Unsupported(node, "Local binding"); return null; }
+                var slot = new FirSlot(_slots.Count, local.Name, type, local.IsMutable, AstPassingMode.Value, false, property.Origin);
+                _slots[local] = slot;
+                return new FirDeclare(slot.Id, initializer, node.Origin);
+            case AstAssignment assignment when assignment.Location is AstAtom location && assignment.Value is not null:
+                var candidates = _analysis.Sources.Lexical.Lookup(location, location.Spelling).Locals;
+                if (candidates is not [var assigned] || !_slots.TryGetValue(assigned, out var stored)) { Unsupported(node, "Assignment location"); return null; }
+                var value = Expression(assignment.Value);
+                if (assignment.Operation != "=")
+                {
+                    value = new FirBinary(assignment.Operation[..^1], new FirRead(stored.Id, stored.Type, location.Origin), value, stored.Type, node.Origin);
+                }
+                return new FirStore(stored.Id, value, node.Origin);
+            case AstReturn ret:
+                if (ret.Label is not null || ret.IsByReference) { Unsupported(ret, "Labelled/ref return"); }
+                return new FirReturn(ret.Value is null ? null : Expression(ret.Value), node.Origin);
+            case AstIf { Condition: not null, Then: not null } conditional:
+                var alternative = conditional.Else is AstBlock other ? Block(other)
+                    : conditional.Else is { } nested && Statement(nested) is { } nestedStatement ? new FirBlock([nestedStatement], nested.Origin) : null;
+                return new FirIf(Expression(conditional.Condition), Block(conditional.Then), alternative, node.Origin);
+            case AstFor { Body: not null } loop:
+                if (loop.Form == AstForForm.Each) { Unsupported(loop, "Collection iteration"); return null; }
+                return new FirLoop(loop.Initializer is null ? null : Statement(loop.Initializer), loop.Condition is null ? null : Expression(loop.Condition),
+                    Block(loop.Body), loop.Update is null ? null : Statement(loop.Update), node.Origin);
+            default:
+                if (node.SyntaxKind == NodeKind.BreakStatement) { return new FirBreak(node.Origin); }
+                if (node.SyntaxKind == NodeKind.ContinueStatement) { return new FirContinue(node.Origin); }
+                Unsupported(node, "Statement shape"); return null;
+        }
+    }
+}
