@@ -6,6 +6,8 @@
   href: cli.md
 - name: Frontend guide
   href: frontend.md
+- name: PSI source views
+  href: psi.md
 - name: Architecture
   href: architecture.md
 - name: Development and validation

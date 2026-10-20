@@ -43,7 +43,7 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path out/docfx/site/api/toc.html)) { throw 'DocFX API output is missing.' }
-          foreach ($page in @('index', 'getting-started', 'cli', 'frontend', 'architecture', 'development', 'status')) {
+          foreach ($page in @('index', 'getting-started', 'cli', 'frontend', 'psi', 'architecture', 'development', 'status')) {
             if (-not (Test-Path "out/docfx/site/$page.html")) { throw "DocFX guide is missing: $page" }
           }
           if (Get-ChildItem out/docfx -Recurse -File | Select-String -SimpleMatch '.codex/tasarim') { throw 'Private notes leaked into DocFX output.' }

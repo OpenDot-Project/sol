@@ -50,6 +50,9 @@ only its parser or serializer exists. Maintainers use squash merges and linear h
   RAII, explicit ownership, and checked Windows API failures. Upstream code retains its own style.
 - Build graph: MSBuild. Repository scripts and workflow commands: PowerShell. Do not introduce
   a second scripting stack for repository automation.
+- Keep first-party source files below 750 physical lines, including comments and blank lines.
+  Split a file by responsibility when it exceeds 750 lines; 1,500 lines is an absolute ceiling.
+  This is a working convention checked during development and review, not a CI gate.
 - Runtime distribution: framework-dependent managed payload plus a private .NET 10 runtime added
   by our packaging step. No NativeAOT, SDK self-contained publish, or single-file publishing.
 - Native interop: add a C++/CLI library only when an actual native library integration needs it;

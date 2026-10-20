@@ -5,6 +5,7 @@ slice: UTF-8 source handling, lexical analysis, bounded parsing, and lossless CS
 
 Start with [installation and a first parse](getting-started.md), then use the [CLI reference](cli.md)
 or [frontend guide](frontend.md). Contributors should read [development and validation](development.md).
+Source builds also provide the [typed PSI source interface](psi.md).
 
 The [architecture guide](architecture.md) describes both existing components and their planned
 extensions. The [status page](status.md) distinguishes released behavior from future work.

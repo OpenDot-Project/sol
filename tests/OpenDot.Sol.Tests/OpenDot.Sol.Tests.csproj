@@ -11,6 +11,10 @@
     <ProjectReference Include="../../src/managed/OpenDot.Sol.Text/OpenDot.Sol.Text.csproj" />
     <ProjectReference Include="../../src/managed/OpenDot.Sol.Diagnostics/OpenDot.Sol.Diagnostics.csproj" />
     <ProjectReference Include="../../src/managed/OpenDot.Sol.Cst/OpenDot.Sol.Cst.csproj" />
+    <ProjectReference Include="../../src/managed/OpenDot.Sol.Psi/OpenDot.Sol.Psi.csproj" />
     <ProjectReference Include="../../src/managed/OpenDot.Sol.Cli/OpenDot.Sol.Cli.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../fixtures/declarations.sol" Link="fixtures/declarations.sol" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

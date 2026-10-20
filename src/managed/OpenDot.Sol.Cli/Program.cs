@@ -180,7 +180,7 @@ internal static class Program
         ["SOL1100"] = "Every source starts with module followed by a logical dotted name, independent of the file path.",
         ["SOL1101"] = "A required syntactic element is missing or not implemented by this frontend build.",
         ["SOL1102"] = "This syntax production is not implemented by the initial frontend; it is not silently accepted.",
-        ["SOL1103"] = "The opening brace of a declaration must be on the same logical line as its header.",
+        ["SOL1103"] = "A declaration or control-flow body brace must share its header's logical line; else must share the preceding closing brace's line.",
         ["SOL1104"] = "The parser nesting limit was reached; simplify the source nesting.",
     };
 }

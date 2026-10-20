@@ -52,6 +52,7 @@ Every source declares its logical module explicitly. The module name does not ha
 - [Getting started](docs/getting-started.md): installation, package layout, and first CST output.
 - [Solc CLI](docs/cli.md): every currently accepted option, diagnostics, and output behavior.
 - [Frontend guide](docs/frontend.md): the supported grammar subset and C# API usage.
+- [PSI source views](docs/psi.md): typed source inspection available in development builds.
 - [Architecture](docs/architecture.md): existing projects, ownership, and future compiler stages.
 - [Development and validation](docs/development.md): build, tests, coverage, DocFX, and packaging.
 - [Status and roadmap](docs/status.md): implemented capabilities and the order of upcoming work.

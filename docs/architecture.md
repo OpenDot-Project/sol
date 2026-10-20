@@ -9,6 +9,7 @@ Sol's implementation is primarily C# 14 on .NET 10, built with MSBuild. The curr
 | `OpenDot.Sol.Text` | Immutable UTF-8 byte snapshots, spans, and source coordinates. |
 | `OpenDot.Sol.Diagnostics` | Source-bound diagnostics with validated byte ranges. |
 | `OpenDot.Sol.Cst` | Lossless lexer, initial declaration/expression parser, and syntax models. |
+| `OpenDot.Sol.Psi` | Typed immutable source views, snapshot identity/navigation, and explicit module grouping (Unreleased). |
 | `OpenDot.Sol.Driver` | Explicit-source parsing, logical module grouping, and CST JSON output. |
 | `OpenDot.Sol.Cli` | Solc's independent argument parser, process entry, diagnostics, and output transactions. |
 
@@ -29,6 +30,7 @@ UTF-8 source -> Lexer -> CST -> PSI -> AST -> FIR -> LLVM IR
 ```
 
 Only source handling, lexing, and an initial CST subset are implemented in 0.0.1.
+Source development additionally covers nominal/member declarations and the first typed PSI views.
 The later stages have the following intended boundaries:
 
 - **CST** preserves spelling, tokens, trivia, and syntax structure.
