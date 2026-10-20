@@ -26,9 +26,7 @@ internal sealed partial class TypeBindingBuilder
             {
                 if (parameter.Name == name)
                 {
-                    var symbol = owner is AstDeclaration declaration ? Session.GetDeclaredSymbol(declaration) : null;
-                    string identity = symbol is null ? "node:" + _ownerIds[owner] : "symbol:" + symbol.Id;
-                    return Intern(ResolvedTypeKind.Parameter, name, "parameter:" + identity + ":" + index, null, [], [], []);
+                    return Parameters[(AstDeclaration)owner][index];
                 }
                 index++;
             }
@@ -91,7 +89,12 @@ internal sealed partial class TypeBindingBuilder
                     var parameters = callable.Parameters.Select(p => p.Type is null ? null : References[p.Type]).ToArray();
                     if (parameters.Any(t => t is null || t.IsError || t.Kind == ResolvedTypeKind.Parameter)) { continue; }
                     string key = symbol.Name + "`" + symbol.Arity + "(" + string.Join(',', callable.Parameters.Select((p, index) =>
-                        (p.PassingMode is AstPassingMode.Ref or AstPassingMode.Out ? "ref:" : "value:") + parameters[index]!.Id)) + ")";
+                        (p.PassingMode switch
+                        {
+                            AstPassingMode.Ref or AstPassingMode.Out => "ref:",
+                            AstPassingMode.Vararg => "vararg:",
+                            _ => "value:",
+                        }) + parameters[index]!.Id)) + ")";
                     if (keys.TryGetValue(key, out var previous) && !ReferenceEquals(symbol, previous))
                     {
                         Report("SOL2003", "Duplicate signature after resolving imported type names: " + symbol.Name, callable);

@@ -72,7 +72,8 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
         {
             Expect(OpenBraceToken);
             var statements = new List<SyntaxNode>();
-            while (!AtEnd && Kind is not (CloseBraceToken or ElseKeyword or CatchKeyword or FinallyKeyword or CaseKeyword or DefaultKeyword))
+            while (!AtEnd && Kind is not (CloseBraceToken or ElseKeyword or CatchKeyword or FinallyKeyword or CaseKeyword)
+                && !(Kind == DefaultKeyword && Peek(1).Kind != LessToken))
             {
                 if (Take(SemicolonToken)) { continue; }
                 int before = _index;

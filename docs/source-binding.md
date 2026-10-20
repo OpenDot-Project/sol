@@ -136,6 +136,10 @@ It is not a loader, executable artifact, or stable external semantic schema.
 | `SOL2116` | Primitive type name redeclared/shadowed |
 | `SOL2120` | Duplicate lexical declaration |
 
-Expression typing, literal inference, overload selection, conversions, full generic constraints,
+The optional [generic specialization and call analysis](generic-calls.md) extends these tables with
+substitution, nominal constraints, and a supported subset of direct-call overload selection.
+It does not change the scope or guarantees of `SourceAnalysis`.
+
+Complete expression typing, contextual inference, overload selection, conversions, generic body constraints,
 checked effects, smart casts, definite assignment, ref escape, verified FIR, and native code generation
 remain separate future stages. A source analysis without diagnostics does not certify those properties.

@@ -37,14 +37,17 @@ The new `OpenDot.Sol.Psi` project exposes typed immutable source views and modul
 [PSI guide](psi.md). The [AST](ast.md) expands grouped parameters and normalizes written type shapes.
 [Declaration analysis](analysis.md) now indexes source modules, public import/re-export lookup,
 signature groups, and compatible partial declarations. Development Solc accepts `--emit=ast`.
-Expression type checking and executable output remain unimplemented.
+Full expression type checking and executable output remain unimplemented.
 The [source binding SDK](source-binding.md) now resolves written type identities and generic parameters,
 checks explicit bases and inheritance cycles, and indexes lexical scopes and capture candidates.
+The optional [generic and call analysis](generic-calls.md) now substitutes owned type parameters,
+checks specialized nominal constraints, maps direct module-function arguments, and selects supported
+overloads. Unsupported receiver, lambda, inference, and conversion paths remain explicitly deferred.
 
 ### Remaining stages
 
 1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.
-2. Extend binding with full visibility, generic substitution/constraints, receiver-dependent references,
+2. Extend binding with full visibility, generic body validation, receiver-dependent references,
    generated members, and complete overload/expression typing.
 3. Resolve symbols, types, overloads, nullability, checked exceptions, ref/out storage, and ref-struct
    escape rules into verified FIR.

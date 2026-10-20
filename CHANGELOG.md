@@ -6,6 +6,10 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Generic substitution workspace, parameter owner/ordinal queries, substituted base/constraint checks,
+  and optional direct-function call analysis with candidate diagnostics and inspection JSON.
+- Named/default/vararg argument mapping, exact local ref/out checks, structural generic inference,
+  intrinsic conversion ranking, and explicit deferred outcomes for unsupported call paths.
 - Written type identity and lexical binding SDKs, explicit base/cycle checks, source generic parameters,
   ref-like argument gates, scope/capture inspection, and source-analysis driver composition.
 - Structural AST library and `--emit=ast` inspection output, with grouped-parameter expansion,
@@ -25,6 +29,8 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Changed
 
+- Preserve vararg passing mode in both structural and resolved declaration signatures.
+- Distinguish statement-start `default<T>()` from a switch `default:` recovery boundary.
 - Array prefixes include the nullable element type: `[]String?` equals `[](String?)`;
   use `([]String)?` for a nullable array reference.
 - Split parser control flow and function expressions into focused source files; preserve the original lossless token stream.

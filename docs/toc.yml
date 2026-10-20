@@ -14,6 +14,8 @@
   href: analysis.md
 - name: Types and lexical scopes
   href: source-binding.md
+- name: Generic specialization and calls
+  href: generic-calls.md
 - name: Architecture
   href: architecture.md
 - name: Development and validation

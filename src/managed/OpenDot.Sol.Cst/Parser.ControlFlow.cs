@@ -125,7 +125,8 @@ internal sealed partial class Parser
         }
         else { Expect(DefaultKeyword); }
         Expect(ColonToken);
-        while (!AtEnd && Kind is not (CloseBraceToken or CaseKeyword or DefaultKeyword))
+        while (!AtEnd && Kind is not (CloseBraceToken or CaseKeyword)
+            && !(Kind == DefaultKeyword && Peek(1).Kind != LessToken))
         {
             if (Take(SemicolonToken)) { continue; }
             int before = _index;

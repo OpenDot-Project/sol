@@ -44,9 +44,25 @@ internal sealed partial class TypeBindingBuilder
     internal Dictionary<AstType, ResolvedType> References { get; } = new(ReferenceEqualityComparer.Instance);
     internal List<ResolvedType> Types { get; } = [];
     internal List<Diagnostic> Diagnostics { get; } = [];
+    internal Dictionary<AstDeclaration, ImmutableArray<ResolvedType>> Parameters { get; } = new(ReferenceEqualityComparer.Instance);
 
     internal void Build()
     {
+        foreach (var owner in Session.Files.SelectMany(f => f.Nodes).OfType<AstDeclaration>())
+        {
+            var parameters = owner switch
+            {
+                AstTypeDeclaration type => type.TypeParameters,
+                AstCallable callable => callable.TypeParameters,
+                _ => [],
+            };
+            var symbol = Session.GetDeclaredSymbol(owner);
+            var canonical = symbol?.Parts[0] ?? owner;
+            string identity = symbol is null ? "node:" + _ownerIds[owner] : "symbol:" + symbol.Id;
+            Parameters.Add(owner, parameters.Select((p, index) => Intern(ResolvedTypeKind.Parameter,
+                p.Name ?? "", "parameter:" + identity + ":" + index, null, [], [], [],
+                new(canonical, index))).ToImmutableArray());
+        }
         foreach (var file in Session.Files)
         {
             foreach (var type in file.Nodes.OfType<AstType>().Reverse())
@@ -188,12 +204,13 @@ internal sealed partial class TypeBindingBuilder
     }
 
     private ResolvedType Intern(ResolvedTypeKind kind, string name, string key, DeclarationSymbol? symbol,
-        ImmutableArray<ResolvedType> arguments, ImmutableArray<AstPassingMode> modes, ImmutableArray<ResolvedType> effects)
+        ImmutableArray<ResolvedType> arguments, ImmutableArray<AstPassingMode> modes, ImmutableArray<ResolvedType> effects,
+        GenericParameterIdentity? parameter = null)
     {
         key += "<" + string.Join(',', arguments.Select(t => t.Id)) + ">(" + string.Join(',', modes.Select(m => (int)m))
             + ")!" + string.Join(',', effects.Select(t => t.Id));
         if (_interned.TryGetValue(key, out var type)) { return type; }
-        type = new(Types.Count, kind, name, symbol, arguments, modes, effects);
+        type = new(Types.Count, kind, name, symbol, arguments, modes, effects, parameter);
         Types.Add(type);
         _interned.Add(key, type);
         return type;

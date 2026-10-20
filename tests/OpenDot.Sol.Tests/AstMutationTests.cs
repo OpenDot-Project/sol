@@ -110,6 +110,13 @@ public sealed class AstMutationTests
             Assert.Same(source, diagnostic.Source);
             source.Validate(diagnostic.Span);
         });
+        var calls = CallAnalysis.Create(binding, TestContext.Current.CancellationToken);
+        Assert.Equal(ast.Nodes.OfType<AstCall>().Count(), calls.Bindings.Length);
+        Assert.All(calls.Diagnostics, diagnostic =>
+        {
+            Assert.Same(source, diagnostic.Source);
+            source.Validate(diagnostic.Span);
+        });
         return ast;
     }
 }
