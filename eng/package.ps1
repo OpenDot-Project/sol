@@ -36,13 +36,19 @@ try {
     & $launcher tests/fixtures/main.sol --emit=cst -o $smoke
     if ($LASTEXITCODE -ne 0) { throw 'Packaged CST smoke failed.' }
     Remove-Item -LiteralPath $smoke
+    $astSmoke = Join-Path $stage 'smoke.ast.json'
+    & $launcher tests/fixtures/declarations.sol --emit=ast -o $astSmoke
+    if ($LASTEXITCODE -ne 0) { throw 'Packaged AST smoke failed.' }
+    $ast = Get-Content -LiteralPath $astSmoke -Raw | ConvertFrom-Json
+    if ($ast.schema -ne 1 -or $ast.module -ne 'fixtures.models') { throw 'Packaged AST content mismatch.' }
+    Remove-Item -LiteralPath $astSmoke
 
     $inventory = @(Get-ChildItem -LiteralPath $stage -File -Recurse | Sort-Object FullName | ForEach-Object {
         $relative = [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\', '/')
         if ($relative -match '(^|/)(\.codex|\.dotnet|obj)(/|$)') { throw 'Private path in package.' }
         @{ path = $relative; size = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     })
-    $manifest = @{ schema_version = 1; product = 'solc'; version = $version; target = 'windows-x86_64'; private_runtime = $runtime.version; capabilities = @('initial-cst-frontend'); files = $inventory }
+    $manifest = @{ schema_version = 1; product = 'solc'; version = $version; target = 'windows-x86_64'; private_runtime = $runtime.version; capabilities = @('cst-frontend', 'structural-ast'); files = $inventory }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $stage 'component.json') -Encoding utf8NoBOM
     $output = [IO.Path]::GetFullPath((Join-Path $root $OutputDirectory))
     New-Item -ItemType Directory -Path $output -Force | Out-Null

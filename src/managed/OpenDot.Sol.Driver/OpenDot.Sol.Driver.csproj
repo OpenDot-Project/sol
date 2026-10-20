@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../OpenDot.Sol.Cst/OpenDot.Sol.Cst.csproj" />
+    <ProjectReference Include="../OpenDot.Sol.Analysis/OpenDot.Sol.Analysis.csproj" />
   </ItemGroup>
 </Project>

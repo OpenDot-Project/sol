@@ -10,7 +10,9 @@ Sol's implementation is primarily C# 14 on .NET 10, built with MSBuild. The curr
 | `OpenDot.Sol.Diagnostics` | Source-bound diagnostics with validated byte ranges. |
 | `OpenDot.Sol.Cst` | Lossless lexer, initial declaration/expression parser, and syntax models. |
 | `OpenDot.Sol.Psi` | Typed immutable source views, snapshot identity/navigation, and explicit module grouping (Unreleased). |
-| `OpenDot.Sol.Driver` | Explicit-source parsing, logical module grouping, and CST JSON output. |
+| `OpenDot.Sol.Ast` | Immutable structural normalization, source origins, parameter expansion, and type shapes (Unreleased). |
+| `OpenDot.Sol.Analysis` | Declaration/import lookup, module graphs, and partial composition in an explicit source distribution (Unreleased). |
+| `OpenDot.Sol.Driver` | Explicit-source parsing, CST/AST output, and declaration-analysis entry points. |
 | `OpenDot.Sol.Cli` | Solc's independent argument parser, process entry, diagnostics, and output transactions. |
 
 `tests/OpenDot.Sol.Tests` exercises these components, including malformed byte inputs, recovery,
@@ -30,7 +32,8 @@ UTF-8 source -> Lexer -> CST -> PSI -> AST -> FIR -> LLVM IR
 ```
 
 Only source handling, lexing, and an initial CST subset are implemented in 0.0.1.
-Source development additionally covers nominal/member declarations and the first typed PSI views.
+Source development additionally covers nominal/member declarations, typed PSI views, structural AST,
+and declaration analysis. See [AST](ast.md) and [analysis](analysis.md) for implemented boundaries.
 The later stages have the following intended boundaries:
 
 - **CST** preserves spelling, tokens, trivia, and syntax structure.

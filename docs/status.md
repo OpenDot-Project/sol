@@ -34,12 +34,15 @@ Nominal declarations now include class, struct/ref struct, object/companion, int
 primary/secondary constructors, accessors/indexers, annotations, delegation, generics, constraints,
 and function signature effects. Contextual generic closers preserve the physical lexer tokens.
 The new `OpenDot.Sol.Psi` project exposes typed immutable source views and module grouping; see the
-[PSI guide](psi.md). Source declarations are not yet merged or resolved into semantic symbols.
+[PSI guide](psi.md). The [AST](ast.md) expands grouped parameters and normalizes written type shapes.
+[Declaration analysis](analysis.md) now indexes source modules, public import/re-export lookup,
+signature groups, and compatible partial declarations. Development Solc accepts `--emit=ast`.
+Expression type checking and executable output remain unimplemented.
 
 ### Remaining stages
 
 1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.
-2. Add AST normalization, source origins, module/import binding, and partial declaration composition.
+2. Extend declaration analysis with resolved type identity, full visibility, base compatibility, and local scopes.
 3. Resolve symbols, types, overloads, nullability, checked exceptions, ref/out storage, and ref-struct
    escape rules into verified FIR.
 4. Introduce the LLVM bridge and native artifact/entry pipeline with ABI and exception-handling tests.

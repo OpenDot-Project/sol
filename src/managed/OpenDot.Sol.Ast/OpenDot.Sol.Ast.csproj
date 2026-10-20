@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../OpenDot.Sol.Psi/OpenDot.Sol.Psi.csproj" />
+  </ItemGroup>
+</Project>

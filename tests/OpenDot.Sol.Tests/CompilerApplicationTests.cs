@@ -122,6 +122,96 @@ public sealed class CompilerApplicationTests : IDisposable
         Assert.DoesNotContain("\u001b", Run(source, "--color=always", "--error-format=json").Stderr, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AstEmissionIncludesNormalizedParametersAndTypeShapes()
+    {
+        string source = Write("ast.sol", "module chosen.name\nfunc f(a,b:[]String?):int = 1");
+        string output = Path.Combine(_directory, "ast.json");
+        var result = Run(source, "--emit=ast", "-o", output);
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Stderr);
+        using var json = JsonDocument.Parse(File.ReadAllBytes(output));
+        Assert.Equal("chosen.name", json.RootElement.GetProperty("module").GetString());
+        var nodes = json.RootElement.GetProperty("nodes").EnumerateArray();
+        bool functionFound = false;
+        foreach (var node in nodes)
+        {
+            if (node.GetProperty("kind").GetString() != "FunctionDeclaration") { continue; }
+            var parameters = node.GetProperty("parameters");
+            Assert.Equal(2, parameters.GetArrayLength());
+            Assert.Equal("[](String)?", parameters[0].GetProperty("type").GetString());
+            Assert.Equal("a", parameters[0].GetProperty("name").GetString());
+            Assert.Equal("b", parameters[1].GetProperty("name").GetString());
+            functionFound = true;
+        }
+        Assert.True(functionFound);
+    }
+
+    [Fact]
+    public void AstEmissionUsesItsOwnDefaultExtension()
+    {
+        string source = Write("model.sol", "module app\nclass C {}");
+        string output = Path.Combine(_directory, "out");
+        Assert.Equal(0, Run(source, "--emit=ast", "--out-dir", output).Exit);
+        Assert.True(File.Exists(Path.Combine(output, "model.ast.json")));
+        Assert.False(File.Exists(Path.Combine(output, "model.cst.json")));
+    }
+
+    [Fact]
+    public void AstEmissionDoesNotImplyDeclarationOrTypeChecking()
+    {
+        string source = Write("model.sol", "module app\nfunc f(a:Unknown) {}\nfunc f(b:Unknown) {}");
+        string output = Path.Combine(_directory, "model.ast.json");
+        Assert.Equal(0, Run(source, "--emit=ast", "-o", output).Exit);
+        Assert.True(File.Exists(output));
+        Assert.Equal(1, Run(source).Exit);
+    }
+
+    [Fact]
+    public void AstOutputFailureRollsBackAllPreviouslyReplacedOutputs()
+    {
+        string first = Write("first.sol", "module app\nval one = 1");
+        string second = Write("second.sol", "module app\nval two = 2");
+        string output = Path.Combine(_directory, "out");
+        Directory.CreateDirectory(output);
+        string previous = Path.Combine(output, "first.ast.json");
+        File.WriteAllText(previous, "previous AST");
+        Directory.CreateDirectory(Path.Combine(output, "second.ast.json"));
+        Assert.Equal(1, Run(first, second, "--emit=ast", "--out-dir", output).Exit);
+        Assert.Equal("previous AST", File.ReadAllText(previous));
+        Assert.Empty(Directory.GetFiles(output, ".solc-*.tmp*"));
+    }
+
+    [Fact]
+    public void AstParseFailureDoesNotReplaceAnyExistingArtifact()
+    {
+        string first = Write("first.sol", "module app\nclass C {}");
+        string invalid = Write("invalid.sol", "func missingModule() {}");
+        string output = Path.Combine(_directory, "out");
+        Directory.CreateDirectory(output);
+        string previous = Path.Combine(output, "first.ast.json");
+        File.WriteAllText(previous, "previous AST");
+        Assert.Equal(1, Run(first, invalid, "--emit=ast", "--out-dir", output).Exit);
+        Assert.Equal("previous AST", File.ReadAllText(previous));
+        Assert.False(File.Exists(Path.Combine(output, "invalid.ast.json")));
+    }
+
+    [Fact]
+    public void AstOutputCannotOverwriteSourceOrCollideBetweenInputs()
+    {
+        const string text = "module app\nclass C {}";
+        string source = Write("model.sol", text);
+        Assert.Equal(2, Run(source, "--emit=ast", "-o", source).Exit);
+        Assert.Equal(text, File.ReadAllText(source));
+        string subdirectory = Path.Combine(_directory, "sub");
+        Directory.CreateDirectory(subdirectory);
+        string second = Path.Combine(subdirectory, "model.sol");
+        File.WriteAllText(second, "module other\nclass D {}");
+        string output = Path.Combine(_directory, "out");
+        Assert.Equal(2, Run(source, second, "--emit=ast", "--out-dir", output).Exit);
+        Assert.False(Directory.Exists(output));
+    }
+
     private string Write(string name, string content)
     {
         string path = Path.Combine(_directory, name);

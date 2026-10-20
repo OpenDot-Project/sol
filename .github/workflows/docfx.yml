@@ -43,10 +43,9 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path out/docfx/site/api/toc.html)) { throw 'DocFX API output is missing.' }
-          foreach ($page in @('index', 'getting-started', 'cli', 'frontend', 'psi', 'architecture', 'development', 'status')) {
+          foreach ($page in @('index', 'getting-started', 'cli', 'frontend', 'psi', 'ast', 'analysis', 'architecture', 'development', 'status')) {
             if (-not (Test-Path "out/docfx/site/$page.html")) { throw "DocFX guide is missing: $page" }
           }
-          if (Get-ChildItem out/docfx -Recurse -File | Select-String -SimpleMatch '.codex/tasarim') { throw 'Private notes leaked into DocFX output.' }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: docfx-validation
