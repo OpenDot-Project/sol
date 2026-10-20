@@ -38,11 +38,14 @@ The new `OpenDot.Sol.Psi` project exposes typed immutable source views and modul
 [Declaration analysis](analysis.md) now indexes source modules, public import/re-export lookup,
 signature groups, and compatible partial declarations. Development Solc accepts `--emit=ast`.
 Expression type checking and executable output remain unimplemented.
+The [source binding SDK](source-binding.md) now resolves written type identities and generic parameters,
+checks explicit bases and inheritance cycles, and indexes lexical scopes and capture candidates.
 
 ### Remaining stages
 
 1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.
-2. Extend declaration analysis with resolved type identity, full visibility, base compatibility, and local scopes.
+2. Extend binding with full visibility, generic substitution/constraints, receiver-dependent references,
+   generated members, and complete overload/expression typing.
 3. Resolve symbols, types, overloads, nullability, checked exceptions, ref/out storage, and ref-struct
    escape rules into verified FIR.
 4. Introduce the LLVM bridge and native artifact/entry pipeline with ABI and exception-handling tests.

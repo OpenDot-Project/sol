@@ -12,6 +12,8 @@
   href: ast.md
 - name: Declaration analysis
   href: analysis.md
+- name: Types and lexical scopes
+  href: source-binding.md
 - name: Architecture
   href: architecture.md
 - name: Development and validation

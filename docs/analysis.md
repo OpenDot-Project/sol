@@ -7,6 +7,8 @@ It has no dependency on LLVM or native runtime initialization.
 
 The session does not perform expression type checking. Name lookup returns candidates;
 it does not choose a function overload from argument types or execute source code.
+Development builds additionally compose [written type and lexical scope analyses](source-binding.md)
+over the declaration session. Those analyses preserve their own explicit semantic limits.
 
 ## Session boundary
 
