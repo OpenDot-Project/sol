@@ -79,7 +79,7 @@ dotnet docfx docfx.json --warningsAsErrors
 ```
 
 DocFX is pinned by `.config/dotnet-tools.json`. The build combines the Markdown guides with generated
-API metadata for Text, Diagnostics, CST, and Driver. The resulting site is `out/docfx/site`.
+API metadata for Text, Diagnostics, CST, PSI, and Driver. The resulting site is `out/docfx/site`.
 Open `out/docfx/site/index.html` or use `dotnet docfx serve out/docfx/site` for local browsing.
 The CI workflow validates and archives the site; it does not deploy GitHub Pages.
 

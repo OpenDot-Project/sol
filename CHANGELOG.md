@@ -6,6 +6,11 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Nominal/member CST syntax: class, struct/ref struct, interface, enum payloads, constructors,
+  properties/accessors/indexers, annotations, delegation, generics/constraints, and extern signatures.
+- Contextual generic closing and explicit generic applications without rewriting lexer tokens.
+- `OpenDot.Sol.Psi` typed immutable source views with snapshot identity, navigation, range lookup,
+  parameter/declaration facades, cancellation, and explicit logical-module grouping.
 - Development CST support for braced control flow, four for-loop forms, switch cases, try/catch/finally,
   defer/unsafe blocks, typed and labelled lambdas, anonymous functions, and structured call arguments.
 - Control-flow recovery, structural source-span checks, token-deletion mutations, and bounded random-token regressions.
@@ -14,6 +19,8 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Changed
 
+- Array prefixes include the nullable element type: `[]String?` equals `[](String?)`;
+  use `([]String)?` for a nullable array reference.
 - Split parser control flow and function expressions into focused source files; preserve the original lossless token stream.
 - Clarified the source-file size convention: split above 750 physical lines, with an absolute 1,500-line ceiling; no CI size gate.
 

@@ -253,10 +253,120 @@ structure where applicable. This preserves storage/declaration intent for later 
 are not allowed in array or tuple literals. Semantic constraints such as valid writable storage,
 label scope, ref escape, and callback type compatibility remain unimplemented.
 
-## Remaining unsupported areas
+## Declarations and members in the development branch (Unreleased)
 
-The full class/struct/ref-struct model, accessors, annotations, delegation with `by`, generic
-declarations, remaining expression forms, and later semantic stages still require work.
-Nested generic closers and other incomplete productions must not be assumed to work merely because
-their tokens are recognized. See [status and roadmap](status.md) for implementation order.
-When extending a production, add tests for both valid spelling and malformed recovery.
+Current source builds also parse class, struct/ref struct, object/companion, interface, and enum
+declarations; primary/secondary constructors; init blocks; properties/accessors/indexers;
+annotations; base/property delegation; generic parameters, applications, constraints, and effects.
+These capabilities are not in the published 0.0.1 component.
+
+```sol
+module examples.models
+
+annotation class Label(val text: String)
+
+interface Named {
+    func name(): String
+}
+
+open class Entity(val id: ulong)
+
+@Label("user")
+partial class User(id: ulong, var caption: String): Entity(id), Named {
+    override func name(): String = this.caption
+
+    val displayName: String {
+        get = this.caption
+    }
+
+    constructor(): this(0, "anonymous") {}
+
+    companion object {
+        func create(name: String): User = User(0, name)
+    }
+}
+
+partial class User {
+    func description(): String = this.displayName
+}
+
+enum Result<T> {
+    Empty,
+    Value(value: T),
+}
+
+func <T> identity(value: T): T = value
+val nested: Result<Result<int>> = identity<Result<Result<int>>>(Result.Value(Result.Value(42)))
+```
+
+Each nominal type has a `TypeBody` child containing its written members. Generic type parameters,
+type argument lists, where constraints, throws clauses, and constructor delegation have dedicated
+nodes. `>>`, `>=`, and `>>=` are consumed contextually when closing generic types without changing
+the original physical token stream or the meaning of shift expressions elsewhere.
+
+Array prefixes bind to the complete element type: `[]String?` and `[](String?)` both spell
+a non-null array of nullable strings. `([]String)?` spells a nullable array of non-null strings;
+`([]String?)?` makes both nullable. The same grouping rule applies to nested and fixed-size arrays.
+Repeated nullable suffixes are preserved in CST spelling for later type normalization.
+
+Annotations retain an optional target and argument list. File-target annotations may precede the
+required module declaration. Annotation target validity and constant evaluation still require binding.
+
+```sol
+module examples.properties
+
+readonly struct Point {
+    val x: int
+    val y: int
+    constructor(x, y: int) {
+        this.x = x
+        this.y = y
+    }
+    companion object {
+        operator func +(left, right: Point): Point = Point(left.x + right.x, left.y + right.y)
+    }
+}
+
+ref struct Window<T> where T: allows ref struct {
+    private var item: T
+    ref readonly this[index: int]: T {
+        get { return ref this.item }
+    }
+}
+
+class Counter {
+    var count: int { get; private set; } = 0
+    val doubled: int { get = this.count * 2 }
+}
+```
+
+Short getters contain expressions; short setters/init accessors can contain an assignment statement.
+A short getter assignment is rejected. An accessor list remains distinct from a binding's initializer
+lambda. Named operators, token operators, and conversion operator names retain their source spelling;
+legal owner/arity/paired-operator rules still require semantic verification.
+
+```sol
+module examples.delegation
+
+interface Logger {
+    func log(text: String)
+}
+
+class WrappedLogger(private val target: Logger): Logger by target {}
+class Settings {
+    var name: String by NameDelegate("Sol")
+}
+
+extern "c" {
+    func close(handle: ulong): int;
+}
+```
+
+Delegation expressions are recorded as `Delegation` nodes for later protocol/initialization analysis.
+The parser rejects a property combining a custom accessor list with `by`. Extern blocks accept the
+quoted `c` ABI name and annotated function signatures without bodies; native signature layout and
+linking are not yet validated or performed. The examples establish syntax, not valid resolved APIs.
+
+The [PSI interface](psi.md) projects these concrete structures into typed immutable source views.
+It does not merge partial types, resolve imports, infer types, validate checked effects or ref escape,
+or produce executable code. Those later stages remain separate implementation work.

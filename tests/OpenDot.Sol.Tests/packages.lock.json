@@ -247,6 +247,12 @@
           "OpenDot.Sol.Cst": "[0.0.1, )"
         }
       },
+      "opendot.sol.psi": {
+        "type": "Project",
+        "dependencies": {
+          "OpenDot.Sol.Cst": "[0.0.1, )"
+        }
+      },
       "opendot.sol.text": {
         "type": "Project"
       }

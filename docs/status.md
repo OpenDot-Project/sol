@@ -30,11 +30,16 @@ structured named/ref/out/spread call arguments. Casts and type tests are parsed 
 These additions are not in the published 0.0.1 component. They remain syntax support, without
 type/effect/escape/exhaustiveness validation or executable output. See the [frontend guide](frontend.md).
 
+Nominal declarations now include class, struct/ref struct, object/companion, interface, enum payloads,
+primary/secondary constructors, accessors/indexers, annotations, delegation, generics, constraints,
+and function signature effects. Contextual generic closers preserve the physical lexer tokens.
+The new `OpenDot.Sol.Psi` project exposes typed immutable source views and module grouping; see the
+[PSI guide](psi.md). Source declarations are not yet merged or resolved into semantic symbols.
+
 ### Remaining stages
 
-1. Complete remaining CST grammar and recovery coverage, including type declarations, accessors,
-   annotations, delegation, generic declarations/adjacent closers, and remaining expression forms.
-2. Add PSI/AST views, source origins, module/import binding, and partial declaration composition.
+1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.
+2. Add AST normalization, source origins, module/import binding, and partial declaration composition.
 3. Resolve symbols, types, overloads, nullability, checked exceptions, ref/out storage, and ref-struct
    escape rules into verified FIR.
 4. Introduce the LLVM bridge and native artifact/entry pipeline with ABI and exception-handling tests.

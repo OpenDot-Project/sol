@@ -18,6 +18,13 @@ public enum NodeKind
     BreakStatement, ContinueStatement, Destructuring, LambdaParameters, LambdaParameter,
     LabelledExpression, AnonymousFunctionExpression, ThrowExpression, TypeTestExpression, CastExpression,
     Argument, RefArgument, OutArgument, OutVariable, SpreadArgument, RefExpression,
+    Annotation, FileAnnotation, AnnotationTarget, Modifier, PassingMode, OperatorName,
+    ClassDeclaration, StructDeclaration, RefStructDeclaration, InterfaceDeclaration, EnumDeclaration,
+    AnnotationDeclaration, EnumVariant, TypeBody, PrimaryConstructor, ConstructorDeclaration,
+    ConstructorDelegation, InitDeclaration, BaseList, BaseType, Delegation,
+    PropertyDeclaration, AccessorList, AccessorDeclaration, IndexerDeclaration, ReturnType,
+    TypeParameterList, TypeParameter, TypeArgumentList, WhereClause, Constraint, AntiConstraint,
+    ThrowsClause, ExternDeclaration, GenericExpression,
 }
 
 /// <summary>Snapshot-relative concrete structure; original tokens and trivia remain in SyntaxTree.</summary>

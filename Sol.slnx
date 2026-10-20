@@ -3,6 +3,7 @@
     <Project Path="src/managed/OpenDot.Sol.Text/OpenDot.Sol.Text.csproj" />
     <Project Path="src/managed/OpenDot.Sol.Diagnostics/OpenDot.Sol.Diagnostics.csproj" />
     <Project Path="src/managed/OpenDot.Sol.Cst/OpenDot.Sol.Cst.csproj" />
+    <Project Path="src/managed/OpenDot.Sol.Psi/OpenDot.Sol.Psi.csproj" />
     <Project Path="src/managed/OpenDot.Sol.Driver/OpenDot.Sol.Driver.csproj" />
     <Project Path="src/managed/OpenDot.Sol.Cli/OpenDot.Sol.Cli.csproj" />
   </Folder>

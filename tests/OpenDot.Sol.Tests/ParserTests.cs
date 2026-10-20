@@ -63,7 +63,7 @@ public sealed class ParserTests
     [Theory]
     [InlineData("object Main {}", "SOL1100")]
     [InlineData("module app\nfunc f()\n{ }", "SOL1103")]
-    [InlineData("module app\nclass Example {}", "SOL1102")]
+    [InlineData("module app\ntype Alias = int", "SOL1102")]
     [InlineData("module app\nfunc f() { val x = }", "SOL1101")]
     [InlineData("module app\nfunc f() {", "SOL1101")]
     [InlineData("module app\nfunc f() { 1 2 }", "SOL1101")]

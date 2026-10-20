@@ -18,7 +18,16 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
     private int _index;
     private int _depth;
     private int _suppressedNewlines;
-    private SyntaxToken Current => lex.Tokens[_index];
+    private int _tokenOffset;
+    private bool _typeEnded;
+    private int _lastEnd;
+    private SyntaxToken Current => _tokenOffset == 0 ? lex.Tokens[_index] : new(
+        lex.Tokens[_index].Kind switch
+        {
+            GreaterGreaterToken => GreaterToken,
+            GreaterGreaterEqualsToken when _tokenOffset == 1 => GreaterEqualsToken,
+            _ => EqualsToken,
+        }, new(lex.Tokens[_index].Span.Start + _tokenOffset, lex.Tokens[_index].Span.Length - _tokenOffset), []);
     private SyntaxKind Kind => Current.Kind;
     private int Start => Current.Span.Start;
     private bool AtEnd => Kind == EndOfFileToken;
@@ -26,6 +35,7 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
     public SyntaxTree Parse()
     {
         var children = new List<SyntaxNode>();
+        while (Kind == AtToken) { children.Add(ParseAnnotation(file: true)); Terminate(); }
         string? moduleName = null;
         if (Kind == ModuleKeyword)
         {
@@ -50,191 +60,6 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
         var root = new SyntaxNode(NodeKind.CompilationUnit, new(0, lex.Source.Length), children.ToImmutableArray());
         return new(lex.Source, root, lex.Tokens,
             _diagnostics.OrderBy(d => d.Span.Start).ThenBy(d => d.Code, StringComparer.Ordinal).ToImmutableArray(), moduleName);
-    }
-
-    private SyntaxNode ParseDeclaration()
-    {
-        int start = Start;
-        if (!Enter()) { return Recover(start); }
-        try
-        {
-            while (Kind is PublicKeyword or PrivateKeyword or InternalKeyword or ProtectedKeyword
-                or PartialKeyword or FinalKeyword or OpenKeyword or AbstractKeyword or OverrideKeyword
-                or SealedKeyword or OperatorKeyword or UnsafeKeyword)
-            {
-                Advance();
-            }
-            return Kind switch
-            {
-                ImportKeyword => ParseImport(start),
-                ObjectKeyword or CompanionKeyword => ParseObject(start),
-                FuncKeyword => ParseFunction(start),
-                ValKeyword or VarKeyword or ConstKeyword => ParseBinding(start),
-                _ => Unsupported(start),
-            };
-        }
-        finally { _depth--; }
-    }
-
-    private SyntaxNode ParseImport(int start)
-    {
-        Advance();
-        var children = new List<SyntaxNode>();
-        if (Kind == IdentifierToken && Peek(1).Kind == EqualsToken)
-        {
-            children.Add(ConsumeName());
-            Advance();
-        }
-        children.Add(ParseName());
-        if (Take(ColonToken))
-        {
-            do
-            {
-                children.Add(ConsumeName());
-                if (Take(EqualsToken)) { children.Add(ConsumeName()); }
-            } while (Take(CommaToken));
-        }
-        Terminate();
-        return Node(NodeKind.ImportDeclaration, start, children);
-    }
-
-    private SyntaxNode ParseObject(int start)
-    {
-        bool companion = Take(CompanionKeyword);
-        Expect(ObjectKeyword);
-        var children = new List<SyntaxNode>();
-        if (!companion || Kind == IdentifierToken) { children.Add(ConsumeName()); }
-        if (Kind != OpenBraceToken)
-        {
-            Error("SOL1102", "Object base lists are not implemented in this frontend build.");
-            return Recover(start);
-        }
-        RequireSameLineBrace();
-        Advance();
-        while (!AtEnd && Kind != CloseBraceToken)
-        {
-            if (Take(SemicolonToken)) { continue; }
-            int before = _index;
-            children.Add(ParseDeclaration());
-            EnsureProgress(before);
-        }
-        Expect(CloseBraceToken);
-        Take(SemicolonToken);
-        return Node(NodeKind.ObjectDeclaration, start, children);
-    }
-
-    private SyntaxNode ParseFunction(int start)
-    {
-        Advance();
-        var children = new List<SyntaxNode> { ConsumeName(), ParseParameters() };
-        if (Take(ColonToken)) { children.Add(ParseType()); }
-        if (IsText("throws"))
-        {
-            Advance();
-            do { children.Add(ParseType()); } while (Take(CommaToken));
-        }
-        if (Take(EqualsToken))
-        {
-            children.Add(ParseExpression());
-            Terminate();
-        }
-        else if (Kind == OpenBraceToken)
-        {
-            RequireSameLineBrace();
-            children.Add(ParseBlock());
-        }
-        else if (!Take(SemicolonToken))
-        {
-            Error("SOL1101", "Expected a function body.");
-        }
-        return Node(NodeKind.FunctionDeclaration, start, children);
-    }
-
-    private SyntaxNode ParseParameters()
-    {
-        int start = Start;
-        var groups = new List<SyntaxNode>();
-        Expect(OpenParenToken);
-        while (!AtEnd && Kind != CloseParenToken)
-        {
-            int before = _index;
-            int groupStart = Start;
-            var names = new List<SyntaxNode>();
-            if (Kind is RefKeyword or OutKeyword or VarargKeyword) { Advance(); }
-            names.Add(ConsumeName());
-            while (Kind == CommaToken && Peek(1).Kind == IdentifierToken)
-            {
-                Advance();
-                names.Add(ConsumeName());
-            }
-            Expect(ColonToken);
-            names.Add(ParseType());
-            if (Take(EqualsToken)) { names.Add(ParseExpression()); }
-            groups.Add(Node(NodeKind.ParameterGroup, groupStart, names));
-            EnsureProgress(before);
-            if (!Take(CommaToken)) { break; }
-        }
-        Expect(CloseParenToken);
-        return Node(NodeKind.ParameterList, start, groups);
-    }
-
-    private SyntaxNode ParseType()
-    {
-        int start = Start;
-        if (!Enter()) { return Recover(start); }
-        try
-        {
-            var children = new List<SyntaxNode>();
-            if (Take(OpenBracketToken))
-            {
-                if (Kind == IntegerLiteralToken) { Advance(); }
-                Expect(CloseBracketToken);
-                children.Add(ParseType());
-            }
-            else if (Take(OpenParenToken))
-            {
-                bool hasPassingMode = false;
-                while (!AtEnd && Kind != CloseParenToken)
-                {
-                    if (Kind is RefKeyword or OutKeyword) { hasPassingMode = true; Advance(); }
-                    children.Add(ParseType());
-                    if (!Take(CommaToken)) { break; }
-                }
-                Expect(CloseParenToken);
-                if (Take(ArrowToken)) { children.Add(ParseType()); }
-                else if (hasPassingMode) { Error("SOL1101", "Ref/out type modes require a function type."); }
-            }
-            else if (!Take(BangToken))
-            {
-                children.Add(ParseName());
-                if (Take(LessToken))
-                {
-                    do { children.Add(ParseType()); } while (Take(CommaToken) && Kind != GreaterToken);
-                    // Adjacent generic closers require contextual token splitting, not lexical rewriting.
-                    if (Kind == GreaterGreaterToken)
-                    {
-                        Error("SOL1102", "Adjacent generic closers are not implemented in this frontend build; the source is not accepted.");
-                        Advance();
-                    }
-                    else { Expect(GreaterToken); }
-                }
-            }
-            Take(QuestionToken);
-            return Node(NodeKind.Type, start, children);
-        }
-        finally { _depth--; }
-    }
-
-    private SyntaxNode ParseBinding(int start, bool terminate = true, bool allowDestructuring = false)
-    {
-        if (Take(ConstKeyword)) { Expect(ValKeyword); }
-        else { Advance(); }
-        var children = new List<SyntaxNode> { allowDestructuring ? ParseBindingTarget() : ConsumeName() };
-        if (Take(ColonToken)) { children.Add(ParseType()); }
-        if (Take(EqualsToken)) { children.Add(ParseExpression()); }
-        else if (IsText("by")) { Advance(); children.Add(ParseExpression()); }
-        if (terminate) { Terminate(); }
-        return Node(NodeKind.Binding, start, children);
     }
 
     private SyntaxNode ParseBlock()
@@ -334,6 +159,12 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
             else { left = ParseAtom(); }
             while (!AtEnd && !Boundary)
             {
+                if (Kind == LessToken && left.Kind is NodeKind.NameExpression or NodeKind.MemberExpression
+                    && LooksLikeGenericApplication())
+                {
+                    left = Node(NodeKind.GenericExpression, start, [left, ParseTypeArguments()]);
+                    continue;
+                }
                 if (Kind == OpenParenToken)
                 {
                     left = Node(NodeKind.CallExpression, start, [left, ParseArguments()]);
@@ -401,7 +232,7 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
             Advance();
             return Node(NodeKind.LiteralExpression, start, []);
         }
-        if (Kind is IdentifierToken or ThisKeyword or SuperKeyword)
+        if (Kind is IdentifierToken or ThisKeyword or SuperKeyword || Kind == DefaultKeyword && Peek(1).Kind == LessToken)
         {
             Advance();
             return Node(NodeKind.NameExpression, start, []);
@@ -440,7 +271,7 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
     {
         int start = Start;
         var names = new List<SyntaxNode> { ConsumeName() };
-        while (Take(DotToken)) { names.Add(ConsumeName()); }
+        while (!Boundary && Take(DotToken)) { names.Add(ConsumeName()); }
         return Node(NodeKind.QualifiedName, start, names);
     }
 
@@ -453,7 +284,7 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
 
     private void RequireSameLineBrace()
     {
-        if (Boundary) { Error("SOL1103", "The opening brace must be on the same logical line as its header."); }
+        if (HasLeadingNewline()) { Error("SOL1103", "The opening brace must be on the same logical line as its header."); }
     }
 
     private void Terminate()
@@ -462,7 +293,7 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
         Error("SOL1101", "Expected a statement separator.");
     }
 
-    private bool Boundary => _suppressedNewlines == 0 && _index > 0 && CanEnd(lex.Tokens[_index - 1].Kind)
+    private bool Boundary => _suppressedNewlines == 0 && _index > 0 && (_typeEnded || CanEnd(lex.Tokens[_index - 1].Kind))
         && Current.LeadingTrivia.Any(t => t.Kind == TriviaKind.Newline
             || (t.Kind == TriviaKind.BlockComment && HasNewline(t.Span)));
 
@@ -501,7 +332,13 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
     private bool IsText(string text) => Kind == IdentifierToken && lex.Source.GetText(Current.Span) == text;
     private SyntaxToken Peek(int distance) => PeekAbsolute(_index + distance);
     private SyntaxToken PeekAbsolute(int index) => lex.Tokens[Math.Min(index, lex.Tokens.Length - 1)];
-    private void Advance() { cancellation.ThrowIfCancellationRequested(); if (!AtEnd) { _index++; } }
+    private void Advance()
+    {
+        cancellation.ThrowIfCancellationRequested();
+        _lastEnd = Current.Span.End;
+        _typeEnded = false;
+        if (!AtEnd) { _tokenOffset = 0; _index++; }
+    }
     private bool Take(SyntaxKind kind) { if (Kind != kind) { return false; } Advance(); return true; }
     private void Expect(SyntaxKind kind) { if (!Take(kind)) { Error("SOL1101", $"Expected {kind}."); } }
     private void Error(string code, string message)
@@ -520,8 +357,9 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
             items = [];
             depth = 1;
         }
-        var node = new SyntaxNode(kind,
-            TextSpan.FromBounds(start, Math.Max(start, _index == 0 ? start : lex.Tokens[_index - 1].Span.End)), items);
+        int end = Math.Max(start, _lastEnd);
+        foreach (var child in items) { end = Math.Max(end, child.Span.End); }
+        var node = new SyntaxNode(kind, TextSpan.FromBounds(start, end), items);
         _nodeDepths.Add(node, depth);
         return node;
     }
