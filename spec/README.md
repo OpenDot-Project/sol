@@ -6,6 +6,11 @@ example is a language contract, not a claim that the current compiler can build 
 
 `examples/` contains larger usage examples grouped by subject. Every file declares its logical
 module explicitly; directory and module names do not have to match. Compile source sets explicitly.
+The normal project convention is lowercase directories and PascalCase `.sol` filenames. Follow the
+declared module segments below the source root: `module myproject.example` conventionally lives in
+`src/myproject/example/Greeter.sol`. The compiler accepts other explicit paths; layout is a naming
+convention, not a module-resolution requirement. This specification corpus groups subjects for
+reading, rather than placing every contract into a conventional application source tree.
 Do not link this entire corpus as one application: several examples intentionally have independent
 `Main` objects, and the module/partial example has a documented two-file source set.
 

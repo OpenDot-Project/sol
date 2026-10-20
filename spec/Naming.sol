@@ -21,6 +21,12 @@ func <Element> identity(value: Element): Element = value
 // Type parameters use T/E/K/V/R or a descriptive UpperCamelCase role.
 // Module segments use lower case. Paths and case-insensitive Windows collisions are
 // checked separately from case-sensitive language symbol identity.
+// Directory names conventionally use lowercase; Sol source filenames use PascalCase,
+// such as src/myproject/example/HttpClient.sol for module myproject.example.
+// Following module segments below the source root is the expected conventional layout.
+// The explicit module declaration remains authoritative: a different path is still legal.
+// A file can group related declarations; one type per file is not mandatory. Partial
+// parts may use PascalCase segments, for example HttpClient.Parsing.sol.
 // Compiler intrinsics use snake_case: size_of, align_of, offset_of, type_of, debug_assert.
 // Primitive helpers such as to_string/try_parse/min_value keep their intrinsic spelling.
 // Ordinary std APIs remain lowerCamelCase: String.byteLength, Object.hashCode, Vector.removeAt.

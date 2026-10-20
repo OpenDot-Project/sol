@@ -24,6 +24,9 @@ partial object Versions { const val CURRENT: int = 1 }
 partial object Versions { func current(): int = CURRENT }
 
 // A logical module is declared explicitly in every file and never inferred from its path.
+// Conventionally module myproject.example uses src/myproject/example/PascalCase.sol.
+// Lowercase directories and PascalCase source filenames are the normal project style;
+// explicit source sets may depart from that layout without changing module identity.
 // std.core is implicitly imported. Imports belong to the file, declarations to its module.
 // Normal imports expose public names; module aliases qualify access. Selective local=original
 // renames are explicit. public import re-exports public symbols, without widening private access.

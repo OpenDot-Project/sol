@@ -19,7 +19,13 @@ planned even where the syntax is already accepted.
 | [Generic bounds](generics/NamedItems.sol) | One file | Nominal constraints and explicit generic calls |
 | [Native clock](native/Clock.sol) | One file | Verified unsafe Windows C call in a later backend |
 | [Partial type](modules/Panel.Storage.sol) | Both `Panel.Storage.sol` and [Panel.Behavior.sol](modules/Panel.Behavior.sol) | One type split across files of the same logical module |
+| [Conventional layout](layout/src/myproject/example/Greeter.sol) | `Greeter.sol` and [Main.sol](layout/src/myproject/example/Main.sol), rooted at `layout/` | Lowercase module directories and PascalCase source files |
 
 Source sets are explicit. A directory path does not determine a module, create a project root or
 discover dependencies. Several examples intentionally define their own `Main`; do not combine
 independent application examples into a single executable compilation.
+
+The conventional application layout follows module segments under `src/`, using lowercase directory
+names and PascalCase `.sol` filenames. The `layout/` example demonstrates this normal convention;
+other examples are grouped by subject for documentation. Departing from the conventional module
+path remains legal and does not change the declared module identity.

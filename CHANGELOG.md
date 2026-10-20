@@ -33,6 +33,8 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Changed
 
+- Clarified the conventional Sol source layout: lowercase directories, PascalCase filenames,
+  and module-matching paths under the source root, while explicit alternative paths remain valid.
 - Accept ordered named/positional mixing and a single vararg at any parameter position; named varargs
   require arrays and vararg defaults are used only when omitted. Preserve trailing lambda destinations
   across defaults/varargs, including calls without parentheses. Overrides cannot redefine defaults.
