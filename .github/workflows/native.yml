@@ -32,6 +32,9 @@ jobs:
       - run: ./eng/install-llvm.ps1
       - run: dotnet restore Sol.slnx --locked-mode
       - run: ./eng/build-backend.ps1
+      - run: dotnet tool restore
+      - name: Inspect native and C++/CLI sources
+        run: ./eng/native-tools.ps1 -Mode Inspect
       - run: ./eng/test-native.ps1
       - run: ./eng/test-runtime.ps1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -40,5 +43,6 @@ jobs:
           path: |
             out/native-tests/
             out/native/runtime/asan-harness/
+            out/jetbrains/native.sarif.json
           if-no-files-found: error
           retention-days: 7

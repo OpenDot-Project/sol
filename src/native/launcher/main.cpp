@@ -17,10 +17,11 @@ namespace
 
 class Handle final
 {
-  public:
+public:
     explicit Handle(HANDLE value = nullptr) : value_(value)
     {
     }
+
     ~Handle() noexcept
     {
         if (value_ && value_ != INVALID_HANDLE_VALUE)
@@ -28,16 +29,18 @@ class Handle final
             CloseHandle(value_);
         }
     }
-    Handle(const Handle&) = delete;
-    Handle& operator=(const Handle&) = delete;
-    Handle(Handle&&) = delete;
-    Handle& operator=(Handle&&) = delete;
+
+    Handle(const Handle &) = delete;
+    Handle &operator=(const Handle &) = delete;
+    Handle(Handle &&) = delete;
+    Handle &operator=(Handle &&) = delete;
+
     [[nodiscard]] HANDLE Get() const noexcept
     {
         return value_;
     }
 
-  private:
+private:
     HANDLE value_;
 };
 
@@ -94,8 +97,8 @@ int Run()
     }
 
     int count = 0;
-    std::unique_ptr<wchar_t*, decltype(&LocalFree)> arguments(CommandLineToArgvW(GetCommandLineW(), &count),
-                                                              &LocalFree);
+    std::unique_ptr<wchar_t *, decltype(&LocalFree)> arguments(CommandLineToArgvW(GetCommandLineW(), &count),
+                                                               &LocalFree);
     if (!arguments)
     {
         return 70;
@@ -106,7 +109,7 @@ int Run()
         command += L" " + Quote(arguments.get()[index]);
     }
 
-    for (const auto* key : {L"DOTNET_ROOT", L"DOTNET_ROOT_X64", L"DOTNET_ADDITIONAL_DEPS", L"DOTNET_SHARED_STORE",
+    for (const auto *key : {L"DOTNET_ROOT", L"DOTNET_ROOT_X64", L"DOTNET_ADDITIONAL_DEPS", L"DOTNET_SHARED_STORE",
                             L"DOTNET_STARTUP_HOOKS", L"DOTNET_ROLL_FORWARD", L"DOTNET_ROLL_FORWARD_TO_PRERELEASE",
                             L"DOTNET_HOST_PATH", L"CORECLR_ENABLE_PROFILING", L"COR_ENABLE_PROFILING"})
     {
@@ -162,7 +165,7 @@ int wmain()
     {
         return OpenDot::Sol::Launcher::Run();
     }
-    catch (const std::exception& error)
+    catch (const std::exception &error)
     {
         std::fprintf(stderr, "solc: launcher failure: %s\n", error.what());
         return 70;

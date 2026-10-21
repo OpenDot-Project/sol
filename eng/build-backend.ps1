@@ -11,7 +11,7 @@ $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Componen
 if (-not $vs) { throw 'MSVC C++ and C++/CLI tools are required.' }
 $msbuild = Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe'
 $dotnet = (Get-Command dotnet).Source
-& $dotnet build (Join-Path $root 'Sol.slnx') -c Release -p:UseSharedCompilation=false
+& $dotnet build (Join-Path $root 'src/managed/OpenDot.Sol.Cli/OpenDot.Sol.Cli.csproj') -c Release -p:UseSharedCompilation=false
 if ($LASTEXITCODE -ne 0) { throw 'Managed backend build failed.' }
 $packs = Join-Path (Split-Path $dotnet -Parent) 'packs'
 $reference = Get-ChildItem (Join-Path $packs 'Microsoft.NETCore.App.Ref') -Directory | Where-Object Name -Like '10.*' | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
@@ -25,6 +25,7 @@ foreach ($platform in $toolsets) {
 }
 if (-not $toolset) { throw 'A qualified MSVC platform toolset is required.' }
 $properties = @('/nologo', '/nodeReuse:false', '/p:Configuration=Release', '/p:Platform=x64', "/p:PlatformToolset=$($toolset.Name)")
+$properties += @('/p:EnableCppCoreCheck=true', '/p:RunCodeAnalysis=true', '/p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset')
 & $msbuild (Join-Path $root 'src/native/llvm-bridge/llvm-bridge.vcxproj') @properties "/p:LLVMRoot=$LlvmRoot" "/p:DotNetPackRoot=$packs" "/p:ReferencePackVersion=$($reference.Name)"
 if ($LASTEXITCODE -ne 0) { throw 'C++/CLI LLVM bridge build failed.' }
 & $msbuild (Join-Path $root 'src/native/runtime/runtime.vcxproj') @properties

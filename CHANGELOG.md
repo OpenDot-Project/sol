@@ -6,6 +6,9 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Pinned JetBrains native/C++/CLI cleanup and inspection, MSVC CppCoreCheck build settings,
+  and a separate digest-verified Doxygen HTML/XML validation workflow for Windows.
+
 - Verified native-subset FIR, independent type/call/literal and CFG assignment verification,
   `--emit=fir`/`--emit=llvm-ir`, and a qualified LLVM 23.1.3 AOT executable path.
 - C++20/CLI LLVM bridge with native RAII, pre/post-pass verification, and COFF object generation.

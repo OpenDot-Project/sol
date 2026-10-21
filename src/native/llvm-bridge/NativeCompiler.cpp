@@ -17,6 +17,7 @@ namespace OpenDot::Sol::LlvmBridge
 namespace
 {
 std::once_flag Initialization;
+
 void InitializeTargets()
 {
     LLVMInitializeX86TargetInfo();
@@ -32,6 +33,7 @@ struct Session final
     LLVMTargetMachineRef Machine = nullptr;
     LLVMMemoryBufferRef Input = nullptr;
     LLVMMemoryBufferRef Output = nullptr;
+
     ~Session()
     {
         if (Output)
@@ -54,7 +56,7 @@ struct Session final
     }
 };
 
-void Check(LLVMBool failed, char* message)
+void Check(LLVMBool failed, char *message)
 {
     std::string text = message ? message : "LLVM operation failed.";
     if (message)
@@ -69,7 +71,7 @@ void Check(LLVMBool failed, char* message)
 
 void Verify(LLVMModuleRef module)
 {
-    char* message = nullptr;
+    char *message = nullptr;
     const auto failed = LLVMVerifyModule(module, LLVMReturnStatusAction, &message);
     Check(failed, message);
 }
@@ -81,7 +83,8 @@ std::string NativeVersion()
     LLVMGetVersion(&major, &minor, &patch);
     return std::to_string(major) + "." + std::to_string(minor) + "." + std::to_string(patch);
 }
-std::vector<unsigned char> CompileNative(const char* ir, std::size_t size)
+
+std::vector<unsigned char> CompileNative(const char *ir, std::size_t size)
 {
     if (NativeVersion() != "23.1.3")
     {
@@ -90,7 +93,7 @@ std::vector<unsigned char> CompileNative(const char* ir, std::size_t size)
     std::call_once(Initialization, InitializeTargets);
     Session session;
     session.Input = LLVMCreateMemoryBufferWithMemoryRangeCopy(ir, size, "sol-module");
-    char* message = nullptr;
+    char *message = nullptr;
     auto failed = LLVMParseIRInContext2(session.Context, session.Input, &session.Module, &message);
     Check(failed, message);
     Verify(session.Module);
@@ -123,7 +126,7 @@ std::vector<unsigned char> CompileNative(const char* ir, std::size_t size)
     failed =
         LLVMTargetMachineEmitToMemoryBuffer(session.Machine, session.Module, LLVMObjectFile, &message, &session.Output);
     Check(failed, message);
-    const auto start = reinterpret_cast<const unsigned char*>(LLVMGetBufferStart(session.Output));
+    const auto start = reinterpret_cast<const unsigned char *>(LLVMGetBufferStart(session.Output));
     return {start, start + LLVMGetBufferSize(session.Output)};
 }
 } // namespace OpenDot::Sol::LlvmBridge

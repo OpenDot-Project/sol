@@ -48,6 +48,8 @@
       href: yellow-tea/validation-and-delivery.md
 - name: Development and validation
   href: development.md
+- name: Native implementation tooling
+  href: native-tooling.md
 - name: Status and roadmap
   href: status.md
 - name: API reference
