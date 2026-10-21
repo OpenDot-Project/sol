@@ -36,7 +36,15 @@ jobs:
       - name: Inspect native and C++/CLI sources
         run: ./eng/native-tools.ps1 -Mode Inspect
       - run: ./eng/test-native.ps1
+      - run: ./eng/test-backends.ps1
       - run: ./eng/test-runtime.ps1
+      - name: Managed orchestration coverage with the real native backend
+        run: |
+          $env:SOL_TEST_NATIVE_REQUIRED = '1'
+          $env:SOLC_NATIVE_ROOT = Join-Path $PWD 'out/native/backend'
+          dotnet test --solution Sol.slnx --no-restore --configuration Release --coverlet --coverlet-output-format cobertura --report-xunit-trx --results-directory out/test-results/native
+          if ($LASTEXITCODE -ne 0) { throw 'Required native integration tests failed.' }
+          if (@(Get-ChildItem out/test-results/native -Filter 'coverage.cobertura.*.xml').Count -eq 0) { throw 'Native orchestration coverage is missing.' }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-validation
@@ -46,3 +54,39 @@ jobs:
             out/jetbrains/native.sarif.json
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-coverage
+          path: |
+            out/test-results/native/**/coverage.cobertura.*.xml
+            out/test-results/native/**/*.trx
+          if-no-files-found: error
+          retention-days: 7
+
+  coverage:
+    name: Native orchestration Codecov upload
+    needs: aot
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-2025
+    timeout-minutes: 10
+    permissions:
+      actions: read # Download this run's coverage report; no repository code is executed here.
+      contents: read
+      id-token: write # Authenticate the report-only Codecov upload through OIDC.
+    steps:
+      - name: Download native validation reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: gh run download $env:RUN_ID --name native-coverage --dir coverage
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          use_oidc: true
+          directory: coverage
+          fail_ci_if_error: true
+          flags: native-orchestration
+          slug: ${{ github.repository }}
+          override_commit: ${{ github.event.pull_request.head.sha || github.sha }}
+          override_branch: ${{ github.head_ref || github.ref_name }}
+          override_pr: ${{ github.event.pull_request.number || '' }}

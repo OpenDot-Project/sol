@@ -12,36 +12,57 @@ using OpenDot.Sol.Fir;
 
 namespace OpenDot.Sol.Lowering;
 
-public sealed record NativeArtifact(byte[] Executable, byte[]? RuntimeDll, string LlvmIr);
+public enum NativeArtifactKind { Bin, Cdylib, Staticlib, Solib }
+public sealed record NativeArtifact(byte[] Executable, byte[]? RuntimeDll, string LlvmIr)
+{
+    public byte[]? ImportLibrary { get; init; }
+    public byte[]? RuntimeLibrary { get; init; }
+}
 
 /// <summary>LLVM object production and isolated lld-link execution for the qualified Windows bootstrap.</summary>
 public static class NativeCompiler
 {
     public static NativeArtifact Compile(VerifiedFirProgram program, bool staticRuntime = false,
-        string? backendDirectory = null, CancellationToken cancellationToken = default)
+        string? backendDirectory = null, CancellationToken cancellationToken = default, NativeArtifactKind kind = NativeArtifactKind.Bin, string? artifactName = null)
     {
         ArgumentNullException.ThrowIfNull(program);
         cancellationToken.ThrowIfCancellationRequested();
         string root = Path.GetFullPath(backendDirectory ?? Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT")
             ?? Path.Combine(AppContext.BaseDirectory, "native"));
-        string llvmIr = LlvmEmitter.Emit(program, staticRuntime, cancellationToken);
+        if (!Enum.IsDefined(kind) || program.Program.IsLibrary != (kind != NativeArtifactKind.Bin))
+        { throw new ArgumentException("Artifact kind and verified entry contract do not match.", nameof(kind)); }
+        if (artifactName is not null && (artifactName != Path.GetFileName(artifactName) || artifactName.Length == 0))
+        { throw new ArgumentException("Artifact name must be a file basename.", nameof(artifactName)); }
+        string llvmIr = LlvmEmitter.Emit(program, staticRuntime, cancellationToken, cExports: kind is NativeArtifactKind.Cdylib or NativeArtifactKind.Staticlib);
         var bridge = LoadBridge(root);
         byte[] objectBytes = bridge.CompileObject(llvmIr);
         if (objectBytes.Length < 20 || objectBytes[0] != 0x64 || objectBytes[1] != 0x86)
         { throw new IOException("LLVM did not produce an AMD64 COFF object."); }
+        if (kind == NativeArtifactKind.Solib)
+        { return new(SolLibraryArchive.Create(program, llvmIr, objectBytes, staticRuntime), null, llvmIr); }
         string scratch = Path.Combine(Path.GetTempPath(), "sol-native-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
         try
         {
-            string objectPath = Path.Combine(scratch, "program.obj"), output = Path.Combine(scratch, "program.exe");
+            string extension = kind == NativeArtifactKind.Bin ? ".exe" : kind == NativeArtifactKind.Cdylib ? ".dll" : ".lib";
+            string objectPath = Path.Combine(scratch, "program.obj");
+            // A DLL import library embeds this basename; it must match the consumer's deployed DLL.
+            string output = Path.Combine(scratch, kind == NativeArtifactKind.Cdylib ? artifactName ?? "program.dll" : "program" + extension);
             File.WriteAllBytes(objectPath, objectBytes);
             var configuration = File.ReadAllLines(Path.Combine(root, "link-paths.txt"));
-            string linker = Path.Combine(root, "lld-link.exe");
+            string linker = Path.Combine(root, kind == NativeArtifactKind.Staticlib ? "llvm-lib.exe" : "lld-link.exe");
             if (!File.Exists(linker)) { throw new IOException("The qualified lld-link executable is missing."); }
             string runtime = Path.Combine(root, staticRuntime ? "SolRT-static.lib" : "SolRT.lib");
-            var arguments = new List<string> { "/nologo", "/machine:x64", "/subsystem:console", "/Brepro", "/out:" + output,
-                objectPath, runtime, "libcmt.lib", "libvcruntime.lib", "libucrt.lib", "oldnames.lib", "kernel32.lib" };
-            arguments.AddRange(configuration.Select(path => "/libpath:" + path));
+            var arguments = new List<string> { "/nologo", "/machine:x64", "/out:" + output, objectPath };
+            if (kind == NativeArtifactKind.Staticlib)
+            { if (staticRuntime) { arguments.Add(runtime); } }
+            else
+            {
+                arguments.AddRange(["/Brepro", runtime, "libcmt.lib", "libvcruntime.lib", "libucrt.lib", "oldnames.lib", "kernel32.lib"]);
+                if (kind == NativeArtifactKind.Cdylib) { arguments.AddRange(["/dll", "/implib:" + Path.Combine(scratch, "program.lib")]); }
+                else { arguments.Add("/subsystem:console"); }
+                arguments.AddRange(configuration.Select(path => "/libpath:" + path));
+            }
             var info = new ProcessStartInfo(linker) { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true, CreateNoWindow = true };
             foreach (string argument in arguments) { info.ArgumentList.Add(argument); }
             using var process = Process.Start(info) ?? throw new IOException("Could not start lld-link.");
@@ -50,11 +71,19 @@ public static class NativeCompiler
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromMinutes(2));
             try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); }
-            catch (OperationCanceledException) { if (!process.HasExited) { process.Kill(true); } throw; }
+            catch (OperationCanceledException)
+            {
+                if (!process.HasExited) { process.Kill(true); process.WaitForExit(30000); }
+                throw;
+            }
             string message = error.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult();
             if (process.ExitCode != 0) { throw new IOException("lld-link failed: " + message); }
             cancellationToken.ThrowIfCancellationRequested();
-            return new(File.ReadAllBytes(output), staticRuntime ? null : File.ReadAllBytes(Path.Combine(root, "SolRT.dll")), llvmIr);
+            return new(File.ReadAllBytes(output), staticRuntime ? null : File.ReadAllBytes(Path.Combine(root, "SolRT.dll")), llvmIr)
+            {
+                ImportLibrary = kind == NativeArtifactKind.Cdylib ? File.ReadAllBytes(Path.Combine(scratch, "program.lib")) : null,
+                RuntimeLibrary = kind == NativeArtifactKind.Staticlib && !staticRuntime ? File.ReadAllBytes(runtime) : null,
+            };
         }
         finally { Directory.Delete(scratch, true); }
     }

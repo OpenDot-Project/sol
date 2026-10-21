@@ -13,7 +13,7 @@ public sealed class CommandLineException(string message) : Exception(message);
 public enum CompilerCommand { Compile, Help, Version, Print, Explain }
 public enum CompilerBackend { Aot, Orc }
 public enum ArtifactType { Bin, Cdylib, Staticlib, Solib }
-public enum EmitKind { Cst, Link, Ast, Fir, LlvmIr }
+public enum EmitKind { Cst, Link, Ast, Fir, LlvmIr, Jit }
 public enum SolrtLinkage { Dynamic, Static }
 
 public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<string> Sources,
@@ -21,11 +21,13 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
     string OutputDirectory, bool JsonErrors, int ErrorLimit, string? Query, bool Verbose, string Color)
 {
     public SolrtLinkage RuntimeLinkage { get; init; } = SolrtLinkage.Dynamic;
+    public ImmutableArray<string> ProgramArguments { get; init; } = [];
 
     public static CompilerOptions Parse(IEnumerable<string> arguments)
     {
         var args = Expand(arguments);
         var sources = ImmutableArray.CreateBuilder<string>();
+        var tail = ImmutableArray.CreateBuilder<string>();
         var scalars = new Dictionary<string, string>(StringComparer.Ordinal);
         CompilerCommand command = CompilerCommand.Compile;
         string? query = null;
@@ -34,7 +36,7 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
         for (int index = 0; index < args.Count; index++)
         {
             string arg = args[index];
-            if (literal) { sources.Add(arg); continue; }
+            if (literal) { tail.Add(arg); continue; }
             if (arg == "--") { literal = true; continue; }
             string option = arg;
             string? value = null;
@@ -100,6 +102,11 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
             }
         }
 
+        string backend = Get("llvm-compiler", "aot");
+        string emit = Get("--emit", backend == "orc" ? "jit" : "link");
+        if (emit != "jit") { sources.AddRange(tail); }
+        if (emit == "jit" && (backend != "orc" || Get("--artifact-type", "bin") != "bin" || scalars.ContainsKey("-o") || scalars.ContainsKey("--out-dir")))
+        { throw new CommandLineException("JIT execution requires the ORC bin backend and has no output path."); }
         if (command == CompilerCommand.Compile && sources.Count == 0)
         {
             throw new CommandLineException("No source files were provided. Use --help for usage.");
@@ -108,8 +115,6 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
         {
             throw new CommandLineException("An informational command cannot be combined with compilation inputs or options.");
         }
-        string emit = Get("--emit", "link");
-        string backend = Get("llvm-compiler", "aot");
         string artifact = Get("--artifact-type", "bin");
         string errorFormat = Get("--error-format", "human");
         if (Get("--edition", "2026") != "2026") { throw new CommandLineException("Only edition 2026 is supported."); }
@@ -131,6 +136,7 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
             "fir" => EmitKind.Fir,
             "llvm-ir" => EmitKind.LlvmIr,
             "link" => EmitKind.Link,
+            "jit" => EmitKind.Jit,
             _ => throw new CommandLineException($"Emission '{emit}' is not available in this build."),
         }, backend switch
         {
@@ -148,6 +154,7 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
             errorFormat == "json", limit, query, verbose, Get("--color", "auto"))
         {
             RuntimeLinkage = scalars.ContainsKey("--static-solrt-lib") ? SolrtLinkage.Static : SolrtLinkage.Dynamic,
+            ProgramArguments = emit == "jit" ? tail.ToImmutable() : [],
         };
 
         void SetCommand(CompilerCommand next)

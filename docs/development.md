@@ -97,7 +97,7 @@ Every repository workflow runs on Windows 2025. Jobs are separated by responsibi
 | `build.yml` | Debug/Release tests, process smoke, TRX/Cobertura artifacts, separate OIDC Codecov upload. |
 | `docfx.yml` | Locked restore, metadata/site build with warnings as errors, output boundary checks. |
 | `doxygen.yml` | Digest-pinned Doxygen, native/C++/CLI HTML and XML, documentation warnings as errors. |
-| `native.yml` | LLVM AOT execution/import checks, SolRT ASan harness, and JetBrains native/C++/CLI inspection. |
+| `native.yml` | AOT/ORC and native library consumers, SolRT model/ASan/concurrency harness, JetBrains inspection, and required managed native-orchestration coverage. |
 | `codeql.yml` | Manual traced builds and security-extended analysis for C# and native C++. |
 | `security.yml` | Digest-verified actionlint, offline zizmor audit, and OSV scanning of tracked NuGet lockfiles. |
 | `package.yml` | Component assembly, private-runtime smoke, and archive artifact. |

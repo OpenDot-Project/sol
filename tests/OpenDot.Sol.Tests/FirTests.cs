@@ -61,7 +61,6 @@ public sealed class FirTests
     [InlineData("try { println(1) } catch (e: IOException) {}")]
     [InlineData("println(default<int>())")]
     [InlineData("println(id(1))", "func <T> id(value: T): T = value")]
-    [InlineData("val values = [1, 2]; println(values.length)")]
     [InlineData("println(overflow())", "func overflow(): byte = 256")]
     [InlineData("println(1)", "val globalValue = 42")]
     [InlineData("stop()", "func stop(): ! { for {} }")]

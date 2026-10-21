@@ -19,10 +19,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Doxygen native documentation validation failed.' }
     if (-not (Test-Path out/doxygen/html/index.html)) { throw 'Missing Doxygen HTML output.' }
     [xml]$index = Get-Content out/doxygen/xml/index.xml -Raw
-    foreach ($name in @('SolRT.h', 'NativeCompiler.h', 'Compiler.cpp', 'main.cpp')) {
+    foreach ($name in @('SolRT.h', 'Gc.h', 'Core.h', 'GcWorker.cpp', 'NativeCompiler.h', 'Compiler.cpp', 'main.cpp', 'Main.cpp')) {
         if ($name -notin @($index.doxygenindex.compound.name)) { throw "Native documentation input is missing: $name" }
     }
-    foreach ($name in @('OpenDot::Sol::LlvmBridge::Compiler', 'OpenDot::Sol::Runtime::TypeDescriptor', 'OpenDot::Sol::Runtime::StringArray')) {
+    foreach ($name in @('OpenDot::Sol::LlvmBridge::Compiler', 'OpenDot::Sol::Runtime::TypeDescriptor', 'OpenDot::Sol::Runtime::StringArray', 'OpenDot::Sol::Runtime::RootFrame', 'OpenDot::Sol::Runtime::ExceptionCarrier')) {
         if ($name -notin @($index.doxygenindex.compound.name)) { throw "Native API extraction is missing: $name" }
     }
     Write-Host "Doxygen $($pin.version) native HTML/XML validation passed."

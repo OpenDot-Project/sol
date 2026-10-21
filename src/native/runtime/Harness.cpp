@@ -1,16 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "SolRT.h"
+#include "Gc.h"
 #include <cstring>
+#include <cwchar>
 
 using namespace OpenDot::Sol::Runtime;
+int RunGcTests();
+int RunGcModelTests();
 
-int wmain()
+int wmain(int argc, wchar_t **argv)
 {
+    if (argc == 2 && std::wcscmp(argv[1], L"heap-pressure") == 0)
+    {
+        sol_gc_attach();
+        sol_gc_alloc(&sol_rt_object_type, 20 * 1024 * 1024);
+        return 90;
+    }
     wchar_t executable[] = L"harness.exe";
     wchar_t first[] = L"Sol";
     wchar_t second[] = L"\u0130stanbul";
     wchar_t empty[] = L"";
-    wchar_t* arguments[]{executable, first, second, empty};
+    wchar_t *arguments[]{executable, first, second, empty};
     for (int iteration = 0; iteration < 100; ++iteration)
     {
         auto array = sol_rt_arguments(4, arguments);
@@ -49,5 +59,6 @@ int wmain()
     {
         return 6;
     }
-    return 0;
+    const int model = RunGcModelTests();
+    return model ? model : RunGcTests();
 }

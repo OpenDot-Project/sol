@@ -1,6 +1,6 @@
 # Sol native implementation
 
-This tree owns the Windows launcher, the LLVM bridge, and the native SolRT bootstrap. All projects
+This tree owns the Windows launcher, LLVM bridge, ORC execution host, and native SolRT. All projects
 use MSBuild and C++20. The implementation namespace is `OpenDot::Sol`; it is separate from Sol
 source-language naming.
 
@@ -21,16 +21,26 @@ uses the exact LLVM C interface; native LLVM types do not enter managed metadata
 String-array fixed prefixes occupy 16, 24, and 32 bytes respectively. Static assertions and the
 ASan harness check these boundaries. The descriptor layout is provisional, not a stable collectible ABI.
 
-`runtime/SolRT.cpp` owns UTF-8 argument storage from entry until shutdown. Literals use static
+`runtime/SolRT.cpp` roots UTF-8 arguments with an entry handle until shutdown. Literals use static
 storage and publish their descriptor atomically. Output helpers use Windows handles; scalar
 formatting does not introduce a CLR dependency. Dynamic and static libraries expose the same C
 entry points. The generated program imports SolRT.dll by default; static SolRT linking removes
 that import.
 
-This arena does not implement Yellow Tea. User allocation, root frames, barriers, exception
-unwinding, and general managed-object layouts remain outside the qualified native subset. The
-native failure helper reports an unhandled bootstrap error and exits; it does not allocate or
-throw a full Sol exception object.
+`Gc.cpp` owns thread registration, frames, the insertion barrier, allocation records and handles.
+`GcWorker.cpp` implements root handshakes and concurrent mark/sweep; sweep uses a frozen allocation
+boundary so new allocations cannot indefinitely extend a cycle. `GcConfig.cpp` validates heap limits.
+`Core.cpp` implements UTF-8 String services and rooted native Throwable carriers/suppression;
+`Arrays.cpp` supplies typed scalar/reference arrays. The allocator is individually aligned storage,
+not the planned span allocator. Source class construction and EH lowering remain incomplete.
+
+## ORC guest process
+
+`exec-host/Main.cpp` owns LLVM LLJIT and the guest runtime. It verifies the exact LLVM version and
+IR target, binds a runtime-symbol allowlist, and executes the verified entry. It is plain C++20 and
+does not import CLR or C++/CLI hosting. The C# compiler launches it as a separate child: host .NET
+GC and guest Yellow Tea do not share a process or object references. This is not an OS sandbox.
+The current source subset does not establish generated Windows/ORC exception-unwind qualification.
 
 ## Launcher
 

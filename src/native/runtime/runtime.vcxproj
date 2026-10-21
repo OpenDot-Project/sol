@@ -30,13 +30,16 @@
       <LanguageStandard>stdcpp20</LanguageStandard><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary><ExceptionHandling>Sync</ExceptionHandling><ConformanceMode>true</ConformanceMode>
       <EnableASAN Condition="'$(TestHarness)' == 'true'">true</EnableASAN>
-      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>SOL_RT_BUILD;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(StaticRuntime)' == 'true'">SOL_RT_STATIC;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 /Brepro %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link><SubSystem>Console</SubSystem><TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors><AdditionalOptions>/Brepro /PDBALTPATH:%_PDB% %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="SolRT.cpp" /><ClInclude Include="SolRT.h" /></ItemGroup>
-  <ItemGroup Condition="'$(TestHarness)' == 'true'"><ClCompile Include="Harness.cpp" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="SolRT.cpp" /><ClCompile Include="Gc.cpp" /><ClCompile Include="GcWorker.cpp" /><ClCompile Include="GcConfig.cpp" /><ClCompile Include="Core.cpp" /><ClCompile Include="Arrays.cpp" />
+    <ClInclude Include="SolRT.h" /><ClInclude Include="Gc.h" /><ClInclude Include="GcInternal.h" /><ClInclude Include="Core.h" /><ClInclude Include="NativeScope.h" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TestHarness)' == 'true'"><ClCompile Include="Harness.cpp" /><ClCompile Include="GcHarness.cpp" /><ClCompile Include="GcModel.cpp" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

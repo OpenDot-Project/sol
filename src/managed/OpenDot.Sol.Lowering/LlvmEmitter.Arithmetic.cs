@@ -9,6 +9,20 @@ public sealed partial class LlvmEmitter
 {
     private Value Arithmetic(string operation, Value left, Value right, ResolvedType resultType)
     {
+        if (FirVerifier.IsString(left.SourceType))
+        {
+            string textResult = Temp();
+            if (operation == "+")
+            {
+                Line($"{textResult} = call ptr @sol_rt_string_concat(ptr {left.Operand}, ptr {right.Operand})");
+                return new("ptr", textResult, resultType);
+            }
+            string compared = Temp();
+            Line($"{compared} = call i32 @sol_rt_string_compare(ptr {left.Operand}, ptr {right.Operand})");
+            string relation = operation switch { "==" => "eq", "!=" => "ne", "<" => "slt", ">" => "sgt", "<=" => "sle", ">=" => "sge", _ => throw new InvalidOperationException("Unverified String operator.") };
+            Line($"{textResult} = icmp {relation} i32 {compared}, 0");
+            return new("i1", textResult, resultType);
+        }
         string result = Temp();
         bool floating = Floating(left.SourceType);
         bool unsigned = Unsigned(left.SourceType);

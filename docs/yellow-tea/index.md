@@ -1,17 +1,15 @@
 # Yellow Tea
 
-Yellow Tea is the planned native garbage collector for Sol programs on Windows x86-64. Its initial
+Yellow Tea is the native garbage collector being developed for Sol programs on Windows x86-64. Its initial
 algorithm is precise, non-moving, non-generational concurrent mark and sweep. Marking and sweeping
 run alongside application threads. Cycle start and mark termination use coordinated thread handshakes.
 
-**Implementation status:** this section specifies the intended collector. The repository currently
-has no implemented Yellow Tea allocator, collector workers, generated root frames, or native GC test
-harness. Solc's frontend tests and the tool's private .NET runtime do not validate this design.
-There are no measured pause, throughput, memory-overhead, or production-readiness claims.
-
-The development [SolRT bootstrap](../fir-native.md) now has native String/argument storage and an ASan
-ABI/lifetime harness. It uses entry-lifetime ownership without collection. It does not implement
-Yellow Tea allocation, generated GC frames/barriers, or the concurrent collector protocol below.
+**Implementation status:** an experimental concurrent baseline now has descriptors, generated roots,
+barriers, handles, a collector worker, and native ASan/model/stress fixtures. The span allocator,
+complete source object/EH support, and performance qualification remain incomplete. Read the
+[current implementation](current-implementation.md) for exact boundaries. These design chapters do
+not claim every described feature is implemented or released. There are no measured pause,
+throughput, memory-overhead, or production-readiness claims.
 
 ## Ownership
 
@@ -22,7 +20,8 @@ the [compiler/runtime ABI](compiler-runtime-abi.md).
 
 Yellow Tea manages the heap of compiled Sol applications. It does not collect the CLR heap used by
 Solc or the other development tools. A native object address is not a CLR object reference. The
-managed compiler and any LLVM bridge are outside the collector's application heap.
+managed compiler and any LLVM bridge are outside the collector's application heap. Host CLR and
+guest Yellow Tea execute in separate processes; ORC uses a native child host.
 
 ## Design boundaries
 

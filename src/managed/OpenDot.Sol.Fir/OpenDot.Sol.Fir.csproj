@@ -3,5 +3,6 @@
   <ItemGroup>
     <EmbeddedResource Include="../../stdlib/std/core/Core.sol" LogicalName="SolRT.Core.sol" />
     <EmbeddedResource Include="../../stdlib/std/stdio/Stdio.sol" LogicalName="SolRT.Stdio.sol" />
+    <EmbeddedResource Include="../../stdlib/std/math/Math.sol" LogicalName="SolRT.Math.sol" />
   </ItemGroup>
 </Project>

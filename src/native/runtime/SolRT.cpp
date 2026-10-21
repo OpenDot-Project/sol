@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "SolRT.h"
+#include "Gc.h"
 #include <windows.h>
 #include <charconv>
 #include <atomic>
@@ -10,36 +11,30 @@
 #include <limits>
 #include <mutex>
 #include <string_view>
-#include <vector>
 
 namespace OpenDot::Sol::Runtime
 {
 namespace
 {
-// Bootstrap lifetime: all argument storage stays owned until program shutdown. No GC is implemented here.
-std::vector<void *> Arguments;
+RuntimeHandle *Arguments = nullptr;
 std::mutex OutputLock;
-const TypeDescriptor ArrayType{32, 16, 2, 2, 0, nullptr, nullptr, nullptr, nullptr, nullptr};
 
-void *Allocate(std::size_t size)
+class NativeIo final
 {
-    void *data = _aligned_malloc(size, 16);
-    if (!data)
+public:
+    NativeIo()
     {
-        sol_rt_fail(6);
+        sol_gc_enter_native();
     }
-    std::memset(data, 0, size);
-    try
+
+    ~NativeIo()
     {
-        Arguments.push_back(data);
+        sol_gc_leave_native();
     }
-    catch (...)
-    {
-        _aligned_free(data);
-        sol_rt_fail(6);
-    }
-    return data;
-}
+};
+
+const std::uint32_t ReferenceOffset = 0;
+const ScanShape ReferenceElements{&ReferenceOffset, 1};
 
 void Write(const char *bytes, std::size_t length, int channel)
 {
@@ -64,7 +59,19 @@ using namespace OpenDot::Sol::Runtime;
 
 extern "C"
 {
-SOL_RT_API const TypeDescriptor sol_rt_string_type{24, 16, 1, 1, 0, nullptr, nullptr, nullptr, nullptr, nullptr};
+SOL_RT_API void sol_rt_check_abi(std::uint64_t contract)
+{
+    if (contract != 0x534F4C0000000001ULL)
+    {
+        sol_rt_fail(10);
+    }
+}
+
+SOL_RT_API const TypeDescriptor sol_rt_object_type{16, 16, 0, 0, 0, nullptr, nullptr, nullptr, nullptr, nullptr};
+SOL_RT_API const TypeDescriptor sol_rt_string_type{24, 16, 1, 1, 0, &sol_rt_object_type, nullptr, nullptr, nullptr,
+                                                   nullptr};
+SOL_RT_API const TypeDescriptor sol_rt_string_array_type{32, 16, 2, 2, 0, &sol_rt_object_type, &ReferenceElements,
+                                                         nullptr, nullptr, nullptr};
 
 SOL_RT_API String *sol_rt_literal(String *value)
 {
@@ -76,12 +83,14 @@ SOL_RT_API String *sol_rt_literal(String *value)
     const TypeDescriptor *expected = nullptr;
     type.compare_exchange_strong(expected, &sol_rt_string_type, std::memory_order_release,
                                  std::memory_order_acquire);
+    std::atomic_ref(value->Object.Flags).fetch_or(1U, std::memory_order_release);
     return value;
 }
 
 SOL_RT_API StringArray *sol_rt_arguments(int argc, wchar_t **argv)
 {
-    if (argc < 1 || !argv || !Arguments.empty())
+    sol_gc_attach();
+    if (argc < 1 || !argv || Arguments)
     {
         sol_rt_fail(7);
     }
@@ -90,8 +99,9 @@ SOL_RT_API StringArray *sol_rt_arguments(int argc, wchar_t **argv)
     {
         sol_rt_fail(6);
     }
-    auto array = static_cast<StringArray *>(Allocate(32 + count * sizeof(String *)));
-    array->Object.Type = &ArrayType;
+    auto array = reinterpret_cast<StringArray *>(
+        sol_gc_alloc(&sol_rt_string_array_type, 32 + count * sizeof(String *)));
+    Arguments = sol_gc_create_handle(&array->Object, false);
     array->Length = argc - 1;
     array->Stride = sizeof(String *);
     array->Element = &sol_rt_string_type;
@@ -108,8 +118,8 @@ SOL_RT_API StringArray *sol_rt_arguments(int argc, wchar_t **argv)
         {
             sol_rt_fail(7);
         }
-        auto value = static_cast<String *>(Allocate(24 + static_cast<std::size_t>(length)));
-        value->Object.Type = &sol_rt_string_type;
+        auto value = reinterpret_cast<String *>(
+            sol_gc_alloc(&sol_rt_string_type, 24 + static_cast<std::size_t>(length)));
         value->ByteLength = length;
         value->RuneCount = -1;
         if (length != 0 && WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, argv[index], static_cast<int>(units),
@@ -117,18 +127,16 @@ SOL_RT_API StringArray *sol_rt_arguments(int argc, wchar_t **argv)
         {
             sol_rt_fail(7);
         }
-        array->Data()[index - 1] = value;
+        sol_gc_store_ref(reinterpret_cast<Header **>(&array->Data()[index - 1]), &value->Object);
     }
     return array;
 }
 
 SOL_RT_API void sol_rt_shutdown()
 {
-    for (void *allocation : Arguments)
-    {
-        _aligned_free(allocation);
-    }
-    Arguments.clear();
+    sol_gc_release_handle(Arguments);
+    Arguments = nullptr;
+    ShutdownHeap();
 }
 
 [[noreturn]] SOL_RT_API void sol_rt_fail(int code)
@@ -145,10 +153,18 @@ SOL_RT_API void sol_rt_shutdown()
                               ? "Unhandled std.stdio.IOException: output failed\n"
                               : code == 6
                               ? "Unhandled std.core.OutOfMemoryError\n"
+                              : code == 8
+                              ? "SolRT configuration error: invalid SOL_GC_HEAP_LIMIT\n"
+                              : code == 9
+                              ? "Unhandled std.core.ArgumentException\n"
+                              : code == 10
+                              ? "SolRT runtime contract mismatch\n"
                               : "SolRT bootstrap invariant failed\n";
     DWORD ignored = 0;
     WriteFile(GetStdHandle(STD_ERROR_HANDLE), message, static_cast<DWORD>(std::strlen(message)), &ignored, nullptr);
-    std::exit(1);
+    // An invariant/OOM may be reported while holding a runtime lock. Static destruction would
+    // reacquire that lock and deadlock; fail-stop paths deliberately skip language cleanup.
+    std::_Exit(1);
 }
 
 SOL_RT_API void sol_rt_write_string(const String *value, int channel)
@@ -157,12 +173,14 @@ SOL_RT_API void sol_rt_write_string(const String *value, int channel)
     {
         sol_rt_fail(7);
     }
+    const NativeIo transition;
     const std::lock_guard lock(OutputLock);
     Write(value->Data(), value->ByteLength, channel);
 }
 
 SOL_RT_API void sol_rt_write_integer(std::uint64_t value, int kind, int channel)
 {
+    const NativeIo transition;
     const std::lock_guard lock(OutputLock);
     if (kind == 2)
     {
@@ -182,6 +200,7 @@ SOL_RT_API void sol_rt_write_integer(std::uint64_t value, int kind, int channel)
 
 SOL_RT_API void sol_rt_write_float(double value, int width, int channel)
 {
+    const NativeIo transition;
     const std::lock_guard lock(OutputLock);
     if (std::isnan(value))
     {
@@ -206,6 +225,7 @@ SOL_RT_API void sol_rt_write_float(double value, int width, int channel)
 
 SOL_RT_API void sol_rt_newline(int channel)
 {
+    const NativeIo transition;
     const std::lock_guard lock(OutputLock);
     Write("\n", 1, channel);
 }

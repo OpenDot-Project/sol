@@ -50,6 +50,8 @@ Every source declares its logical module explicitly. The module name does not ha
 ## Documentation
 
 - [Verified FIR and native AOT](docs/fir-native.md): development-only native bootstrap, build/run instructions, safety gates, and limitations.
+- [Library artifacts](docs/library-artifacts.md): development DLL/staticlib/Sol containers and isolated ORC execution.
+- [Standard library implementation](docs/standard-library.md): implemented APIs and remaining module coverage.
 - [Getting started](docs/getting-started.md): installation, package layout, and first CST output.
 - [Solc CLI](docs/cli.md): every currently accepted option, diagnostics, and output behavior.
 - [Frontend guide](docs/frontend.md): the supported grammar subset and C# API usage.

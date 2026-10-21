@@ -18,6 +18,7 @@ public sealed partial class LlvmEmitter
 {
     private readonly VerifiedFirProgram _verified;
     private readonly bool _staticRuntime;
+    private readonly bool _cExports;
     private readonly CancellationToken _cancellation;
     private readonly StringBuilder _text = new();
     private readonly List<string> _strings = [];
@@ -28,11 +29,11 @@ public sealed partial class LlvmEmitter
     private readonly Stack<(string Break, string Continue)> _loops = [];
     private readonly record struct Value(string Type, string Operand, ResolvedType SourceType);
 
-    private LlvmEmitter(VerifiedFirProgram program, bool staticRuntime, CancellationToken cancellation) { _verified = program; _staticRuntime = staticRuntime; _cancellation = cancellation; }
-    public static string Emit(VerifiedFirProgram program, bool staticRuntime = false, CancellationToken cancellationToken = default)
+    private LlvmEmitter(VerifiedFirProgram program, bool staticRuntime, CancellationToken cancellation, bool cExports) { _verified = program; _staticRuntime = staticRuntime; _cancellation = cancellation; _cExports = cExports; }
+    public static string Emit(VerifiedFirProgram program, bool staticRuntime = false, CancellationToken cancellationToken = default, bool cExports = false)
     {
         ArgumentNullException.ThrowIfNull(program);
-        var emitter = new LlvmEmitter(program, staticRuntime, cancellationToken);
+        var emitter = new LlvmEmitter(program, staticRuntime, cancellationToken, cExports);
         return emitter.Build();
     }
 
@@ -50,6 +51,24 @@ public sealed partial class LlvmEmitter
         _text.AppendLine("declare void @sol_rt_newline(i32)");
         _text.AppendLine("declare i32 @sol_rt_array_length(ptr)");
         _text.AppendLine("declare ptr @sol_rt_array_get(ptr, i32)");
+        _text.AppendLine("declare void @sol_gc_push_frame(ptr)");
+        _text.AppendLine("declare void @sol_gc_pop_frame(ptr)");
+        _text.AppendLine("declare void @sol_gc_store_ref(ptr, ptr)");
+        _text.AppendLine("declare void @sol_gc_poll()");
+        _text.AppendLine("declare ptr @sol_rt_string_concat(ptr, ptr)");
+        _text.AppendLine("declare i32 @sol_rt_string_compare(ptr, ptr)");
+        _text.AppendLine("declare i32 @sol_rt_string_length(ptr)");
+        _text.AppendLine("declare ptr @sol_rt_string_substring(ptr, i32, i32)");
+        _text.AppendLine("declare i32 @sol_rt_string_index_of(ptr, ptr, i32)");
+        _text.AppendLine("declare i32 @sol_rt_string_hash(ptr)");
+        _text.AppendLine("declare void @sol_gc_collect()");
+        _text.AppendLine("declare void @sol_gc_attach()");
+        _text.AppendLine("declare void @sol_gc_detach()");
+        _text.AppendLine("declare i32 @sol_gc_enter_export()");
+        _text.AppendLine("declare void @sol_gc_leave_export(i32)");
+        _text.AppendLine("declare void @sol_rt_check_abi(i64)");
+        _text.AppendLine("declare ptr @sol_rt_array_new(i32, i32)");
+        _text.AppendLine("declare ptr @sol_rt_array_address(ptr, i32, i32)");
         foreach (int width in new[] { 8, 16, 32, 64 })
         {
             foreach (string sign in new[] { "s", "u" })
@@ -59,12 +78,17 @@ public sealed partial class LlvmEmitter
             }
         }
         foreach (var function in _verified.Program.Functions.Where(f => f.RuntimeFunction == FirRuntimeFunction.None)) { EmitFunction(function); }
-        _text.AppendLine("define i32 @wmain(i32 %argc, ptr %argv) {");
-        _text.AppendLine("entry:");
-        _text.AppendLine("  %args = call ptr @sol_rt_arguments(i32 %argc, ptr %argv)");
-        _text.AppendLine($"  call void @sol_fn_{_verified.Program.Entry}(ptr %args)");
-        _text.AppendLine("  call void @sol_rt_shutdown()");
-        _text.AppendLine("  ret i32 0\n}");
+        if (_cExports) { EmitExports(); }
+        if (!_verified.Program.IsLibrary)
+        {
+            _text.AppendLine("define i32 @wmain(i32 %argc, ptr %argv) {");
+            _text.AppendLine("entry:");
+            _text.AppendLine($"  call void @sol_rt_check_abi(i64 {RuntimeContract.Id})");
+            _text.AppendLine("  %args = call ptr @sol_rt_arguments(i32 %argc, ptr %argv)");
+            _text.AppendLine($"  call void @sol_fn_{_verified.Program.Entry}(ptr %args)");
+            _text.AppendLine("  call void @sol_rt_shutdown()");
+            _text.AppendLine("  ret i32 0\n}");
+        }
         foreach (string literal in _strings) { _text.AppendLine(literal); }
         return _text.ToString();
     }
@@ -73,21 +97,26 @@ public sealed partial class LlvmEmitter
     {
         _function = function; _next = 0; _block = "entry"; _terminated = false;
         string parameters = string.Join(", ", function.Parameters.Select((p, i) => $"{(p.Mode is AstPassingMode.Ref or AstPassingMode.Out ? "ptr" : Type(p.Type))} %p{i}"));
-        _text.AppendLine($"define {Type(function.ReturnType)} @sol_fn_{function.Id}({parameters}) {{\nentry:");
+        _text.AppendLine($"define {(_cExports ? "internal " : "")}{Type(function.ReturnType)} @sol_fn_{function.Id}({parameters}) {{\nentry:");
+        int rootStart = _text.Length;
+        BeginRoots(function);
         foreach (var slot in function.Slots)
         {
             if (slot.IsParameter && slot.Mode is AstPassingMode.Ref or AstPassingMode.Out) { continue; }
+            if (_rootSlots.ContainsKey(slot.Id)) { continue; }
             Line($"%s{slot.Id} = alloca {Type(slot.Type)}");
         }
         for (int index = 0; index < function.Parameters.Length; index++)
         {
             var parameter = function.Parameters[index];
             if (parameter.Mode is AstPassingMode.Ref or AstPassingMode.Out) { continue; }
-            Line($"store {Type(parameter.Type)} %p{index}, ptr %s{parameter.Id}");
+            Store(new(Type(parameter.Type), $"%p{index}", parameter.Type), $"%s{parameter.Id}");
         }
+        Line("call void @sol_gc_poll()");
         Statement(function.Body!);
         if (!_terminated) { Line("unreachable"); }
         _text.AppendLine("}");
+        _text.Replace("$ROOT_COUNT$", Math.Max(1, _rootCount).ToString(CultureInfo.InvariantCulture), rootStart, _text.Length - rootStart);
     }
 
     private void Statement(FirStatement statement)
@@ -98,14 +127,14 @@ public sealed partial class LlvmEmitter
         {
             case FirBlock block: foreach (var child in block.Statements) { Statement(child); } break;
             case FirDeclare { Initializer: not null } declaration:
-                var initialized = Expression(declaration.Initializer); Line($"store {initialized.Type} {initialized.Operand}, ptr {Address(declaration.Slot)}"); break;
+                var initialized = Expression(declaration.Initializer); Store(initialized, Address(declaration.Slot)); break;
             case FirDeclare: break;
             case FirStore store:
-                var value = Expression(store.Value); Line($"store {value.Type} {value.Operand}, ptr {Address(store.Slot)}"); break;
+                var value = Expression(store.Value); Store(value, Address(store.Slot)); break;
             case FirEvaluate evaluation: Expression(evaluation.Value); break;
             case FirReturn ret:
-                if (ret.Value is null || FirVerifier.IsEmpty(ret.Value.Type)) { if (ret.Value is not null) { Expression(ret.Value); } Line("ret void"); }
-                else { var returned = Expression(ret.Value); Line($"ret {returned.Type} {returned.Operand}"); }
+                if (ret.Value is null || FirVerifier.IsEmpty(ret.Value.Type)) { if (ret.Value is not null) { Expression(ret.Value); } EndRoots(); Line("ret void"); }
+                else { var returned = Expression(ret.Value); EndRoots(); Line($"ret {returned.Type} {returned.Operand}"); }
                 _terminated = true; break;
             case FirIf conditional:
                 var condition = Expression(conditional.Condition);
@@ -120,7 +149,7 @@ public sealed partial class LlvmEmitter
                 if (loop.Condition is null) { Branch(body); }
                 else { var tested = Expression(loop.Condition); Line($"br i1 {tested.Operand}, label %{body}, label %{after}"); }
                 Start(body); _loops.Push((after, update)); Statement(loop.Body); _loops.Pop(); if (!_terminated) { Branch(update); }
-                Start(update); if (loop.Update is not null) { Statement(loop.Update); } if (!_terminated) { Branch(test); }
+                Start(update); if (loop.Update is not null) { Statement(loop.Update); } if (!_terminated) { Line("call void @sol_gc_poll()"); Branch(test); }
                 Start(after); break;
             case FirBreak: Branch(_loops.Peek().Break); _terminated = true; break;
             case FirContinue: Branch(_loops.Peek().Continue); _terminated = true; break;
@@ -129,6 +158,9 @@ public sealed partial class LlvmEmitter
     }
 
     private Value Expression(FirExpression expression)
+        => KeepAlive(ExpressionCore(expression));
+
+    private Value ExpressionCore(FirExpression expression)
     {
         _cancellation.ThrowIfCancellationRequested();
         string type = Type(expression.Type);
@@ -136,7 +168,8 @@ public sealed partial class LlvmEmitter
         {
             case FirConstant constant: return Constant(constant);
             case FirRead read:
-                string loaded = Temp(); Line($"{loaded} = load {type}, ptr {Address(read.Slot)}"); return new(type, loaded, read.Type);
+                string loaded = Temp();
+                Line(type == "ptr" ? $"{loaded} = load atomic ptr, ptr {Address(read.Slot)} acquire, align 8" : $"{loaded} = load {type}, ptr {Address(read.Slot)}"); return new(type, loaded, read.Type);
             case FirUnary unary:
                 var operand = Expression(unary.Value);
                 if (unary.Operation == "+") { return operand; }
@@ -151,11 +184,28 @@ public sealed partial class LlvmEmitter
             case FirBinary binary:
                 return Arithmetic(binary.Operation, Expression(binary.Left), Expression(binary.Right), binary.Type);
             case FirArrayLength length:
-                var array = Expression(length.Array); string size = Temp(); Line($"{size} = call i32 @sol_rt_array_length(ptr {array.Operand})"); return new("i32", size, length.Type);
+                var array = Expression(length.Array); string size = Temp();
+                Line($"{size} = call i32 @{(FirVerifier.IsString(length.Array.Type) ? "sol_rt_string_length" : "sol_rt_array_length")}(ptr {array.Operand})"); return new("i32", size, length.Type);
             case FirArrayIndex index:
                 var indexed = Expression(index.Array); var subscript = Expression(index.Index); string item = Temp();
-                Line($"{item} = call ptr @sol_rt_array_get(ptr {indexed.Operand}, i32 {subscript.Operand})"); return new("ptr", item, index.Type);
+                string location = Temp();
+                Line($"{location} = call ptr @sol_rt_array_address(ptr {indexed.Operand}, i32 {subscript.Operand}, i32 {ElementWidth(index.Type)})");
+                Line(type == "ptr" ? $"{item} = load atomic ptr, ptr {location} acquire, align 8" : $"{item} = load {type}, ptr {location}"); return new(type, item, index.Type);
+            case FirArrayLiteral literalArray: return ArrayLiteral(literalArray);
             case FirCall call: return Call(call);
+            case FirIntrinsic intrinsic:
+                var inputs = intrinsic.Arguments.Select(Expression).ToArray();
+                if (!intrinsic.ParameterOrder.IsEmpty)
+                { inputs = inputs.Zip(intrinsic.ParameterOrder).OrderBy(p => p.Second).Select(p => p.First).ToArray(); }
+                string symbol = intrinsic.Operation switch
+                {
+                    FirIntrinsicKind.StringSubstring => "sol_rt_string_substring", FirIntrinsicKind.StringIndexOf => "sol_rt_string_index_of",
+                    FirIntrinsicKind.StringCompare => "sol_rt_string_compare", FirIntrinsicKind.StringHash => "sol_rt_string_hash",
+                    FirIntrinsicKind.GcCollect => "sol_gc_collect", _ => throw new InvalidOperationException("Unverified intrinsic.")
+                };
+                string output = type == "void" ? "" : Temp();
+                Line($"{(output.Length == 0 ? "" : output + " = ")}call {type} @{symbol}({string.Join(", ", inputs.Select(v => v.Type + " " + v.Operand))})");
+                return new(type, output, intrinsic.Type);
             default: throw new InvalidOperationException("Unverified FIR expression reached LLVM lowering.");
         }
     }

@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using OpenDot.Sol.Analysis;
+using OpenDot.Sol.Ast;
+
+namespace OpenDot.Sol.Lowering;
+
+public sealed partial class LlvmEmitter
+{
+    private void EmitExports()
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal) { "sol_library_shutdown" };
+        var reserved = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "memcpy", "memmove", "memset", "memcmp", "memchr", "strlen", "strcmp", "wcslen", "wcscmp",
+            "malloc", "calloc", "realloc", "free", "fmod", "fmodf", "exit", "abort",
+        };
+        foreach (var function in _verified.Program.Functions.Where(f => f.ExportName is not null))
+        {
+            string name = function.ExportName!;
+            if (name.StartsWith("sol_", StringComparison.Ordinal) || name.StartsWith('_') || reserved.Contains(name))
+            { throw new IOException("C export name is reserved by the compiler/runtime: " + name); }
+            if (!names.Add(name)) { throw new IOException("C export names must be unique: " + name); }
+            bool Unmanaged(ResolvedType type) => type.Kind == ResolvedTypeKind.Primitive && type.Name is not ("bool" or "half" or "quad");
+            if (!(Unmanaged(function.ReturnType) || Fir.FirVerifier.IsEmpty(function.ReturnType))
+                || function.Parameters.Any(p => !Unmanaged(p.Type)) || !function.Effects.IsEmpty)
+            { throw new IOException("C exports require unmanaged scalar signatures and no escaping checked exceptions: " + name); }
+            string parameters = string.Join(", ", function.Parameters.Select((p, i) => $"{(p.Mode is AstPassingMode.Ref or AstPassingMode.Out ? "ptr" : Type(p.Type))} %p{i}"));
+            _text.AppendLine($"define dllexport {Type(function.ReturnType)} @{name}({parameters}) {{\nentry:");
+            Line($"call void @sol_rt_check_abi(i64 {RuntimeContract.Id})");
+            Line("%transition = call i32 @sol_gc_enter_export()");
+            string result = Type(function.ReturnType) == "void" ? "" : "%result = ";
+            Line($"{result}call {Type(function.ReturnType)} @sol_fn_{function.Id}({parameters})");
+            Line("call void @sol_gc_leave_export(i32 %transition)");
+            Line(Type(function.ReturnType) == "void" ? "ret void" : $"ret {Type(function.ReturnType)} %result");
+            _text.AppendLine("}");
+        }
+        _text.AppendLine("define dllexport void @sol_library_shutdown() {\nentry:\n  call void @sol_rt_shutdown()\n  ret void\n}");
+    }
+}

@@ -5,13 +5,15 @@
 
 #if defined(SOL_RT_STATIC)
 #define SOL_RT_API
-#else
+#elif defined(SOL_RT_BUILD)
 #define SOL_RT_API __declspec(dllexport)
+#else
+#define SOL_RT_API __declspec(dllimport)
 #endif
 
 namespace OpenDot::Sol::Runtime
 {
-/// Provisional ABI0 metadata; this prefix does not establish the future collectible GC ABI.
+/// Provisional descriptor prefix; all generated code must match this runtime build.
 struct alignas(16) TypeDescriptor final
 {
     std::uint64_t Size;
@@ -27,7 +29,7 @@ struct alignas(16) TypeDescriptor final
     std::uint64_t Reserved = 0;
 };
 
-/// Common object prefix shared by static literals and entry-lifetime argument storage.
+/// Common prefix; bit zero flags immutable process-lifetime storage outside the collectible heap.
 struct Header
 {
     const TypeDescriptor *Type;
@@ -78,7 +80,10 @@ static_assert(sizeof(StringArray) == 32);
 
 extern "C"
 {
+SOL_RT_API void sol_rt_check_abi(std::uint64_t contract);
 SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_string_type;
+SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_object_type;
+SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_string_array_type;
 SOL_RT_API OpenDot::Sol::Runtime::String *sol_rt_literal(OpenDot::Sol::Runtime::String *value);
 SOL_RT_API OpenDot::Sol::Runtime::StringArray *sol_rt_arguments(int argc, wchar_t **argv);
 SOL_RT_API void sol_rt_shutdown();

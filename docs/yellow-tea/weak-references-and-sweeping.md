@@ -1,8 +1,9 @@
 # Weak references and sweeping
 
 Weak promotion and reclamation share one epoch-aware protocol. Merely making a weak slot atomic is
-not enough to prevent a load from racing with object reuse. This page defines planned behavior;
-neither weak handles nor the sweeper are implemented yet.
+not enough to prevent a load from racing with object reuse. An experimental handle and concurrent
+sweeper baseline now exists; span state transitions and reusable generation handles remain pending.
+See the [current implementation](current-implementation.md) before treating this design as implemented.
 
 ## Strong and weak ownership
 

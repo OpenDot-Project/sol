@@ -29,7 +29,17 @@ applications; their import tables have no CLR dependency. Solc itself remains a 
 
 Dynamic linking is the default and places `SolRT.dll` beside the executable. `--static-solrt-lib`
 links the static runtime and does not copy or import that DLL. Artifact type is a separate option:
-the current backend implements AOT `bin`; ORC, `cdylib`, `staticlib`, and `solib` output remain pending.
+development builds also produce scalar C-ABI `cdylib`/`staticlib` artifacts and a closed-subset `solib`
+container. ORC executes in a separate native guest process:
+
+```powershell
+dotnet $solc spec/examples/native/FirstProgram.sol -C llvm-compiler=orc -- Alice 20
+```
+
+ORC defaults to `--emit=jit` and accepts application arguments after `--`. It does not create an
+executable with `-o`; `--emit=llvm-ir` remains an inspection operation. Both runtime linkage modes
+are available. The compiler's CLR GC and guest Yellow Tea never share a process or object reference.
+See [library artifacts](library-artifacts.md) for native library restrictions and container boundaries.
 
 ## FIR inspection without LLVM
 
@@ -47,12 +57,13 @@ still receive whole-input preflight and transactional replacement protection.
 
 `FirCompilation.Create` composes the supplied AST snapshots with compiler-owned bootstrap declarations,
 then runs declaration, type, scope, default, and body analysis. Runtime declarations are embedded
-resources authored in `src/stdlib/std/core/Core.sol` and `src/stdlib/std/stdio/Stdio.sol`; ordinary user
+resources authored under `src/stdlib/std`; ordinary user
 declarations cannot impersonate their native adapters by using a matching spelling or path.
 
 The AST-to-FIR builder rejects unresolved expressions and unsupported constructs with `SOL2400`.
 It does not translate an unverified body into a successful empty function. The entry is exactly one
-accessible `Main` object method accepting `[]String` and returning `()`.
+accessible `Main` object method accepting `[]String` and returning `()` for bin output. Library
+compilations have no entry and verify that distinction before lowering.
 
 FIR records resolved type identities, slots, exact callable targets, parameter mappings, passing modes,
 source evaluation order, and declared effects. Its flow graph is an analysis side table rather than
@@ -74,7 +85,10 @@ with byte spans and no host source paths. IDs are local to this compilation, not
 Supported programs use scalar integer/Boolean/single/double values, empty-tuple function results,
 local val/var bindings, source functions, stateless object methods, named argument reordering,
 scalar ref/out locations, braced branches, condition/three-clause/infinite loops, break/continue,
-short-circuit Boolean expressions, String literals, and entry-argument array length/index access.
+short-circuit Boolean expressions, collectible String concatenation/content equality, and single-level
+array literals/length/index access for supported scalars and String. String has scalar `length`,
+`substring(start, length)`, `indexOf(value, start)`, `compareOrdinal`, and `hashCode`. `Gc.collect()`
+requests and waits for a concurrent cycle. Integral `std.math.abs/min/max` overloads are source bodies.
 The four standard output adapters accept scalar and String arguments, preserve evaluation order,
 add no automatic separator, and append one LF for `println`/`errorln`.
 
@@ -83,7 +97,7 @@ shifts reject invalid counts before LLVM instructions can observe poison-produci
 operations preserve normal IEEE behavior and do not enable fast math. Runtime bounds and arithmetic
 failures report an unhandled error and exit with status 1 in this bootstrap.
 
-The native gate rejects user heap allocation, general arrays/objects, closures, ref-struct borrowing,
+The native gate rejects general class construction, nested/value-layout arrays, closures, ref-struct borrowing,
 generic body specialization, user default/vararg lowering, custom operators/conversions, exception
 handlers, defer cleanup, reflection, and unqualified half/quad operations. Source body analysis may
 understand more of these constructs; that does not make them eligible for native generation.
@@ -103,17 +117,18 @@ replace an existing executable. The frontend SDK remains usable without LLVM ins
 
 ## SolRT bootstrap lifetime
 
-This runtime is an initial native ABI implementation, not Yellow Tea. Argument arrays and UTF-8
-String storage remain owned for entry lifetime and are freed at shutdown. Literal storage is static;
+This runtime now includes an experimental concurrent collector. Argument arrays have a strong entry
+handle; dynamically created Strings and arrays are collectible when their roots disappear. Literal storage is static;
 its descriptor is atomically published before the value is returned. Object headers are 16 bytes,
 String data begins at byte 24, and array elements begin at byte 32. Descriptor layout version 0 is
 provisional and does not establish the future collectible ABI.
 
-No collection occurs in this subset. The verifier excludes operations that would require collectible
-user objects, escaping borrows, callbacks, thread attachment, exception unwinding, or generated root
-frames. This is not a replacement collector or a full-heap STW fallback. The
-[Yellow Tea design](yellow-tea/index.md) still requires its root, barrier, epoch, weak, sweep, and
-concurrency implementation and qualification.
+Generated functions register zero-initialized root slots, publish reference stores through a barrier,
+poll on entry/backedges, and pop frames on normal returns. A worker performs concurrent mark/sweep
+between root handshakes. Native C++ exception carriers own traced Throwable handles, but source EH
+lowering remains gated. Individual aligned allocations currently replace the planned span allocator.
+Read the [implementation inventory](yellow-tea/current-implementation.md) for limits and qualification
+work; the [design chapters](yellow-tea/index.md) are not claims of full ABI or GC completion.
 
 ## Validation
 

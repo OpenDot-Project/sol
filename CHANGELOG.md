@@ -6,6 +6,14 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Experimental native concurrent mark/sweep baseline with precise descriptors, generated root slots,
+  insertion barriers, cooperative handshakes, strong/weak handles, and heap-limit validation.
+- Collectible scalar/String array literals and UTF-8 String operations, source integral math
+  overloads, native Throwable carrier roots/suppression, and native model/ASan/concurrency checks.
+- Process-isolated native ORC bin execution, scalar C-ABI DLL/static-library output, deterministic
+  closed-subset Sol library containers, and host/guest runtime import checks. General source EH,
+  the span allocator, external Sol library consumption and the full standard library remain pending.
+
 - Pinned JetBrains native/C++/CLI cleanup and inspection, MSVC CppCoreCheck build settings,
   and a separate digest-verified Doxygen HTML/XML validation workflow for Windows.
 
@@ -19,7 +27,7 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
   constructor initialization, structured assignment/null/effect checks, delegation contracts, and
   explicit unverified proof locations. This API alone does not certify native eligibility.
 - Yellow Tea design documentation covering allocation, roots, barriers, collection phases,
-  weak/sweep races, ABI, pacing, and validation; the native collector remains unimplemented.
+  weak/sweep races, ABI, pacing, validation, and an explicit current implementation inventory.
 - `--static-solrt-lib` selection; SolRT defaults to dynamic linkage, with both modes implemented
   by the qualified native AOT bootstrap.
 - Commented source language contracts in `spec/*.sol` and usage examples in `spec/examples/**/*.sol`,

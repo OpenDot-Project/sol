@@ -1,6 +1,6 @@
 # Native implementation tooling
 
-The native solution `src/native/Sol.Native.sln` groups the Windows launcher, LLVM bridge, and SolRT
+The native solution `src/native/Sol.Native.sln` groups the Windows launcher, LLVM bridge, ORC host, and SolRT
 projects for C++ and C++/CLI tooling. The managed solution remains independent of Visual C++ build
 targets. Build the managed dependencies and backend as described in [native AOT](fir-native.md)
 before inspecting the native solution.

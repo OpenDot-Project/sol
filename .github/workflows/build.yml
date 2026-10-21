@@ -69,6 +69,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 10
     permissions:
+      actions: read # Download this run's coverage report; no repository code is executed here.
       contents: read
       id-token: write # Codecov OIDC authentication; this job never executes repository code.
     steps:

@@ -115,7 +115,13 @@ public sealed class FirFlowGraph
                     Edge(Expression(conditional.Right, right.Id), join.Id); return join.Id;
                 case FirBinary binary: return Expression(binary.Right, Expression(binary.Left, before));
                 case FirArrayLength length: return Expression(length.Array, before);
+                case FirIntrinsic intrinsic:
+                    foreach (var argument in intrinsic.Arguments) { before = Expression(argument, before); }
+                    return before;
                 case FirArrayIndex index: return Expression(index.Index, Expression(index.Array, before));
+                case FirArrayLiteral array:
+                    foreach (var element in array.Elements) { before = Expression(element, before); }
+                    return before;
                 case FirCall call:
                     foreach (var argument in call.Arguments)
                     {
