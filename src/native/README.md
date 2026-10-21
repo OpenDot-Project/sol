@@ -1,19 +1,24 @@
 # Sol native implementation
 
-This tree owns the Windows launcher, LLVM bridge, ORC execution host, and native SolRT. All projects
+This tree owns the Windows launcher, LLVM C++ component/bridge, ORC execution host, and native SolRT. All projects
 use MSBuild and C++20. The implementation namespace is `OpenDot::Sol`; it is separate from Sol
 source-language naming.
 
 ## LLVM bridge
 
 `llvm-bridge/Compiler.cpp` is the C++/CLI adapter implementing the managed `ILlvmCompiler` contract.
-It translates managed UTF-8 input and native failures at the boundary. Instruction selection and
+It translates immediate builder operations, opaque handles and native failures at the boundary. Instruction selection and
 Sol semantics remain in C# lowering. The adapter requires .NET 10 in the compiler process.
 
-`llvm-bridge/NativeCompiler.cpp` is compiled without `/clr`. It owns the LLVM context, module,
-memory buffers, and target machine with deterministic session cleanup. LLVM 23.1.3 verifies the
-input, runs the optimization pipeline, verifies again, and emits AMD64 COFF. This translation unit
-uses the exact LLVM C interface; native LLVM types do not enter managed metadata.
+`llvm-native/Session.cpp` owns LLVM 23.1.3 C++ contexts, modules, IRBuilder operations, and target
+machines. Handles carry session identities and reject wrong-kind, foreign, cross-thread and disposed
+access. `Output.cpp` verifies modules, optimizes a clone and emits COFF or writes binary bitcode.
+`Orc.cpp` reads bitcode and owns LLJIT inside the native guest. There is no textual assembly parser
+in the compilation path; LLVM's printer is used only for explicit inspection.
+
+The native DLL uses the SDK's static CRT; the thin mixed-mode adapter uses the dynamic CRT. An opaque
+C ABI keeps allocation and destruction in the owning component. Pinned compression/XML libraries
+are built by `eng/install-llvm-native-deps.ps1`. First-party projects use MSBuild and `/W4 /WX`.
 
 ## SolRT bootstrap
 
@@ -36,8 +41,8 @@ not the planned span allocator. Source class construction and EH lowering remain
 
 ## ORC guest process
 
-`exec-host/Main.cpp` owns LLVM LLJIT and the guest runtime. It verifies the exact LLVM version and
-IR target, binds a runtime-symbol allowlist, and executes the verified entry. It is plain C++20 and
+`exec-host/Main.cpp` supplies the guest runtime and symbol allowlist to the native LLVM component.
+It accepts binary bitcode; the component verifies its target and executes the entry with LLJIT. It is plain C++20 and
 does not import CLR or C++/CLI hosting. The C# compiler launches it as a separate child: host .NET
 GC and guest Yellow Tea do not share a process or object references. This is not an OS sandbox.
 The current source subset does not establish generated Windows/ORC exception-unwind qualification.

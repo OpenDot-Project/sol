@@ -8,7 +8,7 @@ CST frontend; this page describes unreleased implementation, not availability in
 | `bin` | Windows x64 EXE | Exactly one Main object with `main([]String): ()`. |
 | `cdylib` | DLL and import LIB | Public module-level scalar functions, unique unmangled C names. |
 | `staticlib` | COFF LIB | The same C wrappers and private internal functions, consumed by a native linker. |
-| `solib` | Deterministic ZIP container | Closed nongeneric FIR data, module export metadata, LLVM text, native object and digests. |
+| `solib` | Deterministic ZIP container | Closed nongeneric FIR data, module export metadata, LLVM bitcode, native object and digests. |
 
 Example library source:
 
@@ -51,10 +51,10 @@ a freestanding archive. Artifact and companion output paths use one output trans
 
 ## Sol containers
 
-`manifest.json` pins schema 1, exact compiler identity, edition 2026, LLVM 23.1.3, Windows target,
+`manifest.json` pins schema 2, exact compiler identity, edition 2026, LLVM 23.1.3, Windows target,
 runtime layout version 0, linkage, module IDs, and each payload's byte length/SHA-256. Module metadata
 lives under `modules/`; verified FIR is UTF-8 JSON data stored under its digest in `fir/*.bin`.
-Native objects live under `objects/<target>/`; `provenance.json` declares the closed nongeneric subset.
+Native objects live under `objects/<target>/`; `llvm/module.bc` holds binary bitcode from the C++ API module; `provenance.json` declares the closed nongeneric subset.
 Entry order is ordinal, ZIP timestamps are fixed, and identical inputs yield identical containers.
 
 The reader bounds archive size, expanded bytes, and entry count; rejects traversal, duplicate/case
@@ -69,7 +69,7 @@ emission and validation do not imply `--extern` consumption is implemented.
 ## ORC boundary
 
 ORC bin execution uses native `sol-exec-host.exe`; Solc does not execute a guest function pointer in
-the CLR process. The host checks LLVM version/target, verifies IR, binds an explicit runtime symbol
+the CLR process. The host checks LLVM version/target, verifies binary bitcode, binds an explicit runtime symbol
 allowlist, and owns the LLJIT context/module/code lifetime. Standard streams and exit status propagate
 through the child. Cancellation terminates its process tree. The guest import table must contain no
 CLR host or C++/CLI dependency; the compiler bridge must contain no SolRT import.

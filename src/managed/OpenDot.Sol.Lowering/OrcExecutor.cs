@@ -27,8 +27,9 @@ public static class OrcExecutor
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string ir = Path.Combine(scratch, "program.ll");
-            File.WriteAllText(ir, LlvmEmitter.Emit(program, staticRuntime, cancellationToken), new UTF8Encoding(false));
+            string ir = Path.Combine(scratch, "program.bc");
+            using (var module = LlvmEmitter.Build(program, NativeCompiler.LoadBridge(root), cancellationToken))
+            { File.WriteAllBytes(ir, module.Bitcode()); }
             var info = new ProcessStartInfo(host)
             { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
             info.ArgumentList.Add(ir); info.ArgumentList.Add("--");

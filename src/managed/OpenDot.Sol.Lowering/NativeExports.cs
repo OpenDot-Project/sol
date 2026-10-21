@@ -28,16 +28,15 @@ public sealed partial class LlvmEmitter
             if (!(Unmanaged(function.ReturnType) || Fir.FirVerifier.IsEmpty(function.ReturnType))
                 || function.Parameters.Any(p => !Unmanaged(p.Type)) || !function.Effects.IsEmpty)
             { throw new IOException("C exports require unmanaged scalar signatures and no escaping checked exceptions: " + name); }
-            string parameters = string.Join(", ", function.Parameters.Select((p, i) => $"{(p.Mode is AstPassingMode.Ref or AstPassingMode.Out ? "ptr" : Type(p.Type))} %p{i}"));
-            _text.AppendLine($"define dllexport {Type(function.ReturnType)} @{name}({parameters}) {{\nentry:");
-            Line($"call void @sol_rt_check_abi(i64 {RuntimeContract.Id})");
-            Line("%transition = call i32 @sol_gc_enter_export()");
-            string result = Type(function.ReturnType) == "void" ? "" : "%result = ";
-            Line($"{result}call {Type(function.ReturnType)} @sol_fn_{function.Id}({parameters})");
-            Line("call void @sol_gc_leave_export(i32 %transition)");
-            Line(Type(function.ReturnType) == "void" ? "ret void" : $"ret {Type(function.ReturnType)} %result");
-            _text.AppendLine("}");
+            _nativeFunction = Declare(name, Type(function.ReturnType), function.Parameters.Select(p => p.Mode is AstPassingMode.Ref or AstPassingMode.Out ? "ptr" : Type(p.Type)).ToArray(), 2);
+            Start(NewBlock("entry"));
+            Call("sol_rt_check_abi", Int(unchecked((long)RuntimeContract.Id), "i64"));
+            long transition = Call("sol_gc_enter_export");
+            long result = Call("sol_fn_" + function.Id, function.Parameters.Select((p, i) => Op(LlvmOperation.Parameter, args: [_nativeFunction], data: i)).ToArray());
+            Call("sol_gc_leave_export", transition);
+            Op(LlvmOperation.Return, args: Type(function.ReturnType) == "void" ? [] : [result]);
         }
-        _text.AppendLine("define dllexport void @sol_library_shutdown() {\nentry:\n  call void @sol_rt_shutdown()\n  ret void\n}");
+        _nativeFunction = Declare("sol_library_shutdown", "void", [], 2);
+        Start(NewBlock("entry")); Call("sol_rt_shutdown"); Op(LlvmOperation.Return);
     }
 }

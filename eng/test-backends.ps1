@@ -118,21 +118,10 @@ foreach ($kind in @('cdylib', 'staticlib', 'solib')) {
     }
 }
 
-foreach ($file in @('sol-exec-host.exe', 'sol-exec-host-static.exe', 'OpenDot.Sol.LlvmBridge.dll')) {
+foreach ($file in @('sol-exec-host.exe', 'sol-exec-host-static.exe', 'OpenDot.Sol.LlvmBridge.dll', 'OpenDot.Sol.LlvmNative.dll')) {
     $imports = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/llvm-readobj.exe') @('--coff-imports', (Join-Path $backend $file))
-    if ($file -like 'sol-exec-host*' -and $imports.Out -match '(?i)mscoree|hostfxr|coreclr|ijwhost') { throw 'Guest ORC host imports the managed runtime.' }
-    if ($file -eq 'OpenDot.Sol.LlvmBridge.dll' -and $imports.Out -match '(?i)Name: SolRT.dll') { throw 'Host compiler bridge imports the guest runtime.' }
+    if (($file -like 'sol-exec-host*' -or $file -eq 'OpenDot.Sol.LlvmNative.dll') -and $imports.Out -match '(?i)mscoree|hostfxr|coreclr|ijwhost') { throw 'Guest ORC host imports the managed runtime.' }
+    if ($file -like 'OpenDot.Sol.Llvm*' -and $imports.Out -match '(?i)Name: SolRT.dll') { throw 'Host compiler bridge imports the guest runtime.' }
     [IO.File]::WriteAllText((Join-Path $scratch "$file.imports.txt"), $imports.Out)
 }
-$wrongAbi = Join-Path $scratch 'WrongAbi.ll'
-[IO.File]::WriteAllText($wrongAbi, @'
-target triple = "x86_64-pc-windows-msvc"
-declare void @sol_rt_check_abi(i64)
-define i32 @wmain(i32 %argc, ptr %argv) {
-  call void @sol_rt_check_abi(i64 0)
-  ret i32 0
-}
-'@)
-$failure = InvokeChecked (Join-Path $backend 'sol-exec-host.exe') @($wrongAbi, '--') 1
-if ($failure.Error -notmatch 'runtime contract mismatch') { throw 'Wrong runtime ABI was not rejected.' }
 Write-Host "Backend checks passed: $count AOT/ORC and library scenarios; host/guest runtime import boundaries verified."

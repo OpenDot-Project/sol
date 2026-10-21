@@ -32,15 +32,15 @@ public static class SolLibraryArchive
     public static string CompilerId => Identity.Value;
     private static string Digest(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 
-    public static byte[] Create(VerifiedFirProgram program, string llvmIr, byte[] objectBytes, bool staticRuntime)
+    public static byte[] Create(VerifiedFirProgram program, byte[] llvmBitcode, byte[] objectBytes, bool staticRuntime)
     {
-        ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(llvmIr); ArgumentNullException.ThrowIfNull(objectBytes);
+        ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(llvmBitcode); ArgumentNullException.ThrowIfNull(objectBytes);
         if (!program.Program.IsLibrary) { throw new ArgumentException("A Sol library cannot contain a program entry.", nameof(program)); }
         var entries = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
         byte[] fir = Encoding.UTF8.GetBytes(FirJson.Serialize(program));
         string firPath = "fir/" + Digest(fir) + ".bin", objectPath = "objects/" + Target + "/" + Digest(objectBytes) + ".obj";
         entries.Add(firPath, fir); entries.Add(objectPath, objectBytes);
-        entries.Add("llvm/module.ll", Encoding.UTF8.GetBytes(llvmIr));
+        entries.Add("llvm/module.bc", llvmBitcode);
         var modules = program.Program.Analysis.Sources.Declarations.Files.Where(f => !program.Program.Catalog.Files.Contains(f))
             .GroupBy(f => f.Root.ModuleName, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal).ToArray();
         foreach (var module in modules)
@@ -59,7 +59,7 @@ public static class SolLibraryArchive
         entries.Add("provenance.json", JsonSerializer.SerializeToUtf8Bytes(new { compiler = CompilerId, llvm = "23.1.3", runtime_abi = 0, runtime_contract = RuntimeContract.Id, fir_encoding = "utf8-json", subset = "closed-nongeneric" }));
         entries.Add("manifest.json", JsonSerializer.SerializeToUtf8Bytes(new
         {
-            schema = 1, compiler = CompilerId, edition = 2026, target = Target, llvm = "23.1.3", runtime_abi = 0, runtime_contract = RuntimeContract.Id,
+            schema = 2, compiler = CompilerId, edition = 2026, target = Target, llvm = "23.1.3", runtime_abi = 0, runtime_contract = RuntimeContract.Id,
             runtime_linkage = staticRuntime ? "static" : "dynamic", modules = modules.Select(m => m.Key),
             files = entries.Select(e => new { path = e.Key, size = e.Value.Length, sha256 = Digest(e.Value) }).ToArray(),
         }));
@@ -126,7 +126,7 @@ public static class SolLibraryArchive
             }
             else if (element.ValueKind == JsonValueKind.Array) { foreach (var child in element.EnumerateArray()) { pending.Push(child); } }
         }
-        if (root.GetProperty("schema").GetInt32() != 1 || root.GetProperty("compiler").GetString() != CompilerId
+        if (root.GetProperty("schema").GetInt32() != 2 || root.GetProperty("compiler").GetString() != CompilerId
             || root.GetProperty("target").GetString() != Target || root.GetProperty("llvm").GetString() != "23.1.3"
             || root.GetProperty("runtime_abi").GetInt32() != 0 || root.GetProperty("runtime_contract").GetUInt64() != RuntimeContract.Id || root.GetProperty("edition").GetInt32() != 2026)
         { throw new InvalidDataException("Incompatible library schema, compiler, runtime, or target."); }
@@ -139,7 +139,7 @@ public static class SolLibraryArchive
         }
         if (declared.Count != files.Count || !files.Keys.Any(k => k.StartsWith("fir/", StringComparison.Ordinal))
             || !files.Keys.Any(k => k.StartsWith("objects/" + Target + "/", StringComparison.Ordinal))
-            || !files.ContainsKey("provenance.json") || !files.ContainsKey("llvm/module.ll"))
+            || !files.ContainsKey("provenance.json") || !files.ContainsKey("llvm/module.bc"))
         { throw new InvalidDataException("Incomplete or undeclared library inventory."); }
         var modules = new HashSet<string>(StringComparer.Ordinal);
         foreach (var module in root.GetProperty("modules").EnumerateArray())

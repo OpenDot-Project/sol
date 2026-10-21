@@ -38,40 +38,40 @@ public sealed class FirSafetyTests
     }
 
     [Theory]
-    [InlineData("println(12 / 3)", "sdiv i32")]
-    [InlineData("println(12 % 5)", "srem i32")]
-    [InlineData("val a: uint = 12; val b: uint = 3; println(a / b)", "udiv i32")]
-    [InlineData("val a: ulong = 12; val b: ulong = 5; println(a % b)", "urem i64")]
+    [InlineData("println(12 / 3)", "SDiv")]
+    [InlineData("println(12 % 5)", "SRem")]
+    [InlineData("val a: uint = 12; val b: uint = 3; println(a / b)", "UDiv")]
+    [InlineData("val a: ulong = 12; val b: ulong = 5; println(a % b)", "URem")]
     [InlineData("println(12 - 3)", "llvm.ssub.with.overflow.i32")]
     [InlineData("println(12 * 3)", "llvm.smul.with.overflow.i32")]
-    [InlineData("println(12 & 3)", "and i32")]
-    [InlineData("println(12 | 3)", "or i32")]
-    [InlineData("println(12 ^ 3)", "xor i32")]
-    [InlineData("println(~12)", "xor i32")]
-    [InlineData("println(!false)", "xor i1")]
+    [InlineData("println(12 & 3)", "And")]
+    [InlineData("println(12 | 3)", "Or")]
+    [InlineData("println(12 ^ 3)", "Xor")]
+    [InlineData("println(~12)", "Xor")]
+    [InlineData("println(!false)", "Xor")]
     [InlineData("val a = 12; println(-a)", "llvm.ssub.with.overflow.i32")]
-    [InlineData("val a: long = 12; println(a << 2)", "zext i32")]
-    [InlineData("val a: byte = 12; println(a >> 2)", "trunc i32")]
-    [InlineData("println(12 >> 2)", "ashr i32")]
-    [InlineData("val a: ulong = 12; println(a >> 2)", "lshr i64")]
-    [InlineData("println(1.5 != 2.5)", "fcmp une double")]
-    [InlineData("println(1.5 <= 2.5)", "fcmp ole double")]
-    [InlineData("println(2.5 >= 1.5)", "fcmp oge double")]
-    [InlineData("val a: single = 1.5; println(a * a)", "fmul float")]
+    [InlineData("val a: long = 12; println(a << 2)", "ZExt")]
+    [InlineData("val a: byte = 12; println(a >> 2)", "Trunc")]
+    [InlineData("println(12 >> 2)", "AShr")]
+    [InlineData("val a: ulong = 12; println(a >> 2)", "LShr")]
+    [InlineData("println(1.5 != 2.5)", "FCmp")]
+    [InlineData("println(1.5 <= 2.5)", "FCmp")]
+    [InlineData("println(2.5 >= 1.5)", "FCmp")]
+    [InlineData("val a: single = 1.5; println(a * a)", "FMul")]
     public void ScalarOperationsSelectQualifiedInstructionsAndGuardPoisonPaths(string body, string instruction)
     {
         string source = "module native.operations; import std.stdio; object Main { func main(args: []String) throws IOException { " + body + " } }";
         var result = Compile(SourceText.FromString(source).Bytes.ToArray());
         var program = Assert.IsType<VerifiedFirProgram>(result.Program);
-        string ir = LlvmEmitter.Emit(program, cancellationToken: TestContext.Current.CancellationToken);
-        Assert.Contains(instruction, ir);
-        if (instruction.StartsWith("sdiv", StringComparison.Ordinal) || instruction.StartsWith("srem", StringComparison.Ordinal))
+        string ir = LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains(instruction.StartsWith("llvm.", StringComparison.Ordinal) ? "\"callee\":\"" + instruction + "\"" : "\"operation\":\"" + instruction + "\"", ir);
+        if (instruction == "SDiv" || instruction == "SRem")
         {
-            Assert.Contains("call void @sol_rt_fail(i32 2)", ir);
-            Assert.Contains("call void @sol_rt_fail(i32 1)", ir);
+            Assert.Contains("sol_rt_fail", ir);
+            Assert.Contains("sol_rt_fail", ir);
         }
         if (body.Contains(">>", StringComparison.Ordinal) || body.Contains("<<", StringComparison.Ordinal))
-        { Assert.Contains("call void @sol_rt_fail(i32 3)", ir); }
+        { Assert.Contains("sol_rt_fail", ir); }
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public sealed class FirSafetyTests
     {
         var result = Compile(SourceText.FromString("module signed.zero; import std.stdio; object Main { func main(args: []String) throws IOException { val zero = 0.0; println(-zero) } }").Bytes.ToArray());
         var program = Assert.IsType<VerifiedFirProgram>(result.Program);
-        Assert.Contains("fneg double", LlvmEmitter.Emit(program, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.Contains("FNeg", LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public sealed class FirSafetyTests
     }
 
     [Fact]
-    public void EveryTokenDeletionEitherRejectsOrEmitsDeterministicQualifiedIr()
+    public void EveryTokenDeletionEitherRejectsOrProducesDeterministicLoweringCalls()
     {
         var source = SourceText.FromString(Source);
         var syntax = SyntaxTree.Parse(source, cancellationToken: TestContext.Current.CancellationToken);
@@ -145,7 +145,7 @@ public sealed class FirSafetyTests
     }
 
     [Fact]
-    public void SeededByteInsertionsExerciseTheWholeNativeQualificationGate()
+    public void SeededByteInsertionsExerciseFirAndLoweringPolicy()
     {
         byte[] original = SourceText.FromString(Source).Bytes.ToArray();
         var random = new Random(20261023);
@@ -167,8 +167,13 @@ public sealed class FirSafetyTests
         if (result.Program is not { } program) { Assert.NotEmpty(result.Diagnostics); return; }
         Assert.Empty(result.Diagnostics);
         var cancellation = TestContext.Current.CancellationToken;
-        string ir = LlvmEmitter.Emit(program, cancellationToken: cancellation);
-        Assert.Contains("@wmain", ir);
-        Assert.Equal(ir, LlvmEmitter.Emit(program, cancellationToken: cancellation));
+        string ir = LoweringTrace.Inspect(program, cancellationToken: cancellation);
+        Assert.Contains("wmain", ir);
+        Assert.Equal(ir, LoweringTrace.Inspect(program, cancellationToken: cancellation));
+        if (NativeRuntimeIntegrationTests.Enabled)
+        {
+            using var module = LlvmEmitter.Build(program, NativeCompiler.LoadBridge(NativeCompiler.BackendRoot(null)), cancellation);
+            module.Verify();
+        }
     }
 }

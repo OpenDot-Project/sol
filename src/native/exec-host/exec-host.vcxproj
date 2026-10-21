@@ -22,9 +22,13 @@
       <PreprocessorDefinitions Condition="'$(StaticRuntime)' != 'true'">NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/utf-8 /Brepro %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <Link><AdditionalLibraryDirectories>$(LLVMRoot)\lib;$(MSBuildThisFileDirectory)..\..\..\out\native\runtime\$(RuntimeFlavor);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LLVM-C.lib;SolRT.lib;%(AdditionalDependencies)</AdditionalDependencies><SubSystem>Console</SubSystem><TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors><AdditionalOptions>/Brepro /PDBALTPATH:%_PDB% %(AdditionalOptions)</AdditionalOptions></Link>
+    <Link><AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\..\..\out\native\llvm-native;$(MSBuildThisFileDirectory)..\..\..\out\native\runtime\$(RuntimeFlavor);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>OpenDot.Sol.LlvmNative.lib;SolRT.lib;%(AdditionalDependencies)</AdditionalDependencies><SubSystem>Console</SubSystem><TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors><AdditionalOptions>/Brepro /PDBALTPATH:%_PDB% %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="Main.cpp" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\llvm-native\llvm-native.vcxproj"><Project>{C5D32B71-6952-4CE1-B01E-44AB86D50443}</Project><ReferenceOutputAssembly>false</ReferenceOutputAssembly><LinkLibraryDependencies>false</LinkLibraryDependencies><Private>false</Private></ProjectReference>
+    <ProjectReference Include="..\runtime\runtime.vcxproj"><Project>{0FCB3F0C-A6AC-43B1-B859-124CE4FCC5D0}</Project><ReferenceOutputAssembly>false</ReferenceOutputAssembly><LinkLibraryDependencies>false</LinkLibraryDependencies><Private>false</Private></ProjectReference>
+    <ClCompile Include="Main.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

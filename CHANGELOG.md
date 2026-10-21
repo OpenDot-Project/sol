@@ -6,6 +6,9 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Direct LLVM 23.1.3 C++ API construction through a thin C++/CLI operation bridge, session-scoped
+  handles, binary bitcode transfer to ORC and Sol containers, and LLVM-printer-only inspection.
+  Native and mixed-mode CRT ownership is separated; first-party MSVC projects use `/W4 /WX`.
 - Experimental native concurrent mark/sweep baseline with precise descriptors, generated root slots,
   insertion barriers, cooperative handshakes, strong/weak handles, and heap-limit validation.
 - Collectible scalar/String array literals and UTF-8 String operations, source integral math

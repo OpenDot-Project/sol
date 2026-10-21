@@ -47,25 +47,21 @@
     </ClCompile>
     <Link>
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors>
-      <AdditionalLibraryDirectories>$(LLVMRoot)\lib;$(NativeHostPath);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LLVM-C.lib;ijwhost.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\..\..\out\native\llvm-native;$(NativeHostPath);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>OpenDot.Sol.LlvmNative.lib;ijwhost.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/Brepro /PDBALTPATH:%_PDB% %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ProjectReference Include="..\llvm-native\llvm-native.vcxproj">
+      <Project>{C5D32B71-6952-4CE1-B01E-44AB86D50443}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly><LinkLibraryDependencies>false</LinkLibraryDependencies><Private>false</Private>
+    </ProjectReference>
     <Reference Include="OpenDot.Sol.Lowering"><HintPath>..\..\managed\OpenDot.Sol.Lowering\bin\Release\net10.0-windows\OpenDot.Sol.Lowering.dll</HintPath></Reference>
     <!-- MSBuild attaches native Core Check plugins only to unmanaged translation units. -->
     <ClCompile Include="Compiler.cpp" />
-    <ClCompile Include="NativeCompiler.cpp"><CompileAsManaged>false</CompileAsManaged><ExceptionHandling>Sync</ExceptionHandling><EnablePREfast>true</EnablePREfast></ClCompile>
-    <ClInclude Include="NativeCompiler.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <!-- Mixed projects have managed item defaults; attach the native plugin to the unmanaged helper explicitly. -->
-  <ItemGroup Condition="'$(RunMsvcAnalysis)' == 'true'">
-    <ClCompile Update="NativeCompiler.cpp">
-      <PREfastAdditionalPlugins>$(EspXEnginePath);%(PREfastAdditionalPlugins)</PREfastAdditionalPlugins>
-    </ClCompile>
-  </ItemGroup>
   <Target Name="GetReferenceAssemblyPaths">
     <PropertyGroup>
       <_TargetFrameworkDirectories>$(DotNetPackRoot)\Microsoft.NETCore.App.Ref\$(ReferencePackVersion)\ref\net10.0</_TargetFrameworkDirectories>

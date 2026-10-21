@@ -13,15 +13,12 @@ public sealed partial class LlvmEmitter
     private Value ArrayLiteral(FirArrayLiteral array)
     {
         var element = array.Type.Arguments[0];
-        string result = Temp();
-        Line($"{result} = call ptr @sol_rt_array_new(i32 {array.Elements.Length}, i32 {ElementKind(element)})");
-        KeepAlive(new("ptr", result, array.Type)); // The partially initialized array must survive element evaluation.
+        long result = Call("sol_rt_array_new", Int(array.Elements.Length), Int(ElementKind(element)));
+        KeepAlive(new("ptr", result, array.Type));
         for (int index = 0; index < array.Elements.Length; index++)
         {
             var value = Expression(array.Elements[index]);
-            string address = Temp();
-            Line($"{address} = call ptr @sol_rt_array_address(ptr {result}, i32 {index}, i32 {ElementWidth(element)})");
-            Store(value, address);
+            Store(value, Call("sol_rt_array_address", result, Int(index), Int(ElementWidth(element))));
         }
         return new("ptr", result, array.Type);
     }

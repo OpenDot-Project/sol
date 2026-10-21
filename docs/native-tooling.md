@@ -1,9 +1,15 @@
 # Native implementation tooling
 
-The native solution `src/native/Sol.Native.sln` groups the Windows launcher, LLVM bridge, ORC host, and SolRT
+The native solution `src/native/Sol.Native.sln` groups the Windows launcher, LLVM C++ component/bridge, ORC host, and SolRT
 projects for C++ and C++/CLI tooling. The managed solution remains independent of Visual C++ build
 targets. Build the managed dependencies and backend as described in [native AOT](fir-native.md)
 before inspecting the native solution.
+
+`eng/build-backend.ps1` prepares the LLVM C++ static-link dependencies through the exact vcpkg
+commit/archive and Windows static triplet in `eng/llvm-native-dependencies.json`. The selected
+compression/XML libraries are zlib, zstd, and libxml2 core. Downloads are digest-checked; upstream
+package builds stay under `out/dependencies`. Their license inventory is copied under
+`out/native/llvm-native/dependency-licenses`. First-party native projects remain MSBuild projects.
 
 ## Formatting and inspections
 
@@ -33,8 +39,10 @@ Native build helpers pass these properties explicitly:
 /p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset
 ```
 
-`src/native/NativeAnalysis.props` also enables them for direct project builds. MSVC analyzes the
-plain native launcher, runtime, and unmanaged LLVM helper. The managed `Compiler.cpp` adapter does
+`src/native/NativeAnalysis.props` also enables them for direct project builds and requires `/W4 /WX`
+for first-party compiler diagnostics. MSVC analyzes the plain native launcher, runtime, ORC host,
+and native LLVM C++ component. Upstream SDK headers have a separate diagnostic scope; this does not
+disable first-party warnings. The managed `Compiler.cpp` adapter does
 not run MSVC native Core Check; it is covered by InspectCode's C++/CLI analysis. A skipped managed
 translation unit is not evidence of native Core Guidelines validation. See Microsoft's
 [Core Check documentation](https://learn.microsoft.com/en-us/cpp/code-quality/using-the-cpp-core-guidelines-checkers)

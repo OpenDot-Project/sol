@@ -48,7 +48,7 @@ dotnet $solc spec/examples/native/FirstProgram.sol --emit=fir -o out/Hello.fir.j
 dotnet $solc spec/examples/native/FirstProgram.sol --emit=llvm-ir -o out/Hello.ll
 ```
 
-FIR/LLVM text emission does not load the native bridge. CST and AST emission retain their existing
+FIR inspection does not load LLVM. LLVM inspection constructs a native module through the C++ API bridge and uses the LLVM printer; it requires the backend component. CST and AST emission retain their existing
 per-file behavior. FIR, LLVM, and executable emission operate on the complete explicit source set;
 `-o` can name one combined output for multiple input files. Native inputs and inspection outputs
 still receive whole-input preflight and transactional replacement protection.
@@ -105,13 +105,21 @@ Bottom-typed source calls and global/receiver storage initialization also remain
 
 ## LLVM boundary
 
-`OpenDot.Sol.Lowering` selects LLVM instructions in C#. The C++20/CLI bridge marshals UTF-8 LLVM IR
-to a native translation unit using LLVM's C interface from the exact `LLVM-C.dll`. This avoids exposing
-native LLVM types or unresolved opaque typerefs in managed metadata. Native contexts, buffers, modules,
-and target machines have deterministic RAII ownership. Errors are translated at the managed boundary.
+`OpenDot.Sol.Lowering` selects instructions, blocks, roots and guards in C#. An immediate operation
+interface crosses the thin C++20/CLI bridge into LLVM 23.1.3 C++ `LLVMContext`, `Module`, `IRBuilder`,
+and `TargetMachine` APIs. It never builds or parses textual LLVM assembly as a compilation step.
+Opaque handles carry session identities; foreign, wrong-kind, cross-thread and disposed use is rejected.
+Native contexts, modules and target machines have deterministic ownership. Errors are translated at
+the managed boundary. LLVM text is only inspection output produced by the LLVM printer.
 
-The native unit parses the generated IR, verifies it, runs the `default<O1>` pass pipeline, verifies
-again, and emits AMD64 COFF. C# launches `lld-link` with structured arguments in a temporary staging
+The SDK uses the static CRT. `OpenDot.Sol.LlvmNative.dll` owns its C++ objects and allocations behind
+an opaque C ABI; the C++/CLI adapter uses the dynamic CRT. Buffers are freed in the component that
+allocated them. Pinned static compression/XML dependencies are built under `out/dependencies` by
+`eng/install-llvm-native-deps.ps1`; first-party projects remain MSBuild projects.
+
+The native component verifies the module and optimizes a clone with the O1 pipeline, verifies
+again, and emits AMD64 COFF. ORC receives binary LLVM bitcode from the same constructed module,
+verifies it and owns execution in the native guest. C# launches `lld-link` with structured arguments in a temporary staging
 directory. A missing backend, wrong LLVM version, verification failure, or linker failure cannot
 replace an existing executable. The frontend SDK remains usable without LLVM installed.
 

@@ -13,7 +13,7 @@ using OpenDot.Sol.Fir;
 namespace OpenDot.Sol.Lowering;
 
 public enum NativeArtifactKind { Bin, Cdylib, Staticlib, Solib }
-public sealed record NativeArtifact(byte[] Executable, byte[]? RuntimeDll, string LlvmIr)
+public sealed record NativeArtifact(byte[] Executable, byte[]? RuntimeDll)
 {
     public byte[]? ImportLibrary { get; init; }
     public byte[]? RuntimeLibrary { get; init; }
@@ -33,13 +33,13 @@ public static class NativeCompiler
         { throw new ArgumentException("Artifact kind and verified entry contract do not match.", nameof(kind)); }
         if (artifactName is not null && (artifactName != Path.GetFileName(artifactName) || artifactName.Length == 0))
         { throw new ArgumentException("Artifact name must be a file basename.", nameof(artifactName)); }
-        string llvmIr = LlvmEmitter.Emit(program, staticRuntime, cancellationToken, cExports: kind is NativeArtifactKind.Cdylib or NativeArtifactKind.Staticlib);
         var bridge = LoadBridge(root);
-        byte[] objectBytes = bridge.CompileObject(llvmIr);
+        using var module = LlvmEmitter.Build(program, bridge, cancellationToken, cExports: kind is NativeArtifactKind.Cdylib or NativeArtifactKind.Staticlib);
+        byte[] objectBytes = module.CompileObject();
         if (objectBytes.Length < 20 || objectBytes[0] != 0x64 || objectBytes[1] != 0x86)
         { throw new IOException("LLVM did not produce an AMD64 COFF object."); }
         if (kind == NativeArtifactKind.Solib)
-        { return new(SolLibraryArchive.Create(program, llvmIr, objectBytes, staticRuntime), null, llvmIr); }
+        { return new(SolLibraryArchive.Create(program, module.Bitcode(), objectBytes, staticRuntime), null); }
         string scratch = Path.Combine(Path.GetTempPath(), "sol-native-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);
         try
@@ -79,7 +79,7 @@ public static class NativeCompiler
             string message = error.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult();
             if (process.ExitCode != 0) { throw new IOException("lld-link failed: " + message); }
             cancellationToken.ThrowIfCancellationRequested();
-            return new(File.ReadAllBytes(output), staticRuntime ? null : File.ReadAllBytes(Path.Combine(root, "SolRT.dll")), llvmIr)
+            return new(File.ReadAllBytes(output), staticRuntime ? null : File.ReadAllBytes(Path.Combine(root, "SolRT.dll")))
             {
                 ImportLibrary = kind == NativeArtifactKind.Cdylib ? File.ReadAllBytes(Path.Combine(scratch, "program.lib")) : null,
                 RuntimeLibrary = kind == NativeArtifactKind.Staticlib && !staticRuntime ? File.ReadAllBytes(runtime) : null,
@@ -88,14 +88,16 @@ public static class NativeCompiler
         finally { Directory.Delete(scratch, true); }
     }
 
+    public static string BackendRoot(string? directory) => Path.GetFullPath(directory ?? Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT") ?? Path.Combine(AppContext.BaseDirectory, "native"));
+
     public static ILlvmCompiler LoadBridge(string backendDirectory)
     {
         string root = Path.GetFullPath(backendDirectory);
-        string bridge = Path.Combine(root, "OpenDot.Sol.LlvmBridge.dll"), llvm = Path.Combine(root, "LLVM-C.dll");
+        string bridge = Path.Combine(root, "OpenDot.Sol.LlvmBridge.dll"), llvm = Path.Combine(root, "OpenDot.Sol.LlvmNative.dll");
         if (!File.Exists(bridge) || !File.Exists(llvm)) { throw new IOException("The native backend is not installed. Build/install the LLVM backend component."); }
         try
         {
-            // Load the exact component DLL, never an arbitrary LLVM-C.dll from the working directory.
+            // Load the exact native LLVM C++ component before the mixed-mode adapter.
             NativeLibrary.Load(llvm);
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(bridge);
             var type = assembly.GetType("OpenDot.Sol.LlvmBridge.Compiler", true)!;

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>
+  <PropertyGroup Label="Globals"><ProjectGuid>{C5D32B71-6952-4CE1-B01E-44AB86D50443}</ProjectGuid><Keyword>Win32Proj</Keyword><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration"><ConfigurationType>DynamicLibrary</ConfigurationType><PlatformToolset>v145</PlatformToolset><UseDebugLibraries>false</UseDebugLibraries></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="../NativeAnalysis.props" />
+  <PropertyGroup>
+    <LLVMRoot Condition="'$(LLVMRoot)' == ''">$(LLVM_ROOT)</LLVMRoot>
+    <OutDir>$(MSBuildThisFileDirectory)..\..\..\out\native\llvm-native\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\..\..\out\obj\llvm-native\</IntDir><TargetName>OpenDot.Sol.LlvmNative</TargetName>
+    <ExternalIncludePath>$(LLVMRoot)\include;$(ExternalIncludePath)</ExternalIncludePath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile><LanguageStandard>stdcpp20</LanguageStandard><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary><ExceptionHandling>Sync</ExceptionHandling><ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(LLVMRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>SOL_LLVM_NATIVE_BUILD;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <AdditionalOptions>/utf-8 /Brepro /bigobj /external:anglebrackets %(AdditionalOptions)</AdditionalOptions></ClCompile>
+    <Link><AdditionalLibraryDirectories>$(LLVMRoot)\lib;$(OutDir)dependencies;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors><AdditionalOptions>/Brepro /PDBALTPATH:%_PDB% %(AdditionalOptions)</AdditionalOptions></Link>
+  </ItemDefinitionGroup>
+  <Import Project="$(OutDir)llvm-libraries.props" Condition="Exists('$(OutDir)llvm-libraries.props')" />
+  <ItemGroup><ClCompile Include="Session.cpp" /><ClCompile Include="Output.cpp" /><ClCompile Include="Orc.cpp" /><ClInclude Include="Api.h" /><ClInclude Include="Session.h" /></ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="RequireDependencies" BeforeTargets="PrepareForBuild"><Error Condition="!Exists('$(OutDir)llvm-libraries.props')" Text="Run eng/install-llvm-native-deps.ps1 before building the LLVM C++ component." /></Target>
+</Project>

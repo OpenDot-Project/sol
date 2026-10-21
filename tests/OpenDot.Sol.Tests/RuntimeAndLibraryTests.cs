@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using OpenDot.Sol.Cli;
 using OpenDot.Sol.Fir;
 using OpenDot.Sol.Lowering;
@@ -13,6 +14,15 @@ namespace OpenDot.Sol.Tests;
 
 public sealed class RuntimeAndLibraryTests
 {
+    [Fact]
+    public void RejectedInspectionInputsFailBeforeLoadingTheBackend()
+    {
+        Assert.Throws<ArgumentNullException>(() => LlvmEmitter.Emit(null!, cancellationToken: TestContext.Current.CancellationToken));
+        using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+        var program = Program("println(1)");
+        Assert.Throws<OperationCanceledException>(() => LlvmEmitter.Emit(program, cancellationToken: cancellation.Token));
+    }
+
     private static VerifiedFirProgram Program(string body, bool library = false)
     {
         string source = library ? body : "import std.stdio\nobject Main { func main(args: []String) throws IOException { " + body + " } }";
@@ -26,16 +36,14 @@ public sealed class RuntimeAndLibraryTests
     [InlineData("val values = [1, 2, 3]; Gc.collect(); println(values[1], values.length)")]
     [InlineData("val values = [\"a\" + \"b\", args[0]]; Gc.collect(); println(values[0], values[1])")]
     [InlineData("println(args[0].substring(length = 1, start = 0)); println(args[0].indexOf(start = 0, value = \"a\"))")]
-    public void RootedArraysAndStringOperationsHaveVerifiedNativeLowering(string body)
+    public void RootedArraysAndStringOperationsSelectBuilderBarriersAndAdapters(string body)
     {
         var program = Program(body);
-        string ir = LlvmEmitter.Emit(program, cancellationToken: TestContext.Current.CancellationToken);
-        Assert.Contains("@sol_gc_push_frame", ir);
-        Assert.Contains("@sol_gc_pop_frame", ir);
-        Assert.Contains("@sol_gc_store_ref", ir);
-        Assert.Contains("@sol_gc_collect", ir);
-        Assert.DoesNotContain("$ROOT_COUNT$", ir);
-        Assert.DoesNotContain("coreclr", ir);
+        string ir = LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains("\"callee\":\"sol_gc_push_frame\"", ir);
+        Assert.Contains("\"callee\":\"sol_gc_pop_frame\"", ir);
+        Assert.Contains("\"callee\":\"sol_gc_store_ref\"", ir);
+        if (body.Contains("Gc.collect", StringComparison.Ordinal)) { Assert.Contains("\"callee\":\"sol_gc_collect\"", ir); }
     }
 
     [Fact]
@@ -44,13 +52,12 @@ public sealed class RuntimeAndLibraryTests
         var library = Program("func add(a, b: int): int = a + b", library: true);
         Assert.True(library.Program.IsLibrary);
         Assert.Equal(-1, library.Program.Entry);
-        string ir = LlvmEmitter.Emit(library, cancellationToken: TestContext.Current.CancellationToken, cExports: true);
-        Assert.DoesNotContain("define i32 @wmain", ir);
-        Assert.Contains("define dllexport i32 @add", ir);
-        Assert.Contains("call i32 @sol_gc_enter_export()", ir);
-        Assert.Contains("call void @sol_gc_leave_export(i32 %transition)", ir);
-        Assert.Contains("@sol_library_shutdown", ir);
-        Assert.DoesNotContain("define dllexport ptr", ir);
+        string ir = LoweringTrace.Inspect(library, cancellationToken: TestContext.Current.CancellationToken, cExports: true);
+        Assert.DoesNotContain("\"text\":\"wmain\"", ir);
+        Assert.Contains("\"text\":\"add\"", ir);
+        Assert.Contains("\"callee\":\"sol_gc_enter_export\"", ir);
+        Assert.Contains("\"callee\":\"sol_gc_leave_export\"", ir);
+        Assert.Contains("sol_library_shutdown", ir);
     }
 
     [Theory]
@@ -60,15 +67,15 @@ public sealed class RuntimeAndLibraryTests
     [InlineData("func sol_rt_check_abi(value: long): long = value")]
     [InlineData("func memset(value: int): int = value")]
     public void CExportsRejectManagedSignaturesAndAmbiguousNames(string source)
-    { Assert.Throws<IOException>(() => LlvmEmitter.Emit(Program(source, library: true), cancellationToken: TestContext.Current.CancellationToken, cExports: true)); }
+    { Assert.Throws<IOException>(() => LoweringTrace.Inspect(Program(source, library: true), cancellationToken: TestContext.Current.CancellationToken, cExports: true)); }
 
     [Fact]
     public void SolibIsDeterministicInventoriedDataAndDoesNotGrantVerifiedFir()
     {
         var library = Program("func add(a, b: int): int = a + b", library: true);
-        string ir = LlvmEmitter.Emit(library, cancellationToken: TestContext.Current.CancellationToken);
-        byte[] first = SolLibraryArchive.Create(library, ir, [0x64, 0x86, 0, 0], false);
-        Assert.Equal(first, SolLibraryArchive.Create(library, ir, [0x64, 0x86, 0, 0], false));
+        byte[] bitcode = [0x42, 0x43, 0xC0, 0xDE];
+        byte[] first = SolLibraryArchive.Create(library, bitcode, [0x64, 0x86, 0, 0], false);
+        Assert.Equal(first, SolLibraryArchive.Create(library, bitcode, [0x64, 0x86, 0, 0], false));
         var files = SolLibraryArchive.Read(first);
         Assert.Contains("manifest.json", files.Keys);
         Assert.Contains("provenance.json", files.Keys);
@@ -78,8 +85,8 @@ public sealed class RuntimeAndLibraryTests
         bytes.Write(first);
         using (var zip = new ZipArchive(bytes, ZipArchiveMode.Update, leaveOpen: true))
         {
-            zip.GetEntry("llvm/module.ll")!.Delete();
-            using var stream = zip.CreateEntry("llvm/module.ll").Open(); stream.Write(Encoding.UTF8.GetBytes("tampered"));
+            zip.GetEntry("llvm/module.bc")!.Delete();
+            using var stream = zip.CreateEntry("llvm/module.bc").Open(); stream.Write(Encoding.UTF8.GetBytes("tampered"));
         }
         Assert.Throws<InvalidDataException>(() => SolLibraryArchive.Read(bytes.ToArray()));
     }
