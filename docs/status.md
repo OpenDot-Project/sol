@@ -27,7 +27,7 @@ The CST parser now includes braced `if/else`, the four `for` forms, `switch` wit
 patterns, `try/catch/finally` in statement/value contexts, `defer`, and `unsafe`. Function expressions
 add typed/ref/out lambda headers, local return labels, anonymous functions, trailing lambdas, and
 structured named/ref/out/spread call arguments. Casts and type tests are parsed with their precedence.
-These additions are not in the published 0.0.1 component. They remain syntax support, without
+These additions are not in the published 0.0.1 component. Parsing them alone does not establish
 type/effect/escape/exhaustiveness validation or executable output. See the [frontend guide](frontend.md).
 
 Nominal declarations now include class, struct/ref struct, object/companion, interface, enum payloads,
@@ -37,7 +37,7 @@ The new `OpenDot.Sol.Psi` project exposes typed immutable source views and modul
 [PSI guide](psi.md). The [AST](ast.md) expands grouped parameters and normalizes written type shapes.
 [Declaration analysis](analysis.md) now indexes source modules, public import/re-export lookup,
 signature groups, and compatible partial declarations. Development Solc accepts `--emit=ast`.
-Full expression type checking and executable output remain unimplemented.
+Full expression type checking remains incomplete. A separate closed bootstrap subset now supports native output.
 The [source binding SDK](source-binding.md) now resolves written type identities and generic parameters,
 checks explicit bases and inheritance cycles, and indexes lexical scopes and capture candidates.
 The optional [generic and call analysis](generic-calls.md) now substitutes owned type parameters,
@@ -57,16 +57,22 @@ incomplete. It does not produce verified FIR or native output.
 The [Yellow Tea design](yellow-tea/index.md) documents the planned native collector, root/barrier ABI,
 weak/sweep races, pacing, and validation gates. No collector implementation or measured latency is
 available. SolRT linkage defaults to dynamic; `--static-solrt-lib` records static selection in source
-builds, while actual native runtime linking remains unimplemented.
+builds and now controls the native AOT bootstrap linker.
+
+The [verified FIR/native path](fir-native.md) admits a closed scalar/stateless subset, independently
+checks FIR types/calls/CFG assignment, and lowers through a qualified C++20/CLI LLVM bridge to AMD64
+COFF and a Windows executable. Default dynamic and explicit static SolRT modes are execution-tested.
+Native String/argument storage uses a provisional entry-lifetime bootstrap; it is not Yellow Tea.
+General heap objects, native catches/defer/EH, generic specialization, and full borrowing remain gated.
 
 ### Remaining stages
 
 1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.
 2. Extend binding with full visibility, generic body validation, receiver-dependent references,
    generated members, and complete overload/expression typing.
-3. Resolve symbols, types, overloads, nullability, checked exceptions, ref/out storage, and ref-struct
-   escape rules into verified FIR.
-4. Introduce the LLVM bridge and native artifact/entry pipeline with ABI and exception-handling tests.
+3. Expand the verified FIR subset with full nullability, checked exception/cleanup CFG, borrowing,
+   closures, generic specialization, and general object layouts.
+4. Extend the LLVM bridge/native pipeline beyond AOT bin with qualified exception handling and ORC.
 5. Implement and validate the native runtime, Yellow Tea concurrency invariants, and `std.core` bootstrap;
    expand the standard library with module-level API contracts and tests.
 

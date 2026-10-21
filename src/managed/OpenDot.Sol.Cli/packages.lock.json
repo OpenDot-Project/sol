@@ -34,6 +34,18 @@
           "OpenDot.Sol.Cst": "[0.0.1, )"
         }
       },
+      "opendot.sol.fir": {
+        "type": "Project",
+        "dependencies": {
+          "OpenDot.Sol.Analysis": "[0.0.1, )"
+        }
+      },
+      "opendot.sol.lowering": {
+        "type": "Project",
+        "dependencies": {
+          "OpenDot.Sol.Fir": "[0.0.1, )"
+        }
+      },
       "opendot.sol.psi": {
         "type": "Project",
         "dependencies": {

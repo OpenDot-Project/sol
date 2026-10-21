@@ -15,5 +15,5 @@ foreach ($platform in $platforms) {
     }
 }
 if (-not $toolset) { throw 'The launcher requires MSVC v143 or v145 with C++20 support.' }
-& $msbuild (Join-Path $root 'src/native/launcher/launcher.vcxproj') /nologo /nodeReuse:false /p:Configuration=Release /p:Platform=x64 "/p:PlatformToolset=$($toolset.Name)"
+& $msbuild (Join-Path $root 'src/native/launcher/launcher.vcxproj') /nologo /nodeReuse:false /p:Configuration=Release /p:Platform=x64 "/p:PlatformToolset=$($toolset.Name)" /p:EnableCppCoreCheck=true /p:RunCodeAnalysis=true /p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset
 if ($LASTEXITCODE -ne 0) { throw 'Native launcher build failed.' }

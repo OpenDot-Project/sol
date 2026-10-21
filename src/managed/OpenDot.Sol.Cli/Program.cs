@@ -11,6 +11,8 @@ using OpenDot.Sol.Ast;
 using OpenDot.Sol.Psi;
 using OpenDot.Sol.Driver;
 using OpenDot.Sol.Text;
+using OpenDot.Sol.Fir;
+using OpenDot.Sol.Lowering;
 
 namespace OpenDot.Sol.Cli;
 
@@ -54,7 +56,7 @@ internal static class Program
                     --verbose                 Show build capabilities with --version
                     --print KEY               edition-list or target-list
                     --explain CODE            Explain a frontend diagnostic
-                    --emit=cst|ast            Write CST or normalized structural AST JSON
+                    --emit=cst|ast|fir|llvm-ir Write source/verified FIR or LLVM inspection output
                     -o PATH                   Output for one source
                     --out-dir DIR             Output directory; defaults to the current directory
                     --edition=2026            Source edition
@@ -67,13 +69,13 @@ internal static class Program
                     --color auto|always|never  Diagnostic color policy
 
                     @FILE: UTF-8 response file, one argument per line. No subcommands.
-                    Native code generation and execution are not implemented.
+                    Native AOT supports the qualified scalar/bootstrap subset; LLVM backend required.
                     CST/AST output does not imply type checking or executable code.
                     """);
                 return 0;
             case CompilerCommand.Version:
                 Console.WriteLine($"solc {Version}");
-                if (options.Verbose) { Console.WriteLine("edition: 2026\ntarget: x86_64-pc-windows-msvc\nfrontend: CST, PSI, AST; declaration analysis SDK\ncodegen: not implemented\nLLVM target version: 23.1.3"); }
+                if (options.Verbose) { Console.WriteLine("edition: 2026\ntarget: x86_64-pc-windows-msvc\nfrontend: CST, PSI, AST, verified FIR subset\ncodegen: native AOT bootstrap; backend component required\nLLVM target version: 23.1.3"); }
                 return 0;
             case CompilerCommand.Print:
                 Console.WriteLine(options.Query switch
@@ -91,9 +93,9 @@ internal static class Program
                 }
                 throw new CommandLineException("Unknown diagnostic code.");
         }
-        if (options.Emit == EmitKind.Link)
+        if (options.Emit == EmitKind.Link && (options.Backend != CompilerBackend.Aot || options.Artifact != ArtifactType.Bin))
         {
-            WriteError("SOL0001", "Native code generation is not implemented in this build. Use --emit=cst or --emit=ast for the frontend.", options);
+            WriteError("SOL0001", "The native bootstrap currently supports AOT bin output. Other backends/artifacts are not implemented.", options);
             return 1;
         }
 
@@ -111,6 +113,30 @@ internal static class Program
         var compilation = FrontendCompilation.Parse(sources, options.ErrorLimit, cancellation);
         foreach (Diagnostic diagnostic in compilation.Diagnostics) { WriteDiagnostic(diagnostic, options); }
         if (compilation.HasErrors) { return 1; }
+        if (options.Emit is EmitKind.Link or EmitKind.Fir or EmitKind.LlvmIr)
+        {
+            var fir = FirCompilation.Create(compilation.CreateAst(cancellation), cancellation);
+            foreach (var diagnostic in fir.Diagnostics) { WriteDiagnostic(diagnostic, options); }
+            if (fir.Program is null) { return 1; }
+            string extension = options.Emit == EmitKind.Fir ? ".fir.json" : options.Emit == EmitKind.LlvmIr ? ".ll" : ".exe";
+            string path = Path.GetFullPath(options.Output ?? Path.Combine(options.OutputDirectory, Path.GetFileNameWithoutExtension(sources[0].Path) + extension));
+            if (inputPaths.Contains(path)) { throw new CommandLineException("An output cannot overwrite a source file."); }
+            if (options.Emit == EmitKind.Fir) { outputs.Add((path, System.Text.Encoding.UTF8.GetBytes(FirJson.Serialize(fir.Program, cancellation)))); }
+            else if (options.Emit == EmitKind.LlvmIr) { outputs.Add((path, System.Text.Encoding.UTF8.GetBytes(LlvmEmitter.Emit(fir.Program, options.RuntimeLinkage == SolrtLinkage.Static, cancellation)))); }
+            else
+            {
+                var artifact = NativeCompiler.Compile(fir.Program, options.RuntimeLinkage == SolrtLinkage.Static, cancellationToken: cancellation);
+                outputs.Add((path, artifact.Executable));
+                if (artifact.RuntimeDll is not null) { outputs.Add((Path.Combine(Path.GetDirectoryName(path)!, "SolRT.dll"), artifact.RuntimeDll)); }
+            }
+            foreach (var source in sources)
+            { if (!File.ReadAllBytes(source.Path).AsSpan().SequenceEqual(source.Bytes)) { throw new IOException("Source changed during compilation."); } }
+            var nativeOutputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var output in outputs)
+            { if (!nativeOutputs.Add(output.Path) || inputPaths.Contains(output.Path)) { throw new CommandLineException("Native output paths collide with another output or source."); } }
+            OutputTransaction.Write(outputs, cancellation);
+            return 0;
+        }
         var outputPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var tree in compilation.Trees)
         {

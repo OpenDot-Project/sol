@@ -237,7 +237,8 @@
       "opendot.sol.cli": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Driver": "[0.0.1, )"
+          "OpenDot.Sol.Driver": "[0.0.1, )",
+          "OpenDot.Sol.Lowering": "[0.0.1, )"
         }
       },
       "opendot.sol.cst": {
@@ -258,6 +259,18 @@
         "dependencies": {
           "OpenDot.Sol.Analysis": "[0.0.1, )",
           "OpenDot.Sol.Cst": "[0.0.1, )"
+        }
+      },
+      "opendot.sol.fir": {
+        "type": "Project",
+        "dependencies": {
+          "OpenDot.Sol.Analysis": "[0.0.1, )"
+        }
+      },
+      "opendot.sol.lowering": {
+        "type": "Project",
+        "dependencies": {
+          "OpenDot.Sol.Fir": "[0.0.1, )"
         }
       },
       "opendot.sol.psi": {

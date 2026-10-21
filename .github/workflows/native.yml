@@ -1,0 +1,48 @@
+name: Native backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  aot:
+    name: LLVM AOT and SolRT validation
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - run: ./eng/install-llvm.ps1
+      - run: dotnet restore Sol.slnx --locked-mode
+      - run: ./eng/build-backend.ps1
+      - run: dotnet tool restore
+      - name: Inspect native and C++/CLI sources
+        run: ./eng/native-tools.ps1 -Mode Inspect
+      - run: ./eng/test-native.ps1
+      - run: ./eng/test-runtime.ps1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-validation
+          path: |
+            out/native-tests/
+            out/native/runtime/asan-harness/
+            out/jetbrains/native.sarif.json
+          if-no-files-found: error
+          retention-days: 7

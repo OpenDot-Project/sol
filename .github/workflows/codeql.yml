@@ -23,7 +23,7 @@ jobs:
   analyze:
     name: ${{ matrix.language }} manual build
     runs-on: windows-2025
-    timeout-minutes: 25
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -46,10 +46,15 @@ jobs:
       - run: dotnet restore Sol.slnx --locked-mode
       - run: dotnet build Sol.slnx --no-restore --configuration Release
         if: matrix.language == 'csharp'
-      - name: Build native launcher
+      - name: Acquire pinned LLVM for native analysis
+        if: matrix.language == 'cpp'
+        run: ./eng/install-llvm.ps1
+      - name: Build native launcher and LLVM/runtime components
         if: matrix.language == 'cpp'
         shell: pwsh
-        run: ./eng/build-launcher.ps1
+        run: |
+          ./eng/build-launcher.ps1
+          ./eng/build-backend.ps1
       - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           category: /language:${{ matrix.language }}

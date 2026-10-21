@@ -20,6 +20,8 @@
   href: arguments.md
 - name: Body types and flow analysis
   href: body-analysis.md
+- name: Verified FIR and native AOT
+  href: fir-native.md
 - name: Source language specification
   href: source-specification.md
 - name: Architecture
@@ -46,6 +48,8 @@
       href: yellow-tea/validation-and-delivery.md
 - name: Development and validation
   href: development.md
+- name: Native implementation tooling
+  href: native-tooling.md
 - name: Status and roadmap
   href: status.md
 - name: API reference

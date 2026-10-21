@@ -9,6 +9,10 @@ has no implemented Yellow Tea allocator, collector workers, generated root frame
 harness. Solc's frontend tests and the tool's private .NET runtime do not validate this design.
 There are no measured pause, throughput, memory-overhead, or production-readiness claims.
 
+The development [SolRT bootstrap](../fir-native.md) now has native String/argument storage and an ASan
+ABI/lifetime harness. It uses entry-lifetime ownership without collection. It does not implement
+Yellow Tea allocation, generated GC frames/barriers, or the concurrent collector protocol below.
+
 ## Ownership
 
 The compiler determines object layouts, reference locations, root liveness, safepoint placement, and

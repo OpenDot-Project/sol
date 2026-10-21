@@ -109,4 +109,6 @@ generation are not implemented by these source checks.
 | `SOL2290` | Bounded analysis/specialization resource failure. |
 
 The remaining proof gaps are explicit. This work advances member/type checking and flow analysis;
-it does not finish all language semantics or produce verified FIR. See the [roadmap](status.md).
+it does not finish all language semantics. The separate [FIR/native pipeline](fir-native.md) admits
+and independently verifies a restricted closed subset rather than treating body-analysis completeness
+as a whole-program code-generation certificate. See the [roadmap](status.md).
