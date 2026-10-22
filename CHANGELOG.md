@@ -8,6 +8,10 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Optional native-component assembly with pinned upstream notices, payload hash verification and
+  relocated private-runtime AOT/ORC qualification. Distributions omit build-machine SDK paths;
+  native EXE/DLL linking uses an x64 developer shell's installed libraries.
+
 - Embedded LLD.COFF and LLD.Common 23.1.3 linking, including static archives, serialized driver
   re-entry, and diagnostics without external linker executables.
 - Dedicated bounded anonymous-pipe bitcode transfer to the native ORC guest, with malformed-frame
@@ -77,6 +81,11 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
   use `([]String)?` for a nullable array reference.
 - Split parser control flow and function expressions into focused source files; preserve the original lossless token stream.
 - Clarified the source-file size convention: split above 750 physical lines, with an absolute 1,500-line ceiling; no CI size gate.
+
+### Fixed
+
+- Ignore empty backend environment overrides when resolving the packaged native component for AOT,
+  ORC and LLVM inspection, instead of failing with an empty-path error.
 
 ## [0.0.1] - 2026-10-19
 

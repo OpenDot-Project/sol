@@ -27,8 +27,7 @@ public static class NativeCompiler
     {
         ArgumentNullException.ThrowIfNull(program);
         cancellationToken.ThrowIfCancellationRequested();
-        string root = Path.GetFullPath(backendDirectory ?? Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT")
-            ?? Path.Combine(AppContext.BaseDirectory, "native"));
+        string root = BackendRoot(backendDirectory);
         if (!Enum.IsDefined(kind) || program.Program.IsLibrary != (kind != NativeArtifactKind.Bin))
         { throw new ArgumentException("Artifact kind and verified entry contract do not match.", nameof(kind)); }
         if (artifactName is not null && (artifactName != Path.GetFileName(artifactName) || artifactName.Length == 0))
@@ -49,13 +48,13 @@ public static class NativeCompiler
             // A DLL import library embeds this basename; it must match the consumer's deployed DLL.
             string output = Path.Combine(scratch, kind == NativeArtifactKind.Cdylib ? artifactName ?? "program.dll" : "program" + extension);
             File.WriteAllBytes(objectPath, objectBytes);
-            var configuration = File.ReadAllLines(Path.Combine(root, "link-paths.txt"));
             string runtime = Path.Combine(root, staticRuntime ? "SolRT-static.lib" : "SolRT.lib");
             var arguments = new List<string> { "/nologo", "/machine:x64", "/out:" + output, objectPath };
             if (kind == NativeArtifactKind.Staticlib)
             { arguments.Insert(0, "/lib"); if (staticRuntime) { arguments.Add(runtime); } }
             else
             {
+                var configuration = WindowsLinkEnvironment.Resolve(root, Environment.GetEnvironmentVariable("LIB"));
                 arguments.AddRange(["/Brepro", runtime, "libcmt.lib", "libvcruntime.lib", "libucrt.lib", "oldnames.lib", "kernel32.lib"]);
                 if (kind == NativeArtifactKind.Cdylib) { arguments.AddRange(["/dll", "/implib:" + Path.Combine(scratch, "program.lib")]); }
                 else { arguments.Add("/subsystem:console"); }
@@ -75,7 +74,10 @@ public static class NativeCompiler
         finally { Directory.Delete(scratch, true); }
     }
 
-    public static string BackendRoot(string? directory) => Path.GetFullPath(directory ?? Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT") ?? Path.Combine(AppContext.BaseDirectory, "native"));
+    public static string BackendRoot(string? directory) => ResolveBackendRoot(directory, Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT"));
+
+    internal static string ResolveBackendRoot(string? directory, string? environment)
+        => Path.GetFullPath(directory ?? (string.IsNullOrWhiteSpace(environment) ? Path.Combine(AppContext.BaseDirectory, "native") : environment));
 
     public static ILlvmCompiler LoadBridge(string backendDirectory)
     {

@@ -105,20 +105,26 @@ Every repository workflow runs on Windows 2025. Jobs are separated by responsibi
 | `build.yml` | Debug/Release tests, process smoke, TRX/Cobertura artifacts, separate OIDC Codecov upload. |
 | `docfx.yml` | Locked restore, metadata/site build with warnings as errors, output boundary checks. |
 | `doxygen.yml` | Digest-pinned Doxygen, native/C++/CLI HTML and XML, documentation warnings as errors. |
-| `native.yml` | AOT/ORC and native library consumers, SolRT model/ASan/concurrency harness, JetBrains inspection, and required managed native-orchestration coverage. |
+| `native.yml` | AOT/ORC and library consumers, SolRT model/ASan/concurrency harness, JetBrains inspection, required managed native-orchestration coverage and relocated native-component packaging. |
 | `codeql.yml` | Manual traced builds and security-extended analysis for C# and native C++. |
 | `security.yml` | Digest-verified actionlint, offline zizmor audit, and OSV scanning of tracked NuGet lockfiles. |
 | `package.yml` | Component assembly, private-runtime smoke, and archive artifact. |
 
-CodeQL currently covers the implemented C# and plain C++ launcher, not a hypothetical mixed-mode
-bridge. OSV's current workflow scans NuGet lockfiles; it is not a complete runtime/native SBOM audit.
+CodeQL traces C# and plain native C++ builds, including the LLVM component, guest host and runtime.
+This does not establish complete mixed-mode C++/CLI or cross-language coverage. OSV's workflow
+scans NuGet lockfiles; it is not a complete runtime/native SBOM audit.
 Codacy source analysis is configured separately from these workflows. Coverage upload success is
 tracked independently of whether tests passed. Fork pull requests do not run the trusted Codecov
 upload job. Dependency updates are proposed through Dependabot for NuGet and Actions.
 
-Current arbitrary-byte regressions exercise losslessness, limits, and termination. Native fuzzing,
-sanitizer harnesses, full-stage compilation, and GC tests will be added with those implementations;
-they are not provided by a green managed test run today.
+Arbitrary-byte regressions exercise frontend losslessness, limits and termination. The native job
+separately executes runtime ASan self-tests/harnesses, a barrier-state model, seeded reachability
+comparisons, concurrent collector stress and real AOT/ORC integration. A green managed test alone
+does not establish these native properties. Native LLVM-component ASan coverage and a latency
+guarantee remain outside that evidence.
+
+See [native component packaging](native-component.md) for the optional integrated archive,
+installed SDK/Redistributable prerequisites and the limits of relocation qualification.
 
 ## Release process
 
@@ -126,6 +132,9 @@ Changes enter `main` through protected pull requests and required checks. After 
 passes CI, maintainers create a version tag such as `v0.0.1`. The tag triggers fresh test and package
 runs. Release assets come from that exact successful tag Package run, rather than a developer's
 local archive or a pull-request artifact.
+When a release includes the native component, its additional archive must come from the successful
+Native backend run for that same tag and commit. The native workflow also runs on version tags;
+the frontend Package artifact alone does not establish native distribution qualification.
 
 Before publishing, verify archive SHA-256, component identity, every inventory hash/size, and launcher
 smoke from the extracted package. The release title is `Sol X.Y.Z`; notes state actual capabilities

@@ -57,18 +57,21 @@ instead of copying its grammar or starting a second semantic implementation.
 LLVM 23.1.3 is the selected backend version. Compiler semantics and lowering decisions remain in C#;
 the bridge owns native API handles, marshaling, and lifetime/error translation. No C++/CLI
 project was needed for the initial managed-only frontend. The development native bootstrap has
-a C++20/CLI adapter and an unmanaged LLVM C-interface translation unit. It performs parse/verify/pass/
-verify/object operations; instruction and semantic policy remains in C#. See [native AOT](fir-native.md).
+a thin C++20/CLI adapter and an unmanaged LLVM C++ API component. C# issues typed operations;
+native sessions own LLVM contexts/modules/builders and emit COFF/binary bitcode. Embedded LLD.COFF
+and LLD.Common handle COFF linking and archives. See [native AOT](fir-native.md).
 
 Yellow Tea is the planned native Sol garbage collector. Its design uses precise, non-moving,
 concurrent mark/sweep with short coordination phases; production collection must not fall back
-to a full-heap stop-the-world scan. It is not implemented or benchmarked yet. Sol program objects
-will live in the native runtime's heap, separately from the compiler's CLR objects.
+to a full-heap stop-the-world scan. The provisional development implementation collects a restricted
+String/scalar-array subset with precise roots and bounded concurrent work; no latency guarantee has
+been established. Sol objects live in a native process separately from compiler CLR objects.
 
 The [Yellow Tea documentation](yellow-tea/index.md) specifies heap allocation, roots, handshakes,
 barrier publication, weak references, sweeping, pacing, and validation. SolRT will link dynamically
 by default; `--static-solrt-lib` selects static linkage. The native bootstrap now implements both
-link modes. Its argument-lifetime arena and static literals do not implement Yellow Tea collection.
+link modes. See the [current runtime implementation](yellow-tea/current-implementation.md) and
+[native component packaging](native-component.md) for qualification and distribution boundaries.
 
 ## Repository scope
 

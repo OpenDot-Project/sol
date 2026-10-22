@@ -21,7 +21,7 @@ public static class OrcExecutor
     {
         ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(arguments);
         if (program.Program.IsLibrary) { throw new ArgumentException("ORC execution requires a program entry.", nameof(program)); }
-        string root = Path.GetFullPath(backendDirectory ?? Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT") ?? Path.Combine(AppContext.BaseDirectory, "native"));
+        string root = NativeCompiler.BackendRoot(backendDirectory);
         string host = Path.Combine(root, staticRuntime ? "sol-exec-host-static.exe" : "sol-exec-host.exe");
         if (!File.Exists(host)) { throw new IOException("The qualified native ORC host is not installed."); }
         cancellationToken.ThrowIfCancellationRequested();
