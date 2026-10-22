@@ -61,8 +61,14 @@ the private runtime distributed inside the component.
 
 Restore the solution first. Packaging publishes the managed application framework-dependently,
 builds the native launcher, downloads the runtime pinned in `eng/runtime.json`, verifies SHA-512,
-assembles licenses and payloads, runs version/CST smoke tests, and writes a file inventory with
+assembles licenses and payloads, runs version/CST/AST/FIR smoke tests, and writes a file inventory with
 SHA-256 values in `component.json`. It outputs a versioned ZIP and `.sha256` companion in `out/packages`.
+
+This development package contains the frontend and private .NET runtime. Its capability inventory
+does not advertise LLVM output: the LLVM C++ component, bridge, and native execution dependencies
+are not included. Packaging checks that an LLVM output request fails without creating an artifact,
+even when the packaging machine has a development backend installed. Native compilation and LLVM
+inspection are qualified separately by the native backend workflow; backend distribution remains pending.
 
 The script refuses to overwrite an existing versioned ZIP. For another local verification, select
 a fresh output directory, for example `./eng/package.ps1 -OutputDirectory out/packages-check-2`.

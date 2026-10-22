@@ -43,6 +43,9 @@ jobs:
         run: ./eng/verify-repository.ps1
       - name: Locked restore
         run: dotnet restore Sol.slnx --locked-mode
+      - name: Native asset acquisition regression tests
+        if: matrix.configuration == 'Debug'
+        run: ./eng/test-native-asset.ps1
       - name: Build and run regression tests
         if: matrix.configuration == 'Debug'
         run: dotnet test --solution Sol.slnx --no-restore --configuration Debug --report-xunit-trx --results-directory out/test-results/debug

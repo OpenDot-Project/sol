@@ -11,6 +11,11 @@ compression/XML libraries are zlib, zstd, and libxml2 core. Downloads are digest
 package builds stay under `out/dependencies`. Their license inventory is copied under
 `out/native/llvm-native/dependency-licenses`. First-party native projects remain MSBuild projects.
 
+The asset provider tries a bounded upstream MSYS2 mirror list when the primary host fails or returns
+bytes with the wrong digest. Every candidate uses HTTPS and the same pinned SHA-512. Downloads are
+staged in a temporary file; only verified bytes replace the destination. A verification page or an
+exhausted mirror list fails acquisition rather than entering the dependency cache.
+
 ## Formatting and inspections
 
 The root `.clang-format` is the formatting contract: Microsoft style with `LineEnding: DeriveLF`.
