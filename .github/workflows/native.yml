@@ -5,6 +5,7 @@ name: Native backend
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -47,6 +48,14 @@ jobs:
           dotnet test --solution Sol.slnx --no-restore --configuration Release --coverlet --coverlet-output-format cobertura --report-xunit-trx --results-directory out/test-results/native
           if ($LASTEXITCODE -ne 0) { throw 'Required native integration tests failed.' }
           if (@(Get-ChildItem out/test-results/native -Filter 'coverage.cobertura.*.xml').Count -eq 0) { throw 'Native orchestration coverage is missing.' }
+      - name: Package and qualify the private-runtime native component
+        run: ./eng/package.ps1 -IncludeNative -OutputDirectory out/packages/native
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sol-windows-native-component
+          path: out/packages/native/*
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-validation

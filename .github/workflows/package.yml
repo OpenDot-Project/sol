@@ -36,6 +36,7 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet restore Sol.slnx --locked-mode
+      - run: ./eng/test-component-verification.ps1
       - name: Build and smoke-test component
         shell: pwsh
         run: ./eng/package.ps1

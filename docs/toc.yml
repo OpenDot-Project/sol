@@ -26,6 +26,8 @@
   href: fir-native.md
 - name: Native and Sol library artifacts
   href: library-artifacts.md
+- name: Native component packaging
+  href: native-component.md
 - name: Standard library implementation
   href: standard-library.md
 - name: Source language specification
