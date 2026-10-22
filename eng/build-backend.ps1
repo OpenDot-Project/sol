@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 param([string]$LlvmRoot = $env:LLVM_ROOT)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -46,7 +48,10 @@ if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy }
 Copy-Item -LiteralPath (Join-Path $root 'out/native/llvm-bridge/OpenDot.Sol.LlvmBridge.dll') -Destination $output
 Copy-Item -LiteralPath (Join-Path $root 'out/native/llvm-native/OpenDot.Sol.LlvmNative.dll') -Destination $output
 Copy-Item -LiteralPath (Join-Path $packs "Microsoft.NETCore.App.Host.win-x64/$($reference.Name)/runtimes/win-x64/native/ijwhost.dll") -Destination $output
-foreach ($name in @('lld-link.exe', 'llvm-lib.exe')) { Copy-Item -LiteralPath (Join-Path $LlvmRoot "bin/$name") -Destination $output }
+foreach ($name in @('lld-link.exe', 'llvm-lib.exe')) {
+    $obsolete = Join-Path $output $name
+    if (Test-Path -LiteralPath $obsolete) { Remove-Item -LiteralPath $obsolete }
+}
 Copy-Item -LiteralPath (Join-Path $root 'out/native/exec-host/dynamic/sol-exec-host.exe') -Destination $output
 Copy-Item -LiteralPath (Join-Path $root 'out/native/exec-host/static/sol-exec-host.exe') -Destination (Join-Path $output 'sol-exec-host-static.exe')
 foreach ($name in @('SolRT.dll', 'SolRT.lib')) { Copy-Item -LiteralPath (Join-Path $root "out/native/runtime/dynamic/$name") -Destination $output }

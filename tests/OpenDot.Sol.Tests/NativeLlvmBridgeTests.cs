@@ -1,6 +1,9 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Diagnostics;
+using System.Buffers.Binary;
+using System.IO.Pipes;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -54,7 +57,7 @@ public sealed class NativeLlvmBridgeTests
         Apply(second, LlvmOperation.Alloca, secondInteger); // Empty blocks have no terminator; querying one must not assert.
         Apply(second, LlvmOperation.Return); second.Verify();
         Assert.Throws<InvalidOperationException>(() => Apply(second, LlvmOperation.Alloca, secondInteger));
-        await Task.Run(() => Assert.Throws<InvalidOperationException>(() => first.Verify()), TestContext.Current.CancellationToken);
+        await Task.Factory.StartNew(() => Assert.Throws<InvalidOperationException>(() => first.Verify()), TestContext.Current.CancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         second.Dispose(); second.Dispose(); Assert.Throws<ObjectDisposedException>(() => second.Verify());
         Assert.Throws<ObjectDisposedException>(() => Apply(second, LlvmOperation.VoidType));
     }
@@ -91,20 +94,104 @@ public sealed class NativeLlvmBridgeTests
         Assert.Equal(0, code); Assert.Equal("x\n", Encoding.UTF8.GetString(output.ToArray())); Assert.Empty(error.ToArray());
     }
 
-    private static async Task<(int Code, string Error)> RunGuest(byte[] bitcode, CancellationToken cancellationToken)
+    [Theory(Skip = "Runs in required native-backend CI.", SkipUnless = nameof(Enabled), Timeout = 60000)]
+    [InlineData(0u)]
+    [InlineData(3u)]
+    [InlineData(67108865u)]
+    [InlineData(uint.MaxValue)]
+    [InlineData(16u)]
+    public async Task OrcRejectsInvalidOrTruncatedPipeFrames(uint declaredLength)
     {
-        string scratch = Path.Combine(Path.GetTempPath(), "sol-cpp-api-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(scratch);
+        foreach (bool staticRuntime in new[] { false, true })
+        {
+            var result = await RunGuest([0x42, 0x43, 0xC0, 0xDE], TestContext.Current.CancellationToken, declaredLength, staticRuntime);
+            Assert.Equal(1, result.Code); Assert.Contains("bitcode pipe", result.Error);
+        }
+    }
+
+    [Theory(Skip = "Runs in required native-backend CI.", SkipUnless = nameof(Enabled), Timeout = 60000)]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("18446744073709551616")]
+    [InlineData("../program.bc")]
+    [InlineData("1")]
+    public async Task OrcRejectsNonPipeArguments(string handle)
+    {
+        var info = GuestInfo(false);
+        info.ArgumentList.Add("--bitcode-pipe"); info.ArgumentList.Add(handle); info.ArgumentList.Add("--");
+        using var process = Process.Start(info)!;
+        var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken); var error = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(1, process.ExitCode); Assert.Contains("pipe", await error); Assert.Empty(await output);
+    }
+
+    private static ProcessStartInfo GuestInfo(bool staticRuntime) => new(Path.Combine(NativeCompiler.BackendRoot(null), staticRuntime ? "sol-exec-host-static.exe" : "sol-exec-host.exe"))
+    { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+
+    [Fact(Skip = "Runs in required native-backend CI.", SkipUnless = nameof(Enabled), Timeout = 60000)]
+    public void EmbeddedLldCanRecoverFromOrdinaryErrorsAndLinkAgain()
+    {
+        var compiler = Compiler(); var linker = Assert.IsAssignableFrom<ILldLinker>(compiler);
+        Assert.Equal(0, linker.LinkWindows(["--version"], out string version));
+        Assert.Contains("23.1.3", version);
+        Assert.Throws<InvalidOperationException>(() => linker.LinkWindows([], out _));
+        Assert.Throws<ArgumentException>(() => linker.LinkWindows(["bad\0argument"], out _));
+        for (int index = 0; index < 2; index++)
+        {
+            Assert.NotEqual(0, linker.LinkWindows(["/invalid-sol-test-option"], out string diagnostics));
+            Assert.NotEmpty(diagnostics);
+        }
+        var compilation = FirCompilation.Create([AstTestSources.Parse("object Main { func main(args: []String) {} }")], TestContext.Current.CancellationToken);
+        Assert.NotEmpty(NativeCompiler.Compile(Assert.IsType<VerifiedFirProgram>(compilation.Program), cancellationToken: TestContext.Current.CancellationToken).Executable);
+    }
+
+    [Fact(Skip = "Runs in required native-backend CI.", SkipUnless = nameof(Enabled), Timeout = 60000)]
+    public async Task EmbeddedLldSerializesConcurrentDriverInvocations()
+    {
+        await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        {
+            var compilation = FirCompilation.Create([AstTestSources.Parse("func add(a, b: int): int = a + b", module: "library")], TestContext.Current.CancellationToken, true);
+            Assert.NotEmpty(NativeCompiler.Compile(Assert.IsType<VerifiedFirProgram>(compilation.Program),
+                cancellationToken: TestContext.Current.CancellationToken, kind: NativeArtifactKind.Cdylib).Executable);
+        }, TestContext.Current.CancellationToken)));
+    }
+
+    [Theory(Skip = "Runs in required native-backend CI.", SkipUnless = nameof(Enabled), Timeout = 60000)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task OrcRejectsTruncatedPipeHeaders(int headerBytes)
+    {
+        var result = await RunGuest([], TestContext.Current.CancellationToken, headerBytes: headerBytes);
+        Assert.Equal(1, result.Code); Assert.Contains("Truncated LLVM bitcode pipe", result.Error);
+    }
+
+    [Fact(Skip = "Runs in required native-backend CI.", SkipUnless = nameof(Enabled), Timeout = 60000)]
+    public async Task OrcDoesNotAcceptModuleFilePaths()
+    {
+        var info = GuestInfo(false); info.ArgumentList.Add("../program.bc"); info.ArgumentList.Add("--");
+        using var process = Process.Start(info)!;
+        var error = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken); var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(1, process.ExitCode); Assert.Contains("Usage:", await error); Assert.Empty(await output);
+    }
+
+    private static async Task<(int Code, string Error)> RunGuest(byte[] bitcode, CancellationToken cancellationToken, uint? declaredLength = null, bool staticRuntime = false, int headerBytes = 4)
+    {
+        using var pipe = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
+        var info = GuestInfo(staticRuntime);
+        info.ArgumentList.Add("--bitcode-pipe"); info.ArgumentList.Add(pipe.GetClientHandleAsString()); info.ArgumentList.Add("--");
+        using var process = Process.Start(info)!; pipe.DisposeLocalCopyOfClientHandle();
+        var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken); var error = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
         try
         {
-            string path = Path.Combine(scratch, "program.bc"); File.WriteAllBytes(path, bitcode);
-            var info = new ProcessStartInfo(Path.Combine(NativeCompiler.BackendRoot(null), "sol-exec-host.exe"))
-            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            info.ArgumentList.Add(path); info.ArgumentList.Add("--");
-            using var process = Process.Start(info)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-            try { await process.WaitForExitAsync(cancellationToken); }
-            catch { if (!process.HasExited) { process.Kill(true); process.WaitForExit(30000); } throw; }
-            await output; return (process.ExitCode, await error);
+            byte[] header = new byte[4]; BinaryPrimitives.WriteUInt32LittleEndian(header, declaredLength ?? (uint)bitcode.Length);
+            try { await pipe.WriteAsync(header.AsMemory(0, headerBytes), cancellationToken); await pipe.WriteAsync(bitcode, cancellationToken); }
+            catch (IOException) when (declaredLength is not null) { /* Rejected framing can close the reader early. */ }
+            pipe.Dispose();
+            await process.WaitForExitAsync(cancellationToken);
         }
-        finally { Directory.Delete(scratch, true); }
+        catch { if (!process.HasExited) { process.Kill(true); process.WaitForExit(30000); } throw; }
+        await output; return (process.ExitCode, await error);
     }
 }

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Status: conventional source-layout example; member typing and execution remain planned.
 // Source root: spec/examples/layout/src. Source set: Greeter.sol + Main.sol.

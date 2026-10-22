@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Native and Sol library artifacts
 
 Development builds support the four artifact selections. The released 0.0.1 component remains a
@@ -73,6 +75,13 @@ the CLR process. The host checks LLVM version/target, verifies binary bitcode, b
 allowlist, and owns the LLJIT context/module/code lifetime. Standard streams and exit status propagate
 through the child. Cancellation terminates its process tree. The guest import table must contain no
 CLR host or C++/CLI dependency; the compiler bridge must contain no SolRT import.
+
+The compiler transfers bitcode through a dedicated inherited anonymous pipe, using a four-byte
+little-endian length followed by 4 bytes to 64 MiB of binary bitcode. The host accepts a decimal pipe
+handle and validates its type; it accepts no module filename. Invalid lengths and truncated frames
+fail before LLVM execution. The channel is separate from guest stdin, stdout, and stderr and leaves
+the inherited working directory intact. A transfer or output failure terminates the child and
+drains the transport tasks. See Microsoft's [anonymous pipe API](https://learn.microsoft.com/en-us/dotnet/api/system.io.pipes.anonymouspipeserverstream?view=net-10.0).
 
 The current native subset excludes source EH, and generated Windows/ORC unwind qualification remains
 pending. The host is an execution boundary, not a restricted-token security sandbox.

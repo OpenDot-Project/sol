@@ -1,5 +1,7 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #pragma once
+#include "Support.h"
 #include "Api.h"
 // Upstream LLVM SDK templates trigger these MSVC diagnostics; first-party code keeps /W4 /WX.
 #pragma warning(push)
@@ -53,6 +55,4 @@ struct Session final
 };
 
 void Verify(llvm::Module &module);
-void Initialize();
-extern thread_local std::string Error;
 }

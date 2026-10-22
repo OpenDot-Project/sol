@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Verified FIR and the first native programs
 
 Development builds can produce verified FIR, LLVM IR, and Windows x86-64 AOT executables for a
@@ -119,9 +121,16 @@ allocated them. Pinned static compression/XML dependencies are built under `out/
 
 The native component verifies the module and optimizes a clone with the O1 pipeline, verifies
 again, and emits AMD64 COFF. ORC receives binary LLVM bitcode from the same constructed module,
-verifies it and owns execution in the native guest. C# launches `lld-link` with structured arguments in a temporary staging
-directory. A missing backend, wrong LLVM version, verification failure, or linker failure cannot
+verifies it and owns execution in the native guest. C# supplies structured arguments to the embedded
+LLD.COFF and LLD.Common 23.1.3 libraries through the native bridge. The same driver handles `/lib`
+archive production; Solc launches neither `lld-link.exe` nor `llvm-lib.exe`. Linking uses a temporary staging
+directory. A missing backend, wrong LLVM version, verification failure, or ordinary linker failure cannot
 replace an existing executable. The frontend SDK remains usable without LLVM installed.
+
+LLD driver calls are serialized according to its re-entry contract. Ordinary failures return diagnostics
+and allow later links. An unrecoverable LLD failure requires terminating the compiler process; it cannot
+continue with potentially corrupted driver state. Cancellation is checked before and after embedded
+linking; an active native link is not forcibly interrupted.
 
 ## SolRT bootstrap lifetime
 

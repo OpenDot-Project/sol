@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup><ProjectReference Include="../OpenDot.Sol.Analysis/OpenDot.Sol.Analysis.csproj" /></ItemGroup>
   <ItemGroup>

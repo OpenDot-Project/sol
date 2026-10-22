@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 param([string]$LlvmRoot = $env:LLVM_ROOT)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -31,10 +33,11 @@ New-Item -ItemType Directory $lib -Force | Out-Null
 Copy-Item (Join-Path $installed 'lib/*.lib') -Destination $lib
 Copy-Item (Join-Path $installed 'lib/libxml2.lib') -Destination (Join-Path $lib 'xml2s.lib')
 Copy-Item (Join-Path $installed 'lib/zstd.lib') -Destination (Join-Path $lib 'zstd_static.lib')
-$llvm = & (Join-Path $LlvmRoot 'bin/llvm-config.exe') --link-static --libs core bitwriter bitreader passes nativecodegen orcjit
+$llvm = & (Join-Path $LlvmRoot 'bin/llvm-config.exe') --link-static --libs core bitwriter bitreader passes nativecodegen orcjit libdriver dlltooldriver windowsmanifest windowsdriver lto dtlto debuginfopdb option all-targets
 if ($LASTEXITCODE -ne 0) { throw 'LLVM C++ component inventory failed.' }
 $libraries = @(($llvm -split '\s+') | Where-Object { $_ } | ForEach-Object { [IO.Path]::GetFileName($_) })
-$libraries += 'psapi.lib','shell32.lib','ole32.lib','uuid.lib','advapi32.lib','ws2_32.lib','ntdll.lib'
+$libraries += 'psapi.lib','shell32.lib','ole32.lib','uuid.lib','advapi32.lib','ws2_32.lib','ntdll.lib','bcrypt.lib'
+$libraries += 'lldCOFF.lib','lldCommon.lib'
 $libraries += @(Get-ChildItem $lib -Filter '*.lib' | ForEach-Object Name)
 $dependencies = [Security.SecurityElement]::Escape(($libraries -join ';') + ';%(AdditionalDependencies)')
 @"

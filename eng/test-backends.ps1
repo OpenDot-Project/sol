@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 param([string]$BackendDirectory = 'out/native/backend')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -110,7 +112,8 @@ foreach ($kind in @('cdylib', 'staticlib', 'solib')) {
             $link = @('/nologo', '/machine:x64', '/subsystem:console', "/out:$exe", $object, (Join-Path $directory 'Library.lib'))
             if ($kind -eq 'staticlib' -and -not $static) { $link += Join-Path $directory 'SolRT.lib' }
             $link += @('libcmt.lib', 'libcpmt.lib', 'libvcruntime.lib', 'libucrt.lib', 'oldnames.lib', 'kernel32.lib')
-            $null = InvokeChecked (Join-Path $backend 'lld-link.exe') ($link + $paths)
+            # This is an independent C/C++ consumer toolchain, not Solc's embedded linker.
+            $null = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/lld-link.exe') ($link + $paths)
             $null = InvokeChecked $exe @()
         }
         $count++

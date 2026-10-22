@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 
@@ -29,4 +30,10 @@ public interface ILlvmCompiler
 {
     string Version { get; }
     ILlvmModule CreateModule();
+}
+
+/// <summary>Embedded COFF linking through the pinned LLD.COFF and LLD.Common libraries.</summary>
+public interface ILldLinker
+{
+    int LinkWindows(string[] arguments, out string diagnostics);
 }

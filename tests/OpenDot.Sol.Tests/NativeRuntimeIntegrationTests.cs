@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Diagnostics;
@@ -25,6 +26,8 @@ public sealed class NativeRuntimeIntegrationTests
             string? root = Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT");
             Assert.NotNull(root); Assert.NotEmpty(root);
             Assert.True(File.Exists(Path.Combine(root, "sol-exec-host.exe")), "The required ORC backend is missing.");
+            Assert.False(File.Exists(Path.Combine(root, "lld-link.exe")), "Solc must use embedded LLD.");
+            Assert.False(File.Exists(Path.Combine(root, "llvm-lib.exe")), "Archive production must use embedded LLD.");
             return root;
         }
     }
@@ -119,6 +122,22 @@ public sealed class NativeRuntimeIntegrationTests
         await Assert.ThrowsAsync<IOException>(() => Task.Run(() => OrcExecutor.Execute(program, [], backendDirectory: Backend,
             cancellationToken: cancellation.Token, standardOutput: output, standardError: error), TestContext.Current.CancellationToken));
     }
+
+    [Theory(Skip = "Runs in the required native-backend test job.", SkipUnless = nameof(Enabled), Timeout = 30000)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InvalidOutputStreamCannotLeaveANewGuestRunning(bool staticRuntime)
+    {
+        string name = staticRuntime ? "sol-exec-host-static" : "sol-exec-host";
+        var before = GuestIds(name);
+        using var output = new MemoryStream([], writable: false); using var error = new MemoryStream();
+        Assert.Throws<NotSupportedException>(() => OrcExecutor.Execute(Build("for { }"), [], staticRuntime,
+            Backend, TestContext.Current.CancellationToken, output, error));
+        Assert.All(GuestIds(name), id => Assert.Contains(id, before));
+    }
+
+    private static int[] GuestIds(string name) => Process.GetProcessesByName(name).Select(process =>
+    { using (process) { return process.Id; } }).ToArray();
 
     private sealed class SignalStream(bool fail) : Stream
     {

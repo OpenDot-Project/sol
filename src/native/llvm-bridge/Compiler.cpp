@@ -1,7 +1,10 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "../llvm-native/Api.h"
 #include <msclr/lock.h>
 #include <vcclr.h>
+#include <string>
+#include <vector>
 using namespace System;
 using namespace System::Runtime::InteropServices;
 using namespace System::Text;
@@ -126,7 +129,7 @@ public:
     }
 };
 
-public ref class Compiler sealed : ILlvmCompiler
+public ref class Compiler sealed : ILlvmCompiler, ILldLinker
 {
 public:
     virtual property String ^Version
@@ -140,6 +143,58 @@ public:
     virtual ILlvmModule ^CreateModule()
     {
         return gcnew Module();
+    }
+
+    virtual int LinkWindows(array<String ^> ^arguments, [Out] String ^%diagnostics)
+    {
+        ArgumentNullException::ThrowIfNull(arguments, "arguments");
+        std::vector<std::string> storage;
+        for each (String ^argument in arguments)
+        {
+            ArgumentNullException::ThrowIfNull(argument, "argument");
+            if (argument->IndexOf(L'\0') >= 0)
+            {
+                throw gcnew ArgumentException("LLD argument contains NUL.");
+            }
+            auto bytes = Encoding::UTF8->GetBytes(argument);
+            if (bytes->Length == 0)
+            {
+                storage.emplace_back();
+            }
+            else
+            {
+                pin_ptr<Byte> value = &bytes[0];
+                storage.emplace_back(reinterpret_cast<char *>(value), static_cast<std::size_t>(bytes->Length));
+            }
+        }
+        std::vector<const char *> args;
+        for (const auto &argument : storage)
+        {
+            args.push_back(argument.c_str());
+        }
+        void *messages = nullptr;
+        std::uint64_t size = 0;
+        int code = 1;
+        try
+        {
+            if (!SolLldLink(args.data(), args.size(), &code, &messages, &size))
+            {
+                throw gcnew InvalidOperationException(
+                    Marshal::PtrToStringUTF8(IntPtr(const_cast<char *>(SolLlvmError()))));
+            }
+            if (size > Int32::MaxValue)
+            {
+                throw gcnew InvalidOperationException("LLD diagnostic limit exceeded.");
+            }
+            diagnostics = size == 0
+                              ? String::Empty
+                              : Marshal::PtrToStringUTF8(IntPtr(messages), static_cast<int>(size));
+            return code;
+        }
+        finally
+        {
+            SolLlvmFree(messages);
+        }
     }
 };
 }

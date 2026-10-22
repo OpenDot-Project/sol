@@ -1,9 +1,11 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
+using System.IO.Pipes;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenDot.Sol.Fir;
@@ -22,48 +24,53 @@ public static class OrcExecutor
         string root = Path.GetFullPath(backendDirectory ?? Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT") ?? Path.Combine(AppContext.BaseDirectory, "native"));
         string host = Path.Combine(root, staticRuntime ? "sol-exec-host-static.exe" : "sol-exec-host.exe");
         if (!File.Exists(host)) { throw new IOException("The qualified native ORC host is not installed."); }
-        string scratch = Path.Combine(Path.GetTempPath(), "sol-orc-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(scratch);
+        cancellationToken.ThrowIfCancellationRequested();
+        byte[] bitcode;
+        using (var module = LlvmEmitter.Build(program, NativeCompiler.LoadBridge(root), cancellationToken))
+        { bitcode = module.Bitcode(); }
+        if (bitcode.Length is < 4 or > 64 * 1024 * 1024) { throw new IOException("LLVM bitcode exceeds the guest transport bounds."); }
+        using var pipe = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
+        var info = new ProcessStartInfo(host)
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        info.ArgumentList.Add("--bitcode-pipe"); info.ArgumentList.Add(pipe.GetClientHandleAsString()); info.ArgumentList.Add("--");
+        foreach (string argument in arguments) { info.ArgumentList.Add(argument); }
+        using var process = Process.Start(info) ?? throw new IOException("Cannot start the native ORC host.");
+        var tasks = new List<Task>();
         try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            string ir = Path.Combine(scratch, "program.bc");
-            using (var module = LlvmEmitter.Build(program, NativeCompiler.LoadBridge(root), cancellationToken))
-            { File.WriteAllBytes(ir, module.Bitcode()); }
-            var info = new ProcessStartInfo(host)
-            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            info.ArgumentList.Add(ir); info.ArgumentList.Add("--");
-            foreach (string argument in arguments) { info.ArgumentList.Add(argument); }
-            using var process = Process.Start(info) ?? throw new IOException("Cannot start the native ORC host.");
-            // Explicit byte pumps preserve redirected Windows console handles across the process boundary.
-            Task output = process.StandardOutput.BaseStream.CopyToAsync(standardOutput ?? Console.OpenStandardOutput(), cancellationToken);
-            Task error = process.StandardError.BaseStream.CopyToAsync(standardError ?? Console.OpenStandardError(), cancellationToken);
-            Task streams = Task.WhenAll(output, error);
-            Task exited = process.WaitForExitAsync(cancellationToken);
-            try
+            pipe.DisposeLocalCopyOfClientHandle();
+            tasks.Add(SendBitcode(pipe, bitcode, cancellationToken));
+            // Guest stdin and its working directory remain inherited; bitcode has a dedicated channel.
+            tasks.Add(process.StandardOutput.BaseStream.CopyToAsync(standardOutput ?? Console.OpenStandardOutput(), cancellationToken));
+            tasks.Add(process.StandardError.BaseStream.CopyToAsync(standardError ?? Console.OpenStandardError(), cancellationToken));
+            tasks.Add(process.WaitForExitAsync(cancellationToken));
+            var pending = new List<Task>(tasks);
+            while (pending.Count != 0)
             {
-                var pending = new List<Task> { exited, output, error };
-                while (!exited.IsCompleted)
-                {
-                    Task first = Task.WhenAny(pending).GetAwaiter().GetResult();
-                    if (first == exited) { break; }
-                    if (first.IsFaulted || first.IsCanceled)
-                    {
-                        if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(30000); }
-                        streams.GetAwaiter().GetResult();
-                    }
-                    pending.Remove(first);
-                }
-                exited.GetAwaiter().GetResult();
-                streams.GetAwaiter().GetResult();
+                Task first = Task.WhenAny(pending).GetAwaiter().GetResult();
+                first.GetAwaiter().GetResult();
+                pending.Remove(first);
             }
-            catch (OperationCanceledException)
-            {
-                if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(30000); }
-                throw;
-            }
-            return process.ExitCode;
         }
-        finally { Directory.Delete(scratch, recursive: true); }
+        catch
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(30000); }
+            // Killing the guest releases a blocked pipe writer and the two redirected readers.
+            try { Task.WhenAll(tasks).GetAwaiter().GetResult(); }
+            catch (Exception) { /* Preserve the first transport/cancellation failure. */ }
+            throw;
+        }
+        return process.ExitCode;
+    }
+
+    private static async Task SendBitcode(AnonymousPipeServerStream pipe, byte[] bitcode, CancellationToken cancellationToken)
+    {
+        byte[] header = new byte[4]; BinaryPrimitives.WriteInt32LittleEndian(header, bitcode.Length);
+        try
+        {
+            await pipe.WriteAsync(header, cancellationToken).ConfigureAwait(false);
+            await pipe.WriteAsync(bitcode, cancellationToken).ConfigureAwait(false);
+        }
+        finally { pipe.Dispose(); }
     }
 }

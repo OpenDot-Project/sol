@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 param([Parameter(Mandatory)][uri]$Url, [Parameter(Mandatory)][string]$Sha512, [Parameter(Mandatory)][string]$Destination)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest

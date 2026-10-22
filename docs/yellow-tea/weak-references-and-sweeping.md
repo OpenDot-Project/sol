@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Weak references and sweeping
 
 Weak promotion and reclamation share one epoch-aware protocol. Merely making a weak slot atomic is

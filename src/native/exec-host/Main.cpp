@@ -1,11 +1,14 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "../runtime/Core.h"
 #include "../llvm-native/Api.h"
+#include <Windows.h>
+#include <array>
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
+#include <cwchar>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -16,6 +19,62 @@ namespace OpenDot::Sol::ExecHost
 {
 namespace
 {
+struct PipeCloser
+{
+    HANDLE Value;
+
+    ~PipeCloser() noexcept
+    {
+        CloseHandle(Value);
+    }
+};
+
+void ReadExact(HANDLE pipe, void *buffer, DWORD length)
+{
+    auto *next = static_cast<unsigned char *>(buffer);
+    while (length != 0)
+    {
+        DWORD received = 0;
+        if (!ReadFile(pipe, next, length, &received, nullptr) || received == 0)
+        {
+            throw std::runtime_error("Truncated LLVM bitcode pipe.");
+        }
+        next += received;
+        length -= received;
+    }
+}
+
+std::vector<unsigned char> ReadBitcode(const wchar_t *argument)
+{
+    if (*argument == L'\0' || std::wcsspn(argument, L"0123456789") != std::wcslen(argument))
+    {
+        throw std::runtime_error("Invalid LLVM bitcode pipe handle.");
+    }
+    errno = 0;
+    const auto number = std::wcstoull(argument, nullptr, 10);
+    if (errno == ERANGE || number == 0 || number == UINTPTR_MAX)
+    {
+        throw std::runtime_error("Invalid LLVM bitcode pipe handle.");
+    }
+    const auto pipe = reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(number));
+    if (GetFileType(pipe) != FILE_TYPE_PIPE)
+    {
+        throw std::runtime_error("LLVM bitcode requires an inherited pipe.");
+    }
+    const PipeCloser owner{pipe};
+    std::array<unsigned char, 4> header{};
+    ReadExact(pipe, header.data(), static_cast<DWORD>(header.size()));
+    const DWORD length = static_cast<DWORD>(header[0]) | (static_cast<DWORD>(header[1]) << 8) |
+                         (static_cast<DWORD>(header[2]) << 16) | (static_cast<DWORD>(header[3]) << 24);
+    if (length < 4 || length > 64UL * 1024 * 1024)
+    {
+        throw std::runtime_error("LLVM bitcode pipe length is outside the supported bounds.");
+    }
+    std::vector<unsigned char> bytes(length);
+    ReadExact(pipe, bytes.data(), length);
+    return bytes;
+}
+
 std::vector<SolLlvmSymbol> Bindings()
 {
     std::vector<SolLlvmSymbol> symbols;
@@ -55,25 +114,13 @@ std::vector<SolLlvmSymbol> Bindings()
 
 int Run(int argc, wchar_t **argv)
 {
-    if (argc < 3 || std::wcscmp(argv[2], L"--") != 0)
+    if (argc < 4 || std::wcscmp(argv[1], L"--bitcode-pipe") != 0 || std::wcscmp(argv[3], L"--") != 0)
     {
-        throw std::runtime_error("Usage: sol-exec-host MODULE.bc -- [ARG...]");
+        throw std::runtime_error("Usage: sol-exec-host --bitcode-pipe HANDLE -- [ARG...]");
     }
-    std::ifstream source(std::filesystem::path(argv[1]), std::ios::binary | std::ios::ate);
-    if (!source || source.tellg() < 4 || source.tellg() > 64LL * 1024 * 1024)
-    {
-        throw std::runtime_error("Cannot read the bounded LLVM bitcode module.");
-    }
-    const auto length = static_cast<std::size_t>(source.tellg());
-    std::vector<unsigned char> bytes(length);
-    source.seekg(0);
-    source.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(length));
-    if (!source)
-    {
-        throw std::runtime_error("LLVM bitcode read failed.");
-    }
+    auto bytes = ReadBitcode(argv[2]);
     std::vector<wchar_t *> arguments{argv[0]};
-    for (int index = 3; index < argc; ++index)
+    for (int index = 4; index < argc; ++index)
     {
         arguments.push_back(argv[index]);
     }

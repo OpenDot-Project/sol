@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
@@ -27,7 +29,8 @@
     <TargetName>OpenDot.Sol.LlvmBridge</TargetName>
     <LLVMRoot Condition="'$(LLVMRoot)' == ''">$(LLVM_ROOT)</LLVMRoot>
     <ExternalIncludePath>$(LLVMRoot)\include;$(ExternalIncludePath)</ExternalIncludePath>
-    <DotNetPackRoot Condition="'$(DotNetPackRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\.dotnet\packs</DotNetPackRoot>
+    <DotNetPackRoot Condition="'$(DotNetPackRoot)' == '' and Exists('$(DOTNET_ROOT)\packs')">$(DOTNET_ROOT)\packs</DotNetPackRoot>
+    <DotNetPackRoot Condition="'$(DotNetPackRoot)' == ''">$(ProgramW6432)\dotnet\packs</DotNetPackRoot>
     <ReferencePackVersion Condition="'$(ReferencePackVersion)' == ''">10.0.13</ReferencePackVersion>
     <NativeHostPath>$(DotNetPackRoot)\Microsoft.NETCore.App.Host.win-x64\$(ReferencePackVersion)\runtimes\win-x64\native</NativeHostPath>
     <IjwHostSourcePath>$(NativeHostPath)\ijwhost.dll</IjwHostSourcePath>

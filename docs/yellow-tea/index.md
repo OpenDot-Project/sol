@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Yellow Tea
 
 Yellow Tea is the native garbage collector being developed for Sol programs on Windows x86-64. Its initial

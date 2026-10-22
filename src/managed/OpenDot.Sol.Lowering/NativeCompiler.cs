@@ -1,7 +1,7 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -19,7 +19,7 @@ public sealed record NativeArtifact(byte[] Executable, byte[]? RuntimeDll)
     public byte[]? RuntimeLibrary { get; init; }
 }
 
-/// <summary>LLVM object production and isolated lld-link execution for the qualified Windows bootstrap.</summary>
+/// <summary>LLVM object production and embedded LLD COFF linking for the qualified Windows bootstrap.</summary>
 public static class NativeCompiler
 {
     public static NativeArtifact Compile(VerifiedFirProgram program, bool staticRuntime = false,
@@ -50,12 +50,10 @@ public static class NativeCompiler
             string output = Path.Combine(scratch, kind == NativeArtifactKind.Cdylib ? artifactName ?? "program.dll" : "program" + extension);
             File.WriteAllBytes(objectPath, objectBytes);
             var configuration = File.ReadAllLines(Path.Combine(root, "link-paths.txt"));
-            string linker = Path.Combine(root, kind == NativeArtifactKind.Staticlib ? "llvm-lib.exe" : "lld-link.exe");
-            if (!File.Exists(linker)) { throw new IOException("The qualified lld-link executable is missing."); }
             string runtime = Path.Combine(root, staticRuntime ? "SolRT-static.lib" : "SolRT.lib");
             var arguments = new List<string> { "/nologo", "/machine:x64", "/out:" + output, objectPath };
             if (kind == NativeArtifactKind.Staticlib)
-            { if (staticRuntime) { arguments.Add(runtime); } }
+            { arguments.Insert(0, "/lib"); if (staticRuntime) { arguments.Add(runtime); } }
             else
             {
                 arguments.AddRange(["/Brepro", runtime, "libcmt.lib", "libvcruntime.lib", "libucrt.lib", "oldnames.lib", "kernel32.lib"]);
@@ -63,21 +61,10 @@ public static class NativeCompiler
                 else { arguments.Add("/subsystem:console"); }
                 arguments.AddRange(configuration.Select(path => "/libpath:" + path));
             }
-            var info = new ProcessStartInfo(linker) { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true, CreateNoWindow = true };
-            foreach (string argument in arguments) { info.ArgumentList.Add(argument); }
-            using var process = Process.Start(info) ?? throw new IOException("Could not start lld-link.");
-            var error = process.StandardError.ReadToEndAsync(cancellationToken);
-            var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromMinutes(2));
-            try { process.WaitForExitAsync(timeout.Token).GetAwaiter().GetResult(); }
-            catch (OperationCanceledException)
-            {
-                if (!process.HasExited) { process.Kill(true); process.WaitForExit(30000); }
-                throw;
-            }
-            string message = error.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult();
-            if (process.ExitCode != 0) { throw new IOException("lld-link failed: " + message); }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (bridge is not ILldLinker linker) { throw new IOException("The embedded LLD component is unavailable."); }
+            int code = linker.LinkWindows(arguments.ToArray(), out string diagnostics);
+            if (code != 0) { throw new IOException("Embedded LLD failed: " + diagnostics); }
             cancellationToken.ThrowIfCancellationRequested();
             return new(File.ReadAllBytes(output), staticRuntime ? null : File.ReadAllBytes(Path.Combine(root, "SolRT.dll")))
             {

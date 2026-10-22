@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Body analysis
 
 Source builds provide an optional `BodyAnalysis` SDK over a `SourceAnalysis`. It adds receiver/member

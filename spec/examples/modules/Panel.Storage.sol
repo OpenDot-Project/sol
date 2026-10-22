@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Status: two-file partial source-set fixture; member execution is planned.
 // Source set: Panel.Storage.sol + Panel.Behavior.sol.

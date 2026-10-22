@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Status: throws/catch syntax and effect identities; checked-effect/cleanup proof remains planned.
 module source.exceptions.rules

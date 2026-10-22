@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #pragma once
 #include <cstdint>
@@ -23,6 +24,8 @@ SOL_LLVM_API bool SolLlvmVerify(void *session) noexcept;
 // 0: LLVM printer inspection, 1: binary bitcode, 2: optimized COFF.
 SOL_LLVM_API bool SolLlvmOutput(void *session, int kind, void **bytes, std::uint64_t *size) noexcept;
 SOL_LLVM_API void SolLlvmFree(void *bytes) noexcept;
+SOL_LLVM_API bool SolLldLink(const char *const *arguments, std::uint64_t count, int *exitCode,
+                             void **diagnostics, std::uint64_t *size) noexcept;
 
 struct SolLlvmSymbol
 {

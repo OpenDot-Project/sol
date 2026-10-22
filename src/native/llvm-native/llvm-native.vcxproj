@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>
   <PropertyGroup Label="Globals"><ProjectGuid>{C5D32B71-6952-4CE1-B01E-44AB86D50443}</ProjectGuid><Keyword>Win32Proj</Keyword><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
@@ -23,7 +25,7 @@
       <TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors><AdditionalOptions>/Brepro /PDBALTPATH:%_PDB% %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <Import Project="$(OutDir)llvm-libraries.props" Condition="Exists('$(OutDir)llvm-libraries.props')" />
-  <ItemGroup><ClCompile Include="Session.cpp" /><ClCompile Include="Output.cpp" /><ClCompile Include="Orc.cpp" /><ClInclude Include="Api.h" /><ClInclude Include="Session.h" /></ItemGroup>
+  <ItemGroup><ClCompile Include="Session.cpp" /><ClCompile Include="Output.cpp" /><ClCompile Include="Orc.cpp" /><ClCompile Include="Linker.cpp" /><ClInclude Include="Api.h" /><ClInclude Include="Support.h" /><ClInclude Include="Session.h" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Target Name="RequireDependencies" BeforeTargets="PrepareForBuild"><Error Condition="!Exists('$(OutDir)llvm-libraries.props')" Text="Run eng/install-llvm-native-deps.ps1 before building the LLVM C++ component." /></Target>
 </Project>

@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Changelog
 
 All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and Git tags use `vX.Y.Z`.
@@ -6,6 +8,10 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Embedded LLD.COFF and LLD.Common 23.1.3 linking, including static archives, serialized driver
+  re-entry, and diagnostics without external linker executables.
+- Dedicated bounded anonymous-pipe bitcode transfer to the native ORC guest, with malformed-frame
+  rejection and child cleanup on transport or output initialization failure.
 - Direct LLVM 23.1.3 C++ API construction through a thin C++/CLI operation bridge, session-scoped
   handles, binary bitcode transfer to ORC and Sol containers, and LLVM-printer-only inspection.
   Native and mixed-mode CRT ownership is separated; first-party MSVC projects use `/W4 /WX`.

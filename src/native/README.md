@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Sol native implementation
 
 This tree owns the Windows launcher, LLVM C++ component/bridge, ORC execution host, and native SolRT. All projects
@@ -15,6 +17,10 @@ machines. Handles carry session identities and reject wrong-kind, foreign, cross
 access. `Output.cpp` verifies modules, optimizes a clone and emits COFF or writes binary bitcode.
 `Orc.cpp` reads bitcode and owns LLJIT inside the native guest. There is no textual assembly parser
 in the compilation path; LLVM's printer is used only for explicit inspection.
+
+`Linker.cpp` embeds LLD.COFF (`lldCOFF.lib`) and LLD.Common (`lldCommon.lib`) from the same 23.1.3 SDK.
+The bridge implements `ILldLinker`; serialized re-entry captures diagnostics without a linker subprocess.
+The COFF driver's `/lib` mode also produces static archives. Unrecoverable LLD driver state is fail-stop.
 
 The native DLL uses the SDK's static CRT; the thin mixed-mode adapter uses the dynamic CRT. An opaque
 C ABI keeps allocation and destruction in the owning component. Pinned compression/XML libraries
