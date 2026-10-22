@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Solc command-line reference
 
 This page describes Sol 0.0.1. The compiler accepts source paths and options directly:
@@ -13,6 +15,12 @@ They also support `--emit=fir`, `--emit=llvm-ir`, and native AOT `bin` output fo
 [verified bootstrap subset](fir-native.md). The native backend component is built separately;
 `--static-solrt-lib` selects static SolRT instead of default dynamic linkage. These capabilities
 are not in the published 0.0.1 component.
+
+Unreleased builds now support [library artifacts](library-artifacts.md) and process-isolated ORC bin
+execution. `-C llvm-compiler=orc` defaults to `--emit=jit`; `--` then introduces program arguments,
+and `-o`/`--out-dir` are rejected for execution. `--emit=llvm-ir` still writes inspection text only.
+Native/library outputs require the separately built backend, and their verified source subset is
+documented in the native guide. The option table below retains the published 0.0.1 behavior.
 
 There are no `run`, `check`, or `explain` subcommands, and no `--entry` option.
 Diagnostic explanation uses the `--explain CODE` option. The CLI parser belongs to Solc;

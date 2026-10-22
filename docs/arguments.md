@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Argument and default contracts
 
 Sol has named arguments, parameter defaults and one variable-length parameter per callable.

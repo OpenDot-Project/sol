@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Collections.Immutable;
@@ -26,6 +27,8 @@ internal sealed partial class FirBuilder
                 return Invalid(atom);
             case AstSequence { IsGrouping: true } grouping when grouping.Elements.SingleOrDefault() is { } inner:
                 return Expression(inner);
+            case AstSequence { SyntaxKind: NodeKind.ArrayExpression } array:
+                return new FirArrayLiteral(array.Elements.OfType<AstExpression>().Select(Expression).ToImmutableArray(), type, array.Origin);
             case AstSequence { SyntaxKind: NodeKind.TupleExpression } empty when !empty.Elements.Any():
                 return new FirConstant("()", Empty, empty.Origin);
             case AstOperation operation:
@@ -39,8 +42,24 @@ internal sealed partial class FirBuilder
             case AstMember { Name: "length", Receiver: not null, IsSafe: false } member:
                 return new FirArrayLength(Expression(member.Receiver), type, member.Origin);
             case AstCall call:
-                if (!_calls.TryGetValue(call, out var selected) || !_functions.TryGetValue(selected.Target, out int target)) { return Invalid(call); }
+                if (!_calls.TryGetValue(call, out var selected)) { return Invalid(call); }
                 if (!selected.DefaultParameters.IsEmpty || call.Target is AstMember { IsSafe: true }) { return Invalid(call); }
+                if (selected.Target is AstFunction intrinsicTarget && _catalog.Intrinsic(intrinsicTarget) is { } intrinsic)
+                {
+                    var inputs = ImmutableArray.CreateBuilder<FirExpression>();
+                    var order = ImmutableArray.CreateBuilder<int>();
+                    if (intrinsic != FirIntrinsicKind.GcCollect && call.Target is AstMember { Receiver: not null } method)
+                    { inputs.Add(Expression(method.Receiver)); order.Add(0); }
+                    int receiverCount = inputs.Count;
+                    foreach (var mapping in selected.Arguments)
+                    {
+                        var argument = call.Arguments[mapping.ArgumentIndex];
+                        if (argument.Value is not AstExpression input || mapping.IsArrayArgument || mapping.IsSpread) { return Invalid(call); }
+                        inputs.Add(Expression(input)); order.Add(mapping.ParameterIndex + receiverCount);
+                    }
+                    return new FirIntrinsic(intrinsic, inputs.ToImmutable(), type, call.Origin) { ParameterOrder = order.ToImmutable() };
+                }
+                if (!_functions.TryGetValue(selected.Target, out int target)) { return Invalid(call); }
                 var arguments = ImmutableArray.CreateBuilder<FirArgument>();
                 foreach (var mapping in selected.Arguments)
                 {

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Collections.Generic;
@@ -13,7 +14,7 @@ namespace OpenDot.Sol.Fir;
 public sealed record FirCompilation(VerifiedFirProgram? Program, ImmutableArray<Diagnostic> Diagnostics)
 {
     public bool HasErrors => Program is null;
-    public static FirCompilation Create(IEnumerable<AstSnapshot> sources, CancellationToken cancellationToken = default)
+    public static FirCompilation Create(IEnumerable<AstSnapshot> sources, CancellationToken cancellationToken = default, bool library = false)
     {
         ArgumentNullException.ThrowIfNull(sources);
         cancellationToken.ThrowIfCancellationRequested();
@@ -23,7 +24,7 @@ public sealed record FirCompilation(VerifiedFirProgram? Program, ImmutableArray<
         var session = AnalysisSession.Create(input.AddRange(catalog.Files), cancellationToken: cancellationToken);
         var bodies = BodyAnalysis.Create(SourceAnalysis.Create(session, cancellationToken), cancellationToken);
         if (bodies.HasErrors) { return new(null, bodies.Diagnostics); }
-        var builder = new FirBuilder(bodies, catalog, input, cancellationToken);
+        var builder = new FirBuilder(bodies, catalog, input, cancellationToken, library);
         var program = builder.Build();
         if (builder.Diagnostics.Count != 0) { return new(null, builder.Diagnostics.ToImmutableArray()); }
         var verification = FirVerifier.Verify(program, cancellationToken);

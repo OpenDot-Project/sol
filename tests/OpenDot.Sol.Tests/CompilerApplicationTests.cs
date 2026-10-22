@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.IO;
@@ -93,13 +94,13 @@ public sealed class CompilerApplicationTests : IDisposable
     }
 
     [Fact]
-    public void UnimplementedOrcBackendFailsWithoutCreatingAnExecutable()
+    public void OrcExecutionRejectsAnExecutableOutputPath()
     {
         string source = Write("main.sol", "module app\n");
         string output = Path.Combine(_directory, "main.exe");
         var result = Run(source, "-o", output, "-Cllvm-compiler=orc");
-        Assert.Equal(1, result.Exit);
-        Assert.Contains("SOL0001", result.Stderr);
+        Assert.Equal(2, result.Exit);
+        Assert.Contains("no output path", result.Stderr);
         Assert.False(File.Exists(output));
     }
 

@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Declaration analysis
 
 `OpenDot.Sol.Analysis` indexes an explicit set of AST snapshots in one distribution.

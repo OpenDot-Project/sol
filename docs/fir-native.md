@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Verified FIR and the first native programs
 
 Development builds can produce verified FIR, LLVM IR, and Windows x86-64 AOT executables for a
@@ -29,7 +31,17 @@ applications; their import tables have no CLR dependency. Solc itself remains a 
 
 Dynamic linking is the default and places `SolRT.dll` beside the executable. `--static-solrt-lib`
 links the static runtime and does not copy or import that DLL. Artifact type is a separate option:
-the current backend implements AOT `bin`; ORC, `cdylib`, `staticlib`, and `solib` output remain pending.
+development builds also produce scalar C-ABI `cdylib`/`staticlib` artifacts and a closed-subset `solib`
+container. ORC executes in a separate native guest process:
+
+```powershell
+dotnet $solc spec/examples/native/FirstProgram.sol -C llvm-compiler=orc -- Alice 20
+```
+
+ORC defaults to `--emit=jit` and accepts application arguments after `--`. It does not create an
+executable with `-o`; `--emit=llvm-ir` remains an inspection operation. Both runtime linkage modes
+are available. The compiler's CLR GC and guest Yellow Tea never share a process or object reference.
+See [library artifacts](library-artifacts.md) for native library restrictions and container boundaries.
 
 ## FIR inspection without LLVM
 
@@ -38,7 +50,7 @@ dotnet $solc spec/examples/native/FirstProgram.sol --emit=fir -o out/Hello.fir.j
 dotnet $solc spec/examples/native/FirstProgram.sol --emit=llvm-ir -o out/Hello.ll
 ```
 
-FIR/LLVM text emission does not load the native bridge. CST and AST emission retain their existing
+FIR inspection does not load LLVM. LLVM inspection constructs a native module through the C++ API bridge and uses the LLVM printer; it requires the backend component. CST and AST emission retain their existing
 per-file behavior. FIR, LLVM, and executable emission operate on the complete explicit source set;
 `-o` can name one combined output for multiple input files. Native inputs and inspection outputs
 still receive whole-input preflight and transactional replacement protection.
@@ -47,12 +59,13 @@ still receive whole-input preflight and transactional replacement protection.
 
 `FirCompilation.Create` composes the supplied AST snapshots with compiler-owned bootstrap declarations,
 then runs declaration, type, scope, default, and body analysis. Runtime declarations are embedded
-resources authored in `src/stdlib/std/core/Core.sol` and `src/stdlib/std/stdio/Stdio.sol`; ordinary user
+resources authored under `src/stdlib/std`; ordinary user
 declarations cannot impersonate their native adapters by using a matching spelling or path.
 
 The AST-to-FIR builder rejects unresolved expressions and unsupported constructs with `SOL2400`.
 It does not translate an unverified body into a successful empty function. The entry is exactly one
-accessible `Main` object method accepting `[]String` and returning `()`.
+accessible `Main` object method accepting `[]String` and returning `()` for bin output. Library
+compilations have no entry and verify that distinction before lowering.
 
 FIR records resolved type identities, slots, exact callable targets, parameter mappings, passing modes,
 source evaluation order, and declared effects. Its flow graph is an analysis side table rather than
@@ -74,7 +87,10 @@ with byte spans and no host source paths. IDs are local to this compilation, not
 Supported programs use scalar integer/Boolean/single/double values, empty-tuple function results,
 local val/var bindings, source functions, stateless object methods, named argument reordering,
 scalar ref/out locations, braced branches, condition/three-clause/infinite loops, break/continue,
-short-circuit Boolean expressions, String literals, and entry-argument array length/index access.
+short-circuit Boolean expressions, collectible String concatenation/content equality, and single-level
+array literals/length/index access for supported scalars and String. String has scalar `length`,
+`substring(start, length)`, `indexOf(value, start)`, `compareOrdinal`, and `hashCode`. `Gc.collect()`
+requests and waits for a concurrent cycle. Integral `std.math.abs/min/max` overloads are source bodies.
 The four standard output adapters accept scalar and String arguments, preserve evaluation order,
 add no automatic separator, and append one LF for `println`/`errorln`.
 
@@ -83,7 +99,7 @@ shifts reject invalid counts before LLVM instructions can observe poison-produci
 operations preserve normal IEEE behavior and do not enable fast math. Runtime bounds and arithmetic
 failures report an unhandled error and exit with status 1 in this bootstrap.
 
-The native gate rejects user heap allocation, general arrays/objects, closures, ref-struct borrowing,
+The native gate rejects general class construction, nested/value-layout arrays, closures, ref-struct borrowing,
 generic body specialization, user default/vararg lowering, custom operators/conversions, exception
 handlers, defer cleanup, reflection, and unqualified half/quad operations. Source body analysis may
 understand more of these constructs; that does not make them eligible for native generation.
@@ -91,29 +107,45 @@ Bottom-typed source calls and global/receiver storage initialization also remain
 
 ## LLVM boundary
 
-`OpenDot.Sol.Lowering` selects LLVM instructions in C#. The C++20/CLI bridge marshals UTF-8 LLVM IR
-to a native translation unit using LLVM's C interface from the exact `LLVM-C.dll`. This avoids exposing
-native LLVM types or unresolved opaque typerefs in managed metadata. Native contexts, buffers, modules,
-and target machines have deterministic RAII ownership. Errors are translated at the managed boundary.
+`OpenDot.Sol.Lowering` selects instructions, blocks, roots and guards in C#. An immediate operation
+interface crosses the thin C++20/CLI bridge into LLVM 23.1.3 C++ `LLVMContext`, `Module`, `IRBuilder`,
+and `TargetMachine` APIs. It never builds or parses textual LLVM assembly as a compilation step.
+Opaque handles carry session identities; foreign, wrong-kind, cross-thread and disposed use is rejected.
+Native contexts, modules and target machines have deterministic ownership. Errors are translated at
+the managed boundary. LLVM text is only inspection output produced by the LLVM printer.
 
-The native unit parses the generated IR, verifies it, runs the `default<O1>` pass pipeline, verifies
-again, and emits AMD64 COFF. C# launches `lld-link` with structured arguments in a temporary staging
-directory. A missing backend, wrong LLVM version, verification failure, or linker failure cannot
+The SDK uses the static CRT. `OpenDot.Sol.LlvmNative.dll` owns its C++ objects and allocations behind
+an opaque C ABI; the C++/CLI adapter uses the dynamic CRT. Buffers are freed in the component that
+allocated them. Pinned static compression/XML dependencies are built under `out/dependencies` by
+`eng/install-llvm-native-deps.ps1`; first-party projects remain MSBuild projects.
+
+The native component verifies the module and optimizes a clone with the O1 pipeline, verifies
+again, and emits AMD64 COFF. ORC receives binary LLVM bitcode from the same constructed module,
+verifies it and owns execution in the native guest. C# supplies structured arguments to the embedded
+LLD.COFF and LLD.Common 23.1.3 libraries through the native bridge. The same driver handles `/lib`
+archive production; Solc launches neither `lld-link.exe` nor `llvm-lib.exe`. Linking uses a temporary staging
+directory. A missing backend, wrong LLVM version, verification failure, or ordinary linker failure cannot
 replace an existing executable. The frontend SDK remains usable without LLVM installed.
+
+LLD driver calls are serialized according to its re-entry contract. Ordinary failures return diagnostics
+and allow later links. An unrecoverable LLD failure requires terminating the compiler process; it cannot
+continue with potentially corrupted driver state. Cancellation is checked before and after embedded
+linking; an active native link is not forcibly interrupted.
 
 ## SolRT bootstrap lifetime
 
-This runtime is an initial native ABI implementation, not Yellow Tea. Argument arrays and UTF-8
-String storage remain owned for entry lifetime and are freed at shutdown. Literal storage is static;
+This runtime now includes an experimental concurrent collector. Argument arrays have a strong entry
+handle; dynamically created Strings and arrays are collectible when their roots disappear. Literal storage is static;
 its descriptor is atomically published before the value is returned. Object headers are 16 bytes,
 String data begins at byte 24, and array elements begin at byte 32. Descriptor layout version 0 is
 provisional and does not establish the future collectible ABI.
 
-No collection occurs in this subset. The verifier excludes operations that would require collectible
-user objects, escaping borrows, callbacks, thread attachment, exception unwinding, or generated root
-frames. This is not a replacement collector or a full-heap STW fallback. The
-[Yellow Tea design](yellow-tea/index.md) still requires its root, barrier, epoch, weak, sweep, and
-concurrency implementation and qualification.
+Generated functions register zero-initialized root slots, publish reference stores through a barrier,
+poll on entry/backedges, and pop frames on normal returns. A worker performs concurrent mark/sweep
+between root handshakes. Native C++ exception carriers own traced Throwable handles, but source EH
+lowering remains gated. Individual aligned allocations currently replace the planned span allocator.
+Read the [implementation inventory](yellow-tea/current-implementation.md) for limits and qualification
+work; the [design chapters](yellow-tea/index.md) are not claims of full ABI or GC completion.
 
 ## Validation
 

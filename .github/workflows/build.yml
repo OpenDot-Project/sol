@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 name: Build and test
 
 on:
@@ -43,6 +45,9 @@ jobs:
         run: ./eng/verify-repository.ps1
       - name: Locked restore
         run: dotnet restore Sol.slnx --locked-mode
+      - name: Native asset acquisition regression tests
+        if: matrix.configuration == 'Debug'
+        run: ./eng/test-native-asset.ps1
       - name: Build and run regression tests
         if: matrix.configuration == 'Debug'
         run: dotnet test --solution Sol.slnx --no-restore --configuration Debug --report-xunit-trx --results-directory out/test-results/debug
@@ -69,6 +74,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 10
     permissions:
+      actions: read # Download this run's coverage report; no repository code is executed here.
       contents: read
       id-token: write # Codecov OIDC authentication; this job never executes repository code.
     steps:

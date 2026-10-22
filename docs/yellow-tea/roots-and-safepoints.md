@@ -1,8 +1,11 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Roots and safepoints
 
 Yellow Tea's tracing contract is precise. The compiler and runtime must enumerate every live managed
-reference using typed metadata; an integer that resembles an address is not a root. This protocol is
-planned and has no generated-code or native-runtime implementation yet.
+reference using typed metadata; an integer that resembles an address is not a root. Generated roots,
+barriers, entry/backedge polls, and native-safe transitions now exist for the restricted native subset.
+The complete inventory below extends beyond the [current implementation](current-implementation.md).
 
 ## Root inventory
 

@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Contributing to Sol
 
 Contributions should make one compiler behavior easier to specify, verify, or maintain.
@@ -93,3 +95,14 @@ instead of posting exploit details publicly. No response-time guarantee is curre
 
 Contributions are distributed under the repository's **Apache-2.0 WITH LLVM-exception** license.
 Preserve existing copyright, SPDX, and third-party attribution notices.
+
+First-party commentable files carry both SPDX file tags, using the file's publication year:
+
+```text
+SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+```
+
+JSON and solution data use the equivalent annotations in `REUSE.toml`. Keep canonical third-party
+license texts intact. These source notices follow the [SPDX short-form guidance](https://spdx.dev/learn/handling-license-info/)
+and [REUSE copyright format](https://reuse.software/spec/); they are separate from an SPDX SBOM.

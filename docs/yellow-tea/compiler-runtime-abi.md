@@ -1,12 +1,11 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Compiler/runtime ABI
 
-This page specifies the first planned native GC ABI. No shipped header, generated root plan, or
-native implementation currently establishes compatibility with it. The frontend's existing managed
-APIs do not constitute this ABI.
-
-The development branch now has a separate [native bootstrap ABI](../fir-native.md#solrt-bootstrap-lifetime)
-with provisional descriptor version 0. Its entry-lifetime argument arena has no collection, root
-frames, or barriers and does not implement the collectible ABI specified here.
+This page specifies the target native GC ABI. The development branch has provisional descriptor
+version 0, native roots/barriers, collectible Strings/arrays, and a concurrent baseline. It does not
+establish compatibility with the complete ABI described below. The [implementation inventory](current-implementation.md)
+separates current native code from pending layout, source EH, and allocator work.
 
 ## Descriptor responsibilities
 

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Collections.Generic;
@@ -28,7 +29,7 @@ public static class FirVerifier
     internal static bool IsString(ResolvedType type) => type.Declaration is { ModuleName: "std.core", Name: "String", Arity: 0 };
     internal static bool Supported(ResolvedType type) => type.Kind == ResolvedTypeKind.Primitive && type.Name is not ("half" or "quad")
         || IsEmpty(type) || IsString(type)
-        || type.Kind == ResolvedTypeKind.Array && IsString(type.Arguments[0]);
+        || type.Kind == ResolvedTypeKind.Array && (IsString(type.Arguments[0]) || type.Arguments[0].Kind == ResolvedTypeKind.Primitive && type.Arguments[0].Name is not ("half" or "quad"));
 
     private sealed class Checker(FirProgram program, CancellationToken cancellation)
     {
@@ -41,13 +42,15 @@ public static class FirVerifier
 
         internal void Check()
         {
-            if (program.Entry < 0 || program.Entry >= program.Functions.Length) { throw new ArgumentException("FIR entry index is invalid.", nameof(program)); }
+            if (program.IsLibrary ? program.Entry != -1 : program.Entry < 0 || program.Entry >= program.Functions.Length)
+            { throw new ArgumentException("FIR entry index is invalid.", nameof(program)); }
             for (int index = 0; index < program.Functions.Length; index++)
             {
                 cancellation.ThrowIfCancellationRequested();
                 _function = program.Functions[index];
                 _declared.Clear();
                 if (_function.Id != index) { Fail("Function identity/index mismatch.", _function.Origin); }
+                CheckExport();
                 if (_function.RuntimeFunction != FirRuntimeFunction.None) { CheckRuntime(); continue; }
                 CheckType(_function.ReturnType, _function.Origin);
                 for (int slot = 0; slot < _function.Slots.Length; slot++)
@@ -69,6 +72,7 @@ public static class FirVerifier
                 Graphs.Add(flow);
                 Errors.AddRange(flow.Diagnostics);
             }
+            if (program.IsLibrary) { return; }
             var entry = program.Functions[program.Entry];
             if (entry.RuntimeFunction != FirRuntimeFunction.None || !IsEmpty(entry.ReturnType)
                 || entry.Parameters is not [{ Type.Kind: ResolvedTypeKind.Array, Mode: AstPassingMode.Value } arg] || !IsString(arg.Type.Arguments[0]))
@@ -88,6 +92,18 @@ public static class FirVerifier
                 .Any(f => ReferenceEquals(f.Origin.Element, _function.Origin.Element)
                     && f.Name == expected && program.Catalog.Owns(f));
             if (!trusted) { Fail("Runtime adapter is not compiler-owned.", _function.Origin); }
+        }
+
+        private void CheckExport()
+        {
+            if (_function.ExportName is null) { return; }
+            var file = program.Analysis.Sources.Declarations.Files.SingleOrDefault(f => f.Nodes.OfType<AstFunction>()
+                .Any(n => ReferenceEquals(n.Origin.Element, _function.Origin.Element)));
+            var source = file?.Nodes.OfType<AstFunction>().SingleOrDefault(n => ReferenceEquals(n.Origin.Element, _function.Origin.Element));
+            if (!program.IsLibrary || source is null || program.Catalog.Owns(source) || !source.IsPublic || source.Name != _function.ExportName)
+            { Fail("Export identity is not a public source-owned library function.", _function.Origin); return; }
+            for (var parent = file!.GetParent(source); parent is not null; parent = file.GetParent(parent))
+            { if (parent is AstTypeDeclaration) { Fail("C export requires a module-level function.", _function.Origin); break; } }
         }
 
         private void CheckType(ResolvedType type, AstOrigin origin)
@@ -163,7 +179,9 @@ public static class FirVerifier
                         if (binary.Operation is "&&" or "||") { Boolean(binary.Left); Boolean(binary.Right); }
                         if (binary.Operation is not ("+" or "-" or "*" or "/" or "%" or "&" or "|" or "^" or "<<" or ">>" or "==" or "!=" or "<" or ">" or "<=" or ">=" or "&&" or "||"))
                         { Fail("Unrecognized binary operation.", binary.Origin); }
-                        if (binary.Left.Type.Kind != ResolvedTypeKind.Primitive) { Fail("Only primitive binary operations are qualified.", binary.Origin); }
+                        if (binary.Left.Type.Kind != ResolvedTypeKind.Primitive
+                            && !(IsString(binary.Left.Type) && binary.Operation is "+" or "==" or "!=" or "<" or ">" or "<=" or ">="))
+                        { Fail("This binary operation is not qualified for the operand type.", binary.Origin); }
                         if (binary.Operation is "<<" or ">>" && binary.Right.Type.Name != "int") { Fail("Shift count must be int.", binary.Origin); }
                         if (binary.Operation is "&" or "|" or "^" or "<<" or ">>" && binary.Left.Type.Name is "single" or "double")
                         { Fail("Bit operations require integers.", binary.Origin); }
@@ -172,12 +190,36 @@ public static class FirVerifier
                         break;
                     case FirArrayLength length:
                         Expression(length.Array);
-                        if (length.Array.Type.Kind != ResolvedTypeKind.Array || length.Type.Name != "int") { Fail("Invalid array-length signature.", length.Origin); } break;
+                        if (!(length.Array.Type.Kind == ResolvedTypeKind.Array || IsString(length.Array.Type)) || length.Type.Name != "int") { Fail("Invalid length signature.", length.Origin); } break;
                     case FirArrayIndex index:
                         Expression(index.Array); Expression(index.Index);
                         if (index.Array.Type.Kind != ResolvedTypeKind.Array || index.Index.Type.Name != "int" || index.Type != index.Array.Type.Arguments[0])
                         { Fail("Invalid array-index signature.", index.Origin); } break;
+                    case FirArrayLiteral array:
+                        if (array.Type.Kind != ResolvedTypeKind.Array) { Fail("Array literal requires a managed array type.", array.Origin); break; }
+                        foreach (var element in array.Elements) { Expression(element); Exact(element.Type, array.Type.Arguments[0], element.Origin); }
+                        break;
                     case FirCall call: CheckCall(call); break;
+                    case FirIntrinsic intrinsic:
+                        foreach (var argument in intrinsic.Arguments) { Expression(argument); }
+                        if (!intrinsic.ParameterOrder.IsEmpty && (intrinsic.ParameterOrder.Length != intrinsic.Arguments.Length
+                            || !intrinsic.ParameterOrder.Order().SequenceEqual(Enumerable.Range(0, intrinsic.Arguments.Length))))
+                        { Fail("Invalid intrinsic argument order.", intrinsic.Origin); break; }
+                        var ordered = intrinsic.ParameterOrder.IsEmpty ? intrinsic.Arguments : intrinsic.Arguments
+                            .Zip(intrinsic.ParameterOrder).OrderBy(p => p.Second).Select(p => p.First).ToImmutableArray();
+                        string signature = string.Join(",", ordered.Select(a => IsString(a.Type) ? "String" : IsEmpty(a.Type) ? "()" : a.Type.Name));
+                        string output = IsString(intrinsic.Type) ? "String" : IsEmpty(intrinsic.Type) ? "()" : intrinsic.Type.Name;
+                        bool valid = (intrinsic.Operation, signature, output) switch
+                        {
+                            (FirIntrinsicKind.StringSubstring, "String,int,int", "String") => true,
+                            (FirIntrinsicKind.StringIndexOf, "String,String,int", "int") => true,
+                            (FirIntrinsicKind.StringCompare, "String,String", "int") => true,
+                            (FirIntrinsicKind.StringHash, "String", "int") => true,
+                            (FirIntrinsicKind.GcCollect, "", "()") => true,
+                            _ => false,
+                        };
+                        if (!valid) { Fail("Invalid native intrinsic signature.", intrinsic.Origin); }
+                        break;
                     default: Fail("Unrecognized FIR expression.", expression.Origin); break;
                 }
             }

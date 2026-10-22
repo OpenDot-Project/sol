@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+version = 1
+
+[[annotations]]
+path = [
+    ".config/dotnet-tools.json",
+    "docfx.json",
+    "eng/doxygen.json",
+    "eng/llvm-native-dependencies.json",
+    "eng/llvm.json",
+    "eng/runtime.json",
+    "global.json",
+    "src/managed/OpenDot.Sol.Analysis/packages.lock.json",
+    "src/managed/OpenDot.Sol.Ast/packages.lock.json",
+    "src/managed/OpenDot.Sol.Cli/packages.lock.json",
+    "src/managed/OpenDot.Sol.Cst/packages.lock.json",
+    "src/managed/OpenDot.Sol.Diagnostics/packages.lock.json",
+    "src/managed/OpenDot.Sol.Driver/packages.lock.json",
+    "src/managed/OpenDot.Sol.Fir/packages.lock.json",
+    "src/managed/OpenDot.Sol.Lowering/packages.lock.json",
+    "src/managed/OpenDot.Sol.Psi/packages.lock.json",
+    "src/managed/OpenDot.Sol.Text/packages.lock.json",
+    "src/native/Sol.Native.sln",
+    "tests/OpenDot.Sol.Tests/packages.lock.json"
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 OpenDot Project <opendotproject.opendot@gmail.com>"
+SPDX-License-Identifier = "Apache-2.0 WITH LLVM-exception"

@@ -1,0 +1,6 @@
+{
+  "vcpkg_commit": "fcb618092467258d6d4d924ad0ebb24acfa06ebd",
+  "archive_sha256": "C4ADD12372D74D8F67D22366FDFFE0B79671D64FBE8A55E26529EF9D23BF86C1",
+  "triplet": "x64-windows-static",
+  "packages": ["zlib", "zstd", "libxml2[core]"]
+}

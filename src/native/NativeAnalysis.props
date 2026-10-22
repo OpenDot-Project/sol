@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <EnableCppCoreCheck>true</EnableCppCoreCheck>
@@ -7,6 +9,8 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
       <DisableAnalyzeExternal>true</DisableAnalyzeExternal>
     </ClCompile>
   </ItemDefinitionGroup>

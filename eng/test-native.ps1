@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 param([string]$BackendDirectory = 'out/native/backend')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -65,6 +67,11 @@ foreach ($case in $cases) {
         if (($text -match 'Name: SolRT.dll') -eq $static) { throw 'SolRT import mode mismatch.' }
         if ($text -match '(?i)mscoree|hostfxr|coreclr') { throw 'Native application depends on CLR.' }
         $count++
+        $jitArguments = @($cli, $built.Source, '-Cllvm-compiler=orc')
+        if ($static) { $jitArguments += '--static-solrt-lib' }
+        $jit = RunProcess (Get-Command dotnet).Source ($jitArguments + @('--') + $case.Args)
+        if ($jit.Code -ne 0 -or $jit.Out -cne $case.Expected -or $jit.Error.Length -ne 0) { throw "ORC parity mismatch ($name): code=$($jit.Code), out=$($jit.Out), err=$($jit.Error)" }
+        $count++
     }
 }
 
@@ -82,6 +89,9 @@ foreach ($case in $failures) {
     $run = RunProcess $built.Exe @()
     if ($run.Code -ne 1 -or $run.Error -notmatch $case.Error) { throw "Expected native failure ($($case.Name)): $($run.Error)" }
     $count++
+    $jit = RunProcess (Get-Command dotnet).Source @($cli, $built.Source, '-Cllvm-compiler=orc')
+    if ($jit.Code -ne 1 -or $jit.Error -notmatch $case.Error) { throw "Expected ORC failure ($($case.Name)): $($jit.Error)" }
+    $count++
 }
 
 $rejected = CompileProgram 'retained-output' 'println(1)' '' $true
@@ -89,4 +99,4 @@ $hash = (Get-FileHash $rejected.Exe -Algorithm SHA256).Hash
 [IO.File]::WriteAllText($rejected.Source, 'module rejected; object Main { func main(args: []String) { var x: int; x } }')
 $invalid = RunProcess (Get-Command dotnet).Source @($cli, $rejected.Source, '-o', $rejected.Exe)
 if ($invalid.Code -eq 0 -or (Get-FileHash $rejected.Exe -Algorithm SHA256).Hash -ne $hash) { throw 'Invalid input replaced a prior executable.' }
-Write-Host "Native AOT checks passed: $count execution/import cases plus output preservation."
+Write-Host "Native AOT/ORC checks passed: $count execution/import cases plus output preservation."

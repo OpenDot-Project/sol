@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Collections.Generic;
@@ -22,12 +23,13 @@ internal sealed partial class FirBuilder
     private readonly Dictionary<LocalSymbol, FirSlot> _slots = [];
     private readonly Dictionary<AstCall, BodyCallBinding> _calls;
     private AstCallable _current = null!;
+    private readonly bool _library;
     private ResolvedType Empty => _analysis.Types.GetTuple([]);
     internal List<Diagnostic> Diagnostics { get; } = [];
 
-    internal FirBuilder(BodyAnalysis analysis, RuntimeCatalog catalog, ImmutableArray<AstSnapshot> input, CancellationToken cancellation)
+    internal FirBuilder(BodyAnalysis analysis, RuntimeCatalog catalog, ImmutableArray<AstSnapshot> input, CancellationToken cancellation, bool library = false)
     {
-        _analysis = analysis; _catalog = catalog; _input = input; _cancellation = cancellation;
+        _analysis = analysis; _catalog = catalog; _input = input; _cancellation = cancellation; _library = library;
         _calls = analysis.Calls.ToDictionary(c => c.Call);
         foreach (var file in analysis.Sources.Declarations.Files) { foreach (var node in file.Nodes) { _files.Add(node, file); } }
     }
@@ -37,16 +39,16 @@ internal sealed partial class FirBuilder
         foreach (var property in _input.SelectMany(f => f.Nodes).OfType<AstProperty>()
             .Where(p => !Ancestors(p).OfType<AstFunction>().Any()))
         { Unsupported(property, "Global or receiver storage initialization"); }
-        var declarations = _analysis.Sources.Declarations.Files.SelectMany(f => f.Nodes).OfType<AstFunction>().ToArray();
+        var declarations = _analysis.Sources.Declarations.Files.SelectMany(f => f.Nodes).OfType<AstFunction>().Where(f => _catalog.Intrinsic(f) is null).ToArray();
         foreach (var declaration in declarations) { _functions.Add(declaration, _functions.Count); }
         var functions = declarations.Select(BuildFunction).ToImmutableArray();
         var entries = declarations.Where(IsEntry).ToArray();
-        if (entries.Length != 1)
+        if (!_library && entries.Length != 1)
         {
             var origin = _input[0].Root;
             Error("SOL2401", "Exactly one Main object with main(args: []String): () is required.", origin);
         }
-        return new(_analysis, _catalog, functions, entries.Length == 1 ? _functions[entries[0]] : -1);
+        return new(_analysis, _catalog, functions, !_library && entries.Length == 1 ? _functions[entries[0]] : -1) { IsLibrary = _library };
     }
 
     private bool IsEntry(AstFunction function)
@@ -65,7 +67,7 @@ internal sealed partial class FirBuilder
         _current = function; _slots.Clear();
         var summary = _analysis.GetBody(function);
         var result = summary?.ReturnType ?? Empty;
-        if (_catalog.Owns(function))
+        if (_catalog.Owns(function) && function.Body.Kind == AstBodyKind.Missing)
         {
             var runtime = function.Name switch { "print" => FirRuntimeFunction.Print, "println" => FirRuntimeFunction.Println,
                 "error" => FirRuntimeFunction.Error, "errorln" => FirRuntimeFunction.Errorln, _ => FirRuntimeFunction.None };
@@ -96,7 +98,8 @@ internal sealed partial class FirBuilder
         foreach (var gap in _analysis.UnverifiedNodes.Where(n => Ancestors(n).Contains(function) && n is not AstType))
         { Unsupported(gap, "Unverified source obligation"); }
         return new(_functions[function], function.Name ?? "", parameters.ToImmutable(), _slots.Values.OrderBy(s => s.Id).ToImmutableArray(),
-            result, body, FirRuntimeFunction.None, function.ThrownTypes.Select(_analysis.Sources.Types.GetType).ToImmutableArray(), function.Origin);
+            result, body, FirRuntimeFunction.None, function.ThrownTypes.Select(_analysis.Sources.Types.GetType).ToImmutableArray(), function.Origin)
+        { ExportName = _library && !_catalog.Owns(function) && owner is null && function.IsPublic ? function.Name : null };
     }
 
     private IEnumerable<AstNode> Ancestors(AstNode node)

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 param([ValidateSet('Cleanup', 'Inspect')][string]$Mode = 'Inspect')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -17,8 +19,8 @@ if (-not $toolset) { throw 'The native solution requires MSVC v143 or v145.' }
 $packs = Join-Path (Split-Path (Get-Command dotnet).Source -Parent) 'packs'
 $reference = Get-ChildItem (Join-Path $packs 'Microsoft.NETCore.App.Ref') -Directory | Where-Object Name -Like '10.*' | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
 if (-not $reference) { throw '.NET 10 reference packs are missing.' }
-$properties = "Configuration=Release;Platform=x64;PlatformToolset=$($toolset.Name);DotNetPackRoot=$packs;ReferencePackVersion=$($reference.Name);LLVMRoot=$env:LLVM_ROOT"
-$sourceFiles = 'llvm-bridge/Compiler.cpp;llvm-bridge/NativeCompiler.cpp;llvm-bridge/NativeCompiler.h;runtime/SolRT.cpp;runtime/SolRT.h;runtime/Harness.cpp;launcher/main.cpp'
+$properties = "Configuration=Release;Platform=x64;PlatformToolset=$($toolset.Name);DotNetPackRoot=$packs;ReferencePackVersion=$($reference.Name);LLVMRoot=$env:LLVM_ROOT;TestHarness=true;StaticRuntime=true"
+$sourceFiles = 'llvm-bridge/Compiler.cpp;llvm-native/Api.h;llvm-native/Support.h;llvm-native/Session.h;llvm-native/Session.cpp;llvm-native/Output.cpp;llvm-native/Orc.cpp;llvm-native/Linker.cpp;runtime/SolRT.cpp;runtime/SolRT.h;runtime/Core.cpp;runtime/Core.h;runtime/Arrays.cpp;runtime/Gc.cpp;runtime/Gc.h;runtime/GcConfig.cpp;runtime/GcInternal.h;runtime/GcWorker.cpp;runtime/GcModel.cpp;runtime/NativeScope.h;runtime/Harness.cpp;runtime/GcHarness.cpp;exec-host/Main.cpp;launcher/main.cpp'
 $arguments = @('src/native/Sol.Native.sln', '--no-build', '--no-updates', '--disable-settings-layers=GlobalAll;GlobalPerProduct;SolutionPersonal;ProjectPersonal', "--toolset-path=$(Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe')", "--properties=$properties", '--caches-home=out/jetbrains/cache', "--include=$sourceFiles")
 Push-Location $root
 try {

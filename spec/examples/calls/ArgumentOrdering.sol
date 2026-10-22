@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Status: mapping/default origins are available; full expression/lambda typing and execution are planned.
 module demonstrations.calls

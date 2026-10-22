@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Status: enum/switch syntax and pattern scopes; exhaustiveness/layout/dispatch are planned.
 module demonstrations.commands

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Linq;
@@ -23,8 +24,10 @@ public static class FirJson
                 FirUnary unary => new { unary.Operation, value = Node(unary.Value) },
                 FirBinary binary => new { binary.Operation, left = Node(binary.Left), right = Node(binary.Right) },
                 FirCall call => new { call.Target, arguments = call.Arguments.Select(a => new { a.Parameter, mode = a.Mode.ToString(), value = Node(a.Value) }).ToArray() },
+                FirIntrinsic intrinsic => new { operation = intrinsic.Operation.ToString(), order = intrinsic.ParameterOrder, arguments = intrinsic.Arguments.Select(Node).ToArray() },
                 FirArrayLength length => new { array = Node(length.Array) },
                 FirArrayIndex index => new { array = Node(index.Array), index = Node(index.Index) },
+                FirArrayLiteral array => new { elements = array.Elements.Select(Node).ToArray() },
                 FirDeclare declaration => new { declaration.Slot, initializer = declaration.Initializer is null ? null : Node(declaration.Initializer) },
                 FirStore store => new { store.Slot, value = Node(store.Value) },
                 FirEvaluate evaluate => new { value = Node(evaluate.Value) },
@@ -39,7 +42,7 @@ public static class FirJson
         }
         return JsonSerializer.Serialize(new
         {
-            schema = 1, verified = true, entry = program.Program.Entry,
+            schema = 1, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
             functions = program.Program.Functions.Select(f => new { f.Id, f.Name, runtime = f.RuntimeFunction.ToString(),
                 returnType = f.ReturnType.Id, parameters = f.Parameters.Select(p => p.Id).ToArray(),
                 slots = f.Slots.Select(s => new { s.Id, s.Name, type = s.Type.Id, s.Mutable, mode = s.Mode.ToString(), s.IsParameter }).ToArray(),

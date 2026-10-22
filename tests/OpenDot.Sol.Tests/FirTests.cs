@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Linq;
@@ -27,11 +28,11 @@ public sealed class FirTests
         Assert.Equal("main", program.Program.Functions[program.Program.Entry].Name);
         Assert.NotEmpty(program.FlowGraphs);
         Assert.All(program.FlowGraphs, g => Assert.Empty(g.Diagnostics));
-        string llvm = LlvmEmitter.Emit(program, cancellationToken: TestContext.Current.CancellationToken);
-        Assert.Contains("@wmain", llvm);
+        string llvm = LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains("wmain", llvm);
         Assert.Contains("llvm.sadd.with.overflow.i32", llvm);
-        Assert.Contains("@sol_rt_arguments", llvm);
-        Assert.Contains("@sol_rt_write_string", llvm);
+        Assert.Contains("sol_rt_arguments", llvm);
+        Assert.Contains("sol_rt_write_string", llvm);
         Assert.DoesNotContain("C:\\Users", llvm);
     }
 
@@ -50,7 +51,7 @@ public sealed class FirTests
     public void NativeSubsetHasTypedControlAndStorage(string body, string declarations = "")
     {
         var program = Valid(Compile(body, declarations));
-        Assert.NotEmpty(LlvmEmitter.Emit(program, cancellationToken: TestContext.Current.CancellationToken));
+        Assert.NotEmpty(LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Theory]
@@ -61,7 +62,6 @@ public sealed class FirTests
     [InlineData("try { println(1) } catch (e: IOException) {}")]
     [InlineData("println(default<int>())")]
     [InlineData("println(id(1))", "func <T> id(value: T): T = value")]
-    [InlineData("val values = [1, 2]; println(values.length)")]
     [InlineData("println(overflow())", "func overflow(): byte = 256")]
     [InlineData("println(1)", "val globalValue = 42")]
     [InlineData("stop()", "func stop(): ! { for {} }")]

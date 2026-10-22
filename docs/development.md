@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Development and validation
 
 ## Prerequisites and scope
@@ -61,8 +63,14 @@ the private runtime distributed inside the component.
 
 Restore the solution first. Packaging publishes the managed application framework-dependently,
 builds the native launcher, downloads the runtime pinned in `eng/runtime.json`, verifies SHA-512,
-assembles licenses and payloads, runs version/CST smoke tests, and writes a file inventory with
+assembles licenses and payloads, runs version/CST/AST/FIR smoke tests, and writes a file inventory with
 SHA-256 values in `component.json`. It outputs a versioned ZIP and `.sha256` companion in `out/packages`.
+
+This development package contains the frontend and private .NET runtime. Its capability inventory
+does not advertise LLVM output: the LLVM C++ component, bridge, and native execution dependencies
+are not included. Packaging checks that an LLVM output request fails without creating an artifact,
+even when the packaging machine has a development backend installed. Native compilation and LLVM
+inspection are qualified separately by the native backend workflow; backend distribution remains pending.
 
 The script refuses to overwrite an existing versioned ZIP. For another local verification, select
 a fresh output directory, for example `./eng/package.ps1 -OutputDirectory out/packages-check-2`.
@@ -97,7 +105,7 @@ Every repository workflow runs on Windows 2025. Jobs are separated by responsibi
 | `build.yml` | Debug/Release tests, process smoke, TRX/Cobertura artifacts, separate OIDC Codecov upload. |
 | `docfx.yml` | Locked restore, metadata/site build with warnings as errors, output boundary checks. |
 | `doxygen.yml` | Digest-pinned Doxygen, native/C++/CLI HTML and XML, documentation warnings as errors. |
-| `native.yml` | LLVM AOT execution/import checks, SolRT ASan harness, and JetBrains native/C++/CLI inspection. |
+| `native.yml` | AOT/ORC and native library consumers, SolRT model/ASan/concurrency harness, JetBrains inspection, and required managed native-orchestration coverage. |
 | `codeql.yml` | Manual traced builds and security-extended analysis for C# and native C++. |
 | `security.yml` | Digest-verified actionlint, offline zizmor audit, and OSV scanning of tracked NuGet lockfiles. |
 | `package.yml` | Component assembly, private-runtime smoke, and archive artifact. |

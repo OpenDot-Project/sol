@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 param([string]$OutputDirectory = 'out/packages')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -50,17 +52,26 @@ try {
     $fir = Get-Content -LiteralPath $firSmoke -Raw | ConvertFrom-Json
     if ($fir.schema -ne 1 -or -not $fir.verified) { throw 'Packaged FIR content mismatch.' }
     Remove-Item -LiteralPath $firSmoke
-    $llvmSmoke = Join-Path $stage 'smoke.ll'
-    & $launcher $nativeSample --emit=llvm-ir -o $llvmSmoke
-    if ($LASTEXITCODE -ne 0 -or (Get-Content -LiteralPath $llvmSmoke -Raw) -notmatch 'define i32 @wmain') { throw 'Packaged LLVM IR smoke failed.' }
-    Remove-Item -LiteralPath $llvmSmoke
+    # This component contains the frontend and private CLR, without native dependencies.
+    # An installed development backend must not make the frontend package smoke pass.
+    $previousBackend = $env:SOLC_NATIVE_ROOT
+    try {
+        $env:SOLC_NATIVE_ROOT = Join-Path $stage 'managed/native'
+        $llvmSmoke = Join-Path $stage 'smoke.ll'
+        $llvmDiagnostic = & $launcher $nativeSample --emit=llvm-ir -o $llvmSmoke 2>&1
+        if ($LASTEXITCODE -ne 1 -or "$llvmDiagnostic" -notmatch 'native backend is not installed' -or (Test-Path -LiteralPath $llvmSmoke)) {
+            throw 'Frontend-only package must reject LLVM output without producing an artifact.'
+        }
+        # GitHub's pwsh wrapper forwards LASTEXITCODE; the validated rejection is success here.
+        $global:LASTEXITCODE = 0
+    } finally { $env:SOLC_NATIVE_ROOT = $previousBackend }
 
     $inventory = @(Get-ChildItem -LiteralPath $stage -File -Recurse | Sort-Object FullName | ForEach-Object {
         $relative = [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\', '/')
         if ($relative -match '(^|/)(\.codex|\.dotnet|obj)(/|$)') { throw 'Private path in package.' }
         @{ path = $relative; size = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     })
-    $manifest = @{ schema_version = 1; product = 'solc'; version = $version; target = 'windows-x86_64'; private_runtime = $runtime.version; capabilities = @('cst-frontend', 'structural-ast', 'verified-fir-subset', 'llvm-ir-emission'); files = $inventory }
+    $manifest = @{ schema_version = 1; product = 'solc'; version = $version; target = 'windows-x86_64'; private_runtime = $runtime.version; capabilities = @('cst-frontend', 'structural-ast', 'verified-fir-subset'); files = $inventory }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $stage 'component.json') -Encoding utf8NoBOM
     $output = [IO.Path]::GetFullPath((Join-Path $root $OutputDirectory))
     New-Item -ItemType Directory -Path $output -Force | Out-Null

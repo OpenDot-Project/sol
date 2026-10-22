@@ -1,3 +1,5 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Status and roadmap
 
 ## Sol 0.0.1
@@ -54,16 +56,19 @@ effects, and conservative storage/capture checks. Its unverified source location
 full inherited overload/conversion/lambda solving, exceptional flow, and borrow-origin proof are still
 incomplete. It does not produce verified FIR or native output.
 
-The [Yellow Tea design](yellow-tea/index.md) documents the planned native collector, root/barrier ABI,
-weak/sweep races, pacing, and validation gates. No collector implementation or measured latency is
-available. SolRT linkage defaults to dynamic; `--static-solrt-lib` records static selection in source
-builds and now controls the native AOT bootstrap linker.
+The [Yellow Tea implementation inventory](yellow-tea/current-implementation.md) records experimental
+concurrent mark/sweep, generated roots/barriers, handles, and native validation fixtures. The design
+also specifies pending span allocation, pacing and broader qualification. No measured latency or
+production-readiness guarantee is available. SolRT defaults to dynamic; static linkage is explicit.
 
 The [verified FIR/native path](fir-native.md) admits a closed scalar/stateless subset, independently
 checks FIR types/calls/CFG assignment, and lowers through a qualified C++20/CLI LLVM bridge to AMD64
 COFF and a Windows executable. Default dynamic and explicit static SolRT modes are execution-tested.
-Native String/argument storage uses a provisional entry-lifetime bootstrap; it is not Yellow Tea.
-General heap objects, native catches/defer/EH, generic specialization, and full borrowing remain gated.
+Collectible Strings/scalar arrays and selected String/integral math APIs are available in development.
+[Library artifacts](library-artifacts.md) now include scalar C DLL/staticlib output and closed-subset
+Sol containers; external Sol module consumption remains pending. ORC runs in a separate native guest
+process. General objects, source catches/defer/EH, generics, the complete allocator, and full borrowing
+remain gated. The [standard library inventory](standard-library.md) lists implemented and pending modules.
 
 ### Remaining stages
 
@@ -72,8 +77,8 @@ General heap objects, native catches/defer/EH, generic specialization, and full 
    generated members, and complete overload/expression typing.
 3. Expand the verified FIR subset with full nullability, checked exception/cleanup CFG, borrowing,
    closures, generic specialization, and general object layouts.
-4. Extend the LLVM bridge/native pipeline beyond AOT bin with qualified exception handling and ORC.
-5. Implement and validate the native runtime, Yellow Tea concurrency invariants, and `std.core` bootstrap;
+4. Qualify complete Windows/ORC exception handling, library consumption and extended native ABI.
+5. Complete and validate the native allocator, Yellow Tea concurrency invariants, and `std.core`;
    expand the standard library with module-level API contracts and tests.
 
 Testing, malformed-input exploration, security analysis, and documentation evolve with each stage.

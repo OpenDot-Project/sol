@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 param([string]$LlvmRoot = $env:LLVM_ROOT)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -26,17 +28,32 @@ foreach ($platform in $toolsets) {
 if (-not $toolset) { throw 'A qualified MSVC platform toolset is required.' }
 $properties = @('/nologo', '/nodeReuse:false', '/p:Configuration=Release', '/p:Platform=x64', "/p:PlatformToolset=$($toolset.Name)")
 $properties += @('/p:EnableCppCoreCheck=true', '/p:RunCodeAnalysis=true', '/p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset')
+& (Join-Path $PSScriptRoot 'install-llvm-native-deps.ps1') -LlvmRoot $LlvmRoot
+& $msbuild (Join-Path $root 'src/native/llvm-native/llvm-native.vcxproj') @properties "/p:LLVMRoot=$LlvmRoot"
+if ($LASTEXITCODE -ne 0) { throw 'LLVM C++ native component build failed.' }
 & $msbuild (Join-Path $root 'src/native/llvm-bridge/llvm-bridge.vcxproj') @properties "/p:LLVMRoot=$LlvmRoot" "/p:DotNetPackRoot=$packs" "/p:ReferencePackVersion=$($reference.Name)"
 if ($LASTEXITCODE -ne 0) { throw 'C++/CLI LLVM bridge build failed.' }
 & $msbuild (Join-Path $root 'src/native/runtime/runtime.vcxproj') @properties
 if ($LASTEXITCODE -ne 0) { throw 'Dynamic SolRT build failed.' }
 & $msbuild (Join-Path $root 'src/native/runtime/runtime.vcxproj') @properties /p:StaticRuntime=true
 if ($LASTEXITCODE -ne 0) { throw 'Static SolRT build failed.' }
+foreach ($static in @('false', 'true')) {
+    & $msbuild (Join-Path $root 'src/native/exec-host/exec-host.vcxproj') @properties "/p:LLVMRoot=$LlvmRoot" "/p:StaticRuntime=$static"
+    if ($LASTEXITCODE -ne 0) { throw 'Native ORC host build failed.' }
+}
 $output = Join-Path $root 'out/native/backend'
 New-Item -ItemType Directory -Path $output -Force | Out-Null
+$legacy = Join-Path $output 'LLVM-C.dll'
+if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy }
 Copy-Item -LiteralPath (Join-Path $root 'out/native/llvm-bridge/OpenDot.Sol.LlvmBridge.dll') -Destination $output
+Copy-Item -LiteralPath (Join-Path $root 'out/native/llvm-native/OpenDot.Sol.LlvmNative.dll') -Destination $output
 Copy-Item -LiteralPath (Join-Path $packs "Microsoft.NETCore.App.Host.win-x64/$($reference.Name)/runtimes/win-x64/native/ijwhost.dll") -Destination $output
-foreach ($name in @('LLVM-C.dll', 'lld-link.exe')) { Copy-Item -LiteralPath (Join-Path $LlvmRoot "bin/$name") -Destination $output }
+foreach ($name in @('lld-link.exe', 'llvm-lib.exe')) {
+    $obsolete = Join-Path $output $name
+    if (Test-Path -LiteralPath $obsolete) { Remove-Item -LiteralPath $obsolete }
+}
+Copy-Item -LiteralPath (Join-Path $root 'out/native/exec-host/dynamic/sol-exec-host.exe') -Destination $output
+Copy-Item -LiteralPath (Join-Path $root 'out/native/exec-host/static/sol-exec-host.exe') -Destination (Join-Path $output 'sol-exec-host-static.exe')
 foreach ($name in @('SolRT.dll', 'SolRT.lib')) { Copy-Item -LiteralPath (Join-Path $root "out/native/runtime/dynamic/$name") -Destination $output }
 Copy-Item -LiteralPath (Join-Path $root 'out/native/runtime/static/SolRT.lib') -Destination (Join-Path $output 'SolRT-static.lib')
 $toolsVersion = (Get-Content (Join-Path $vs 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
