@@ -41,6 +41,9 @@ foreach ($component in $catalog.components) {
                 -Body ($query | ConvertTo-Json -Compress) -TimeoutSec 45
             return $raw.Content | ConvertFrom-Json -AsHashtable -Depth 64
         }
+        $result = Resolve-NativeAdvisoryResult $result $catalog `
+            (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') `
+            (Join-Path $root 'out/native/llvm-native/dependencies')
         $results += $result
         Write-Host "$($component.name) $($component.version): $($result.status), $($result.advisories.Count) advisory records."
     } catch {
@@ -51,15 +54,18 @@ foreach ($component in $catalog.components) {
 }
 $source = & git -C $root rev-parse HEAD
 if ($LASTEXITCODE -ne 0 -or $source -cnotmatch '^[a-f0-9]{40}$') { throw 'Source commit identity unavailable.' }
+$dirty = @(& git -C $root status --porcelain).Count -ne 0
+if ($LASTEXITCODE -ne 0) { throw 'Source tree identity unavailable.' }
 $report = [ordered]@{
     schema_version = 1
     source_commit = $source
+    source_tree_dirty = $dirty
     checked_at = [DateTimeOffset]::UtcNow.ToString('O')
     endpoint = 'https://api.osv.dev/v1/query'
     matching = 'native-upstream-commit'
     vcpkg_commit = $catalog.vcpkg_commit
     catalog_sha256 = (Get-FileHash (Join-Path $PSScriptRoot 'native-advisories.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-    coverage = 'OSV commit range matching; not CodeQL triage, patched-binary attestation, or a complete SBOM.'
+    coverage = 'OSV commit matching plus hash-bound XML feature-absence evidence; not CodeQL clearance or a complete SBOM.'
     components = $results
 }
 $stream = [IO.File]::Open($reportPath, [IO.FileMode]::CreateNew)

@@ -16,11 +16,14 @@ The three native libraries are selected by the hash-pinned vcpkg revision in
 | Component | Upstream version | Source commit |
 |---|---|---|
 | LLVM, including embedded LLD | 23.1.3 | `0d261d1ca552c95a8f007e061c787ac7132fbcbc` |
-| zlib | 1.3.2 | `da607da739fa6047df13e66a2af6b8bec7c2a498` |
+| zlib | 1.3.2 plus upstream gzip-write fix | `df84af25dc1942490e1d1c899a07619152a46148` |
 | zstd | 1.5.7 | `f8745da6ff1ad1e7bab384bd1f9d742439278e99` |
 | libxml2 | 2.15.4 | `96498992efa48d52b0e8b83058bd88dbdaf153c1` |
 
-The zlib vcpkg port revision is 2; the upstream version remains 1.3.2. Port revisions and
+The zlib base tag remains v1.3.2 at `da607da739fa6047df13e66a2af6b8bec7c2a498`; the catalog
+separately identifies the fixed source commit and its archive SHA-512. This is not a new
+upstream release. Generated vcpkg overlay ports select that exact source and disable libxml2
+HTML and XInclude. The downloaded vcpkg checkout remains unchanged. Port revisions and
 vcpkg binary ABI hashes are not upstream source versions. libxml2's explicit GitLab mirror
 mapping permits OSV records that use its canonical GitLab repository rather than GitHub.
 An unrelated repository is not accepted as evidence about a component.
@@ -50,38 +53,57 @@ not native advisory coverage and is not used by this gate.
 The script writes a new report under `out/security/native-advisories/`. It includes the Sol
 source SHA, query time, catalog digest, query commits, pagination counts and full returned
 advisory records. The Windows workflow preserves that report when a query finds an advisory.
-It does not require a native build, credentials or execution of downloaded dependency code.
+The workflow first builds the selected native libraries and qualifies their binary identities.
+It requires no credentials. Dependency smoke tests execute the resulting native code.
 
 The evidence validator rejects malformed responses, wrong repositories, missing affected
 component evidence, duplicate advisory identities, repeated continuation tokens and pagination
 beyond ten pages. Each continuation retains the original source commit. Unknown or failed
 queries fail qualification; they are not converted into empty results. All returned advisories
-block this gate, including records without a numerical severity. No exception list is applied.
+remain in the report, including records without numerical severity. Unknown advisories block.
+The two mapped libxml2 records can receive a reported-path-absent annotation after binary
+qualification. They still block: their shared root functions remain, and removing a reported
+caller alone does not prove that another route cannot trigger the same defect. No advisory
+receives an automatic not-affected disposition or severity suppression.
+
+`eng/test-native-dependencies.ps1` requires the generated HTML/XInclude macros to be absent,
+rejects all defined `html[A-Z]*` and `xmlXInclude*` symbols in the static library, and requires
+the XML parser symbols to remain. An ASan-linked harness exercises XML parsing, compression
+roundtrips, and a read-only-descriptor gzip write failure followed by `gzclearerr`/`gzprintf`.
+The harness is ASan-instrumented; the third-party static libraries are not fully
+ASan-instrumented. A passing run does not establish sanitizer coverage of every vendor operation.
+Source-resource identities, library hashes, catalog digest and successful smoke results are
+recorded in `dependency-qualification.json`. Staging preserves that evidence and source IDs.
+The advisory review checks the actual linker libraries and the `xml2s.lib` alias against those
+hashes. Missing/stale evidence, changed bytes or any new advisory identity block qualification.
+Successful feature-absence checks are hardening evidence, not clearance of the two records.
 
 `no-known-advisories` means that a successful OSV commit query returned no records. It is not
 a guarantee of safety, complete database coverage or absence of CodeQL findings. This report
 is not a complete SPDX or CycloneDX SBOM and does not replace private-runtime/NuGet review.
 
-## Current release blockers
+## Advisory dispositions
 
-The October 23, 2026 commit queries returned these records:
+The initial October 23, 2026 commit queries returned these records. A fresh query of the
+selected zlib fix returned no records; the libxml2 query still returned both records:
 
 | Component | Advisory | Reported affected behavior | Disposition |
 |---|---|---|---|
-| zlib | [CVE-2026-76844](https://osv.dev/vulnerability/CVE-2026-76844) | Stale gzip write input after a failed write can lead to a heap buffer overflow. | Open; native publication blocked. |
-| zlib | [CVE-2026-85091](https://osv.dev/vulnerability/CVE-2026-85091) | Non-blocking gzip writes followed by formatted writes can reach an invalid buffer move. | Open; native publication blocked. |
-| libxml2 | [OSV-2021-777](https://osv.dev/vulnerability/OSV-2021-777) | Heap use-after-free in an XInclude sibling/copy path. | Open; native publication blocked. |
-| libxml2 | [OSV-2024-698](https://osv.dev/vulnerability/OSV-2024-698) | Heap use-after-free in an encoding-close/HTML-save path. | Open; native publication blocked. |
+| zlib | [CVE-2026-76844](https://osv.dev/vulnerability/CVE-2026-76844) | Stale gzip write input after a failed write can lead to a heap buffer overflow. | Fixed source built locally; fresh query returned no records and the failed-write regression passed. Full package qualification remains pending. |
+| zlib | [CVE-2026-85091](https://osv.dev/vulnerability/CVE-2026-85091) | Non-blocking gzip writes followed by formatted writes can reach an invalid buffer move. | Same fixed source and local regression evidence; comprehensive vendor sanitizer coverage is not established. |
+| libxml2 | [OSV-2021-777](https://osv.dev/vulnerability/OSV-2021-777) | Heap use-after-free in an XInclude sibling/copy path. | XInclude macros/symbols absent; shared-function applicability remains blocking. |
+| libxml2 | [OSV-2024-698](https://osv.dev/vulnerability/OSV-2024-698) | Heap use-after-free in an encoding-close/HTML-save path. | HTML macros/symbols absent; shared-function applicability remains blocking. |
 
-The zlib port used by this source does not apply the upstream gzip-write fix:
+The generated zlib overlay selects the upstream gzip-write fix:
 [commit df84af25](https://github.com/madler/zlib/commit/df84af25dc1942490e1d1c899a07619152a46148).
-That commit resets the pending input after an error. Neither a passing package smoke test nor
-an assumption that LLVM does not call gzip file APIs qualifies the current binary as fixed.
+That commit resets pending input after an error. Neither an unchanged upstream version string
+nor an assumption that LLVM does not call gzip file APIs substitutes for source/binary evidence.
 
 The libxml2 OSS-Fuzz records returned open-ended Git ranges and high ecosystem severity.
-They require reproduction/fix verification or a documented, binary-specific applicability
-review. Their age does not establish that they are obsolete. No finding has been dismissed,
-and this change does not claim that the four issues are exploitable through Sol's supported CLI.
+Their age does not establish that they are obsolete. They remain visible in the source query;
+the identified XInclude and HTML paths are removed from the qualified build. This does not
+claim that all libxml2 defects are fixed or that all XML paths are absent. No CodeQL finding
+has been dismissed, and no exploitability claim is made for Sol's supported CLI.
 
 ## CodeQL review remains separate
 

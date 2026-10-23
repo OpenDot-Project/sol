@@ -29,6 +29,7 @@ if (-not $toolset) { throw 'A qualified MSVC platform toolset is required.' }
 $properties = @('/nologo', '/nodeReuse:false', '/p:Configuration=Release', '/p:Platform=x64', "/p:PlatformToolset=$($toolset.Name)")
 $properties += @('/p:EnableCppCoreCheck=true', '/p:RunCodeAnalysis=true', '/p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset')
 & (Join-Path $PSScriptRoot 'install-llvm-native-deps.ps1') -LlvmRoot $LlvmRoot
+& (Join-Path $PSScriptRoot 'test-native-dependencies.ps1')
 & $msbuild (Join-Path $root 'src/native/llvm-native/llvm-native.vcxproj') @properties "/p:LLVMRoot=$LlvmRoot"
 if ($LASTEXITCODE -ne 0) { throw 'LLVM C++ native component build failed.' }
 & $msbuild (Join-Path $root 'src/native/llvm-bridge/llvm-bridge.vcxproj') @properties "/p:LLVMRoot=$LlvmRoot" "/p:DotNetPackRoot=$packs" "/p:ReferencePackVersion=$($reference.Name)"

@@ -27,6 +27,7 @@ foreach ($notice in $pin.notices) {
 }
 $dependencies = Join-Path $root 'out/native/llvm-native/dependency-licenses'
 $components = @()
+$catalog = Get-Content (Join-Path $PSScriptRoot 'native-advisories.json') -Raw | ConvertFrom-Json
 foreach ($name in @('zlib', 'zstd', 'libxml2')) {
     $directory = Join-Path $licenses $name
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
@@ -35,8 +36,15 @@ foreach ($name in @('zlib', 'zstd', 'libxml2')) {
     $port = @($spdx.packages | Where-Object SPDXID -EQ 'SPDXRef-port')
     $binary = @($spdx.packages | Where-Object SPDXID -EQ 'SPDXRef-binary')
     if ($port.Count -ne 1 -or $binary.Count -ne 1 -or -not $port[0].versionInfo) { throw "Missing native dependency identity: $name" }
-    $components += @{ name = $name; version = $port[0].versionInfo; vcpkg_binary_abi = $binary[0].versionInfo }
+    $identity = $catalog.components | Where-Object name -CEQ $name
+    $resource = @($spdx.packages | Where-Object SPDXID -EQ 'SPDXRef-resource-0')
+    $reference = if ($name -eq 'zlib') { $identity.commit } else { $identity.tag }
+    if ($resource.Count -ne 1 -or $resource[0].downloadLocation -cne "git+$($identity.repository)@$reference") {
+        throw "Packaged native source identity mismatch: $name"
+    }
+    $components += @{ name = $name; version = $port[0].versionInfo; vcpkg_binary_abi = $binary[0].versionInfo; source_commit = $identity.commit }
 }
+Copy-Item -LiteralPath (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') -Destination $licenses
 $source = Get-Content (Join-Path $PSScriptRoot 'llvm-native-dependencies.json') -Raw | ConvertFrom-Json
 @{
     llvm_version = $pin.llvm_version; embedded_linker = @('LLD.COFF', 'LLD.Common')

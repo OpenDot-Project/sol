@@ -29,6 +29,8 @@ $mutations = [ordered]@{
     'array source name' = { param($v) $v.components[1].name = @('zlib') }
     'abbreviated source SHA' = { param($v) $v.components[1].commit = 'abc123' }
     'tag substituted for SHA' = { param($v) $v.components[1].commit = 'v1.3.2' }
+    'fix equals base tag commit' = { param($v) $v.components[1].commit = $v.components[1].tag_commit }
+    'short source archive digest' = { param($v) $v.components[1].source_archive_sha512 = 'abc123' }
     'source version/tag mismatch' = { param($v) $v.components[1].version = '9.9.9' }
     'insecure repository' = { param($v) $v.components[1].repository = 'http://github.com/madler/zlib' }
     'repository credentials' = { param($v) $v.components[1].repository = 'https://user:secret@github.com/madler/zlib' }
@@ -108,3 +110,56 @@ $mirror = @{ vulns = @(@{ id = 'OSV-2021-777'; affected = @(@{
 $matched = ConvertFrom-NativeAdvisoryPage $mirror $xml
 if ($matched.advisories.Count -ne 1) { throw 'Explicit upstream mirror identity was lost.' }
 Write-Host "Native advisory validation passed: $script:passed rejection cases, clean response, pagination, exact requests and mirror matching."
+
+$scratch = Join-Path ([IO.Path]::GetTempPath()) ("sol-dependency-proof-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $scratch | Out-Null
+try {
+    foreach ($file in @('libxml2.lib', 'xml2s.lib', 'zs.lib')) { [IO.File]::WriteAllText((Join-Path $scratch $file), 'fixture-library') }
+    $hash = (Get-FileHash (Join-Path $scratch 'libxml2.lib') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $evidence = @{ schema_version = [long]1
+        catalog_sha256 = (Get-FileHash (Join-Path $PSScriptRoot 'native-advisories.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+        zlib_commit = $component.commit; zlib_library = 'zs.lib'; zlib_sha256 = $hash; libxml2_sha256 = $hash
+        xml_header_sha256 = ('a' * 64); excluded_features = @('HTML', 'XINCLUDE')
+        absent_symbol_families = @('html[A-Z]*', 'xmlXInclude*')
+        gzip_failed_write_regression = 'passed'; xml_parser_and_compression_smoke = 'passed' }
+    $proofPath = Join-Path $scratch 'proof.json'
+    $evidence | ConvertTo-Json -Depth 8 | Set-Content $proofPath -Encoding utf8NoBOM
+    $result = @{ name = 'libxml2'; status = 'advisories-found'; advisories = @(@{ id = 'OSV-2021-777' }, @{ id = 'OSV-2024-698' }) }
+    $reviewed = Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch
+    if ($reviewed.status -cne 'advisories-found' -or $reviewed.blocking_advisories -ne 2 -or $reviewed.advisories.Count -ne 2 -or
+        @($reviewed.dispositions | Where-Object path_status -CNE 'reported-path-absent-review-required').Count) {
+        throw 'Feature-absent evidence must preserve both records and leave shared-function applicability blocked.'
+    }
+    $unknown = Copy-Data $result
+    $unknown.advisories += @{ id = 'OSV-2099-1234' }
+    $remaining = Resolve-NativeAdvisoryResult $unknown $catalog $proofPath $scratch
+    if ($remaining.blocking_advisories -ne 3 -or $remaining.status -cne 'advisories-found') { throw 'Advisory was incorrectly exempted.' }
+    $badProofs = [ordered]@{
+        'wrong catalog digest' = { param($v) $v.catalog_sha256 = ('0' * 64) }
+        'wrong zlib commit' = { param($v) $v.zlib_commit = ('0' * 40) }
+        'wrong library digest' = { param($v) $v.libxml2_sha256 = ('0' * 64) }
+        'array digest' = { param($v) $v.zlib_sha256 = @($v.zlib_sha256) }
+        'missing feature proof' = { param($v) $v.excluded_features = @('HTML') }
+        'scalar feature proof' = { param($v) $v.excluded_features = 'HTML,XINCLUDE' }
+        'missing symbol family' = { param($v) $v.absent_symbol_families = @('html[A-Z]*') }
+        'failed gzip regression' = { param($v) $v.gzip_failed_write_regression = 'failed' }
+        'array smoke status' = { param($v) $v.xml_parser_and_compression_smoke = @('passed') }
+        'library path traversal' = { param($v) $v.zlib_library = '../zs.lib' }
+    }
+    foreach ($case in $badProofs.GetEnumerator()) {
+        $value = Copy-Data $evidence
+        & $case.Value $value
+        $value | ConvertTo-Json -Depth 8 | Set-Content $proofPath -Encoding utf8NoBOM
+        Expect-Rejection $case.Key { Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch }
+    }
+    $evidence | ConvertTo-Json -Depth 8 | Set-Content $proofPath -Encoding utf8NoBOM
+    [IO.File]::WriteAllText((Join-Path $scratch 'xml2s.lib'), 'changed-alias')
+    Expect-Rejection 'changed linker alias bytes' { Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch }
+    Write-Host "Binary-bound advisory review passed; total rejection cases: $script:passed."
+} finally {
+    $resolved = [IO.Path]::GetFullPath($scratch)
+    $boundary = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    if (-not $resolved.StartsWith($boundary, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($resolved) -notlike 'sol-dependency-proof-*') { throw 'Unexpected fixture cleanup path.' }
+    Remove-Item -LiteralPath $resolved -Recurse -Force
+}

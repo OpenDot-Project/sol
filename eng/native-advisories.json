@@ -18,7 +18,9 @@
       "repository": "https://github.com/madler/zlib",
       "tag": "v1.3.2",
       "tag_object": "216c70c020aa53f0c40920d155f808b6b59c9acb",
-      "commit": "da607da739fa6047df13e66a2af6b8bec7c2a498",
+      "tag_commit": "da607da739fa6047df13e66a2af6b8bec7c2a498",
+      "commit": "df84af25dc1942490e1d1c899a07619152a46148",
+      "source_archive_sha512": "2db756b67c4c54663afc21b7a7f1726a97ad58fd7a0b9d87b79e445f92784e56dd33a821b6ec80a0854ec6d767b08dae13eb2c1fe4a320b51ab6dc96a8a5b7d1",
       "advisory_repositories": ["https://github.com/madler/zlib"]
     },
     {

@@ -31,6 +31,13 @@ function Assert-NativeAdvisoryCatalog($Catalog) {
         Assert-AdvisoryString $component.version '^\d+\.\d+\.\d+$' 'version'
         Assert-AdvisoryString $component.commit '^[a-f0-9]{40}$' 'source commit'
         Assert-AdvisoryString $component.tag_object '^[a-f0-9]{40}$' 'tag object'
+        if ($component.Contains('tag_commit')) {
+            if ($component.name -cne 'zlib' -or $component.commit -ceq $component.tag_commit) {
+                throw 'Unexpected upstream fix identity.'
+            }
+            Assert-AdvisoryString $component.tag_commit '^[a-f0-9]{40}$' 'base tag commit'
+            Assert-AdvisoryString $component.source_archive_sha512 '^[a-f0-9]{128}$' 'source archive digest'
+        }
         $tag = if ($component.name -eq 'llvm') { 'llvmorg-' + $component.version } else { 'v' + $component.version }
         if ($component.tag -cne $tag) { throw 'Native source version/tag mismatch.' }
         $repository = Get-AdvisoryRepository $component.repository
@@ -116,6 +123,8 @@ function Invoke-NativeAdvisoryQuery($Component, [scriptblock]$Request) {
         version = $Component.version
         repository = $Component.repository
         source_commit = $Component.commit
+        upstream_tag = $Component.tag
+        upstream_tag_commit = $(if ($Component.Contains('tag_commit')) { $Component.tag_commit } else { $Component.commit })
         query = @{ commit = $Component.commit }
         pages = $pages
         status = $(if ($records.Count) { 'advisories-found' } else { 'no-known-advisories' })
@@ -123,4 +132,52 @@ function Invoke-NativeAdvisoryQuery($Component, [scriptblock]$Request) {
     }
 }
 
-Export-ModuleMember -Function Assert-NativeAdvisoryCatalog, ConvertFrom-NativeAdvisoryPage, Invoke-NativeAdvisoryQuery
+function Resolve-NativeAdvisoryResult($Result, $Catalog, [string]$EvidencePath, [string]$LibraryDirectory) {
+    $dispositions = @()
+    if ($Result.advisories.Count -and $Result.name -ceq 'libxml2') {
+        $evidence = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json -AsHashtable
+        $catalogJson = Join-Path $PSScriptRoot 'native-advisories.json'
+        foreach ($field in @('catalog_sha256', 'zlib_sha256', 'libxml2_sha256', 'xml_header_sha256')) {
+            Assert-AdvisoryString $evidence[$field] '^[a-f0-9]{64}$' "binary $field"
+        }
+        Assert-AdvisoryString $evidence.zlib_commit '^[a-f0-9]{40}$' 'qualified zlib commit'
+        if ($evidence.excluded_features -isnot [array] -or $evidence.absent_symbol_families -isnot [array] -or
+            $evidence.gzip_failed_write_regression -isnot [string] -or
+            $evidence.xml_parser_and_compression_smoke -isnot [string] -or $evidence.zlib_library -isnot [string]) {
+            throw 'Malformed native binary qualification fields.'
+        }
+        if ($evidence.schema_version -isnot [long] -or $evidence.schema_version -ne 1 -or
+            $evidence.catalog_sha256 -cne (Get-FileHash $catalogJson -Algorithm SHA256).Hash.ToLowerInvariant() -or
+            $evidence.zlib_commit -cne ($Catalog.components | Where-Object name -CEQ 'zlib').commit -or
+            $evidence.gzip_failed_write_regression -cne 'passed' -or
+            $evidence.xml_parser_and_compression_smoke -cne 'passed' -or
+            ($evidence.excluded_features -join ',') -cne 'HTML,XINCLUDE' -or
+            ($evidence.absent_symbol_families -join ',') -cne 'html[A-Z]*,xmlXInclude*' -or
+            $evidence.zlib_library -cnotin @('zs.lib', 'libzs.lib', 'zlib.lib', 'zlibstatic.lib', 'z.lib')) {
+            throw 'Native binary qualification evidence does not match the build catalog.'
+        }
+        foreach ($pair in @(@('libxml2.lib', 'libxml2_sha256'), @('xml2s.lib', 'libxml2_sha256'), @($evidence.zlib_library, 'zlib_sha256'), @('zs.lib', 'zlib_sha256'))) {
+            $actual = (Get-FileHash (Join-Path $LibraryDirectory $pair[0]) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -cne $evidence[$pair[1]]) { throw 'Qualified native library bytes changed.' }
+        }
+        foreach ($record in $Result.advisories) {
+            $feature = switch -CaseSensitive ($record.id) {
+                'OSV-2021-777' { 'XINCLUDE' }
+                'OSV-2024-698' { 'HTML' }
+                default { '' }
+            }
+            $dispositions += @{ id = $record.id; status = 'blocking'
+                path_status = $(if ($feature) { 'reported-path-absent-review-required' } else { 'unknown' })
+                excluded_feature = $feature }
+        }
+        $Result.qualification = @{ evidence_sha256 = (Get-FileHash $EvidencePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            libxml2_sha256 = $evidence.libxml2_sha256; zlib_sha256 = $evidence.zlib_sha256 }
+    } else {
+        $dispositions = @($Result.advisories | ForEach-Object { @{ id = $_.id; status = 'blocking'; excluded_feature = '' } })
+    }
+    $Result.dispositions = $dispositions
+    $Result.blocking_advisories = @($dispositions | Where-Object status -CEQ 'blocking').Count
+    return $Result
+}
+
+Export-ModuleMember -Function Assert-NativeAdvisoryCatalog, ConvertFrom-NativeAdvisoryPage, Invoke-NativeAdvisoryQuery, Resolve-NativeAdvisoryResult
