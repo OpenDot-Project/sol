@@ -8,9 +8,19 @@
 using namespace OpenDot::Sol::Runtime;
 int RunGcTests();
 int RunGcModelTests();
+int RunSpanTests();
+int RunSpanPoisonTest(bool freed);
 
 int wmain(int argc, wchar_t **argv)
 {
+    if (argc == 2 && std::wcscmp(argv[1], L"slot-use-after-free") == 0)
+    {
+        return RunSpanPoisonTest(true);
+    }
+    if (argc == 2 && std::wcscmp(argv[1], L"slot-overflow") == 0)
+    {
+        return RunSpanPoisonTest(false);
+    }
     if (argc == 2 && std::wcscmp(argv[1], L"heap-pressure") == 0)
     {
         sol_gc_attach();
@@ -61,5 +71,10 @@ int wmain(int argc, wchar_t **argv)
         return 6;
     }
     const int model = RunGcModelTests();
-    return model ? model : RunGcTests();
+    if (model)
+    {
+        return model;
+    }
+    const int spans = RunSpanTests();
+    return spans ? spans : RunGcTests();
 }

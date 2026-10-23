@@ -82,6 +82,7 @@ void Run()
         {
             break;
         }
+        state.Allocator.BeginCycle();
         Roots(state);
         state.Current = Phase::Mark;
         state.Changed.notify_all();
@@ -137,12 +138,13 @@ void Run()
                 }
                 state.Index.erase(allocation.Object);
                 state.Bytes -= allocation.Bytes;
-                _aligned_free(allocation.Object);
+                state.Allocator.Sweep(allocation.Storage, true);
                 entry = state.Objects.erase(entry);
             }
             else
             {
                 state.Live += allocation.Bytes;
+                state.Allocator.Sweep(allocation.Storage, false);
                 ++entry;
             }
             if (finalEntry)

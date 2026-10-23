@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #pragma once
 #include "Gc.h"
+#include "SpanAllocator.h"
 #include <atomic>
 #include <condition_variable>
 #include <list>
@@ -33,6 +34,7 @@ struct ThreadState final
 
 struct Allocation final
 {
+    Block Storage;
     Header *Object;
     std::uint64_t Bytes;
     std::uint64_t Mark = 0;
@@ -42,6 +44,7 @@ struct Allocation final
 
 struct State final
 {
+    SpanAllocator Allocator;
     std::mutex Mutex;
     std::condition_variable Changed;
     std::list<std::unique_ptr<ThreadState>> Threads;

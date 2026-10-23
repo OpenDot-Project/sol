@@ -43,4 +43,24 @@ foreach ($limit in @('0', '8MiB', '16MB', '18446744073709551615GiB', '16MiB')) {
         if ($child.ExitCode -ne 1 -or $message -notmatch $expected -or $message -match 'AddressSanitizer') { throw "Unexpected heap failure: $message" }
     } finally { $child.Dispose() }
 }
-Write-Host 'ASan runtime, concurrent collector, exception roots, and heap budget checks passed.'
+foreach ($mode in @('slot-use-after-free', 'slot-overflow')) {
+    $info = [Diagnostics.ProcessStartInfo]::new($exe)
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardError = $true
+    $info.RedirectStandardOutput = $true
+    $info.ArgumentList.Add($mode)
+    $child = [Diagnostics.Process]::Start($info)
+    try {
+        $errorTask = $child.StandardError.ReadToEndAsync()
+        $outputTask = $child.StandardOutput.ReadToEndAsync()
+        if (-not $child.WaitForExit(30000)) { $child.Kill($true); throw 'Span poison self-test timed out.' }
+        $message = $errorTask.GetAwaiter().GetResult()
+        $null = $outputTask.GetAwaiter().GetResult()
+        $message | Set-Content -LiteralPath (Join-Path $root "out/native/runtime/asan-harness/$mode.log")
+        if ($child.ExitCode -eq 0 -or $child.ExitCode -eq 99 -or $message -notmatch 'AddressSanitizer: use-after-poison') {
+            throw "ASan did not detect poisoned span memory for ${mode}: $message"
+        }
+    } finally { $child.Dispose() }
+}
+Write-Host 'ASan runtime, span poison self-tests, concurrent collector, exception roots, and committed heap budget checks passed.'

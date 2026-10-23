@@ -34,6 +34,13 @@ struct GcStats final
     std::uint64_t Epoch;
 };
 
+/// Physical managed-region accounting; excludes native collector metadata and process working set.
+struct AllocatorStats final
+{
+    std::uint64_t CommittedBytes, ReservedBytes, CapacityBytes;
+    std::uint64_t SpanCount, LargeObjectCount, SmallObjectCount, ReusedSlots;
+};
+
 /// Internal lifecycle; shutdown requires all other runtime threads to detach.
 void ShutdownHeap();
 bool IsInstance(const Header *object, const TypeDescriptor *type) noexcept;
@@ -58,6 +65,7 @@ SOL_RT_API std::uint64_t sol_gc_request_collection();
 SOL_RT_API void sol_gc_wait(std::uint64_t epoch);
 SOL_RT_API void sol_gc_collect();
 SOL_RT_API OpenDot::Sol::Runtime::GcStats sol_gc_stats();
+SOL_RT_API OpenDot::Sol::Runtime::AllocatorStats sol_gc_allocator_stats();
 SOL_RT_API OpenDot::Sol::Runtime::RuntimeHandle *sol_gc_create_handle(OpenDot::Sol::Runtime::Header *value, bool weak);
 SOL_RT_API bool sol_gc_resolve_handle(OpenDot::Sol::Runtime::RuntimeHandle *handle,
                                       OpenDot::Sol::Runtime::Header **root);
