@@ -37,6 +37,9 @@ The planned `SOL_GC_HEAP_LIMIT` setting accepts a positive byte count or a `KiB`
 suffix. Checked parsing rejects overflow, unknown suffixes, and values below 16 MiB at startup.
 The setting limits managed committed heap bytes. It does not cap total process memory, native
 library allocations, code pages, thread stacks, or reserved virtual address space.
+In current source development, the limit includes whole committed spans, retained empty spans and
+dedicated large-object pages. A bounded empty-span cache is trimmed before new commitment would
+exceed the limit. This can reject growth even when aligned live object bytes alone would fit.
 
 Diagnostics should identify the invalid setting without dumping the process environment. There is
 no need to expose unrelated environment values or application contents in configuration errors.
@@ -47,6 +50,8 @@ Reserve exhaustion first uses a preallocated `OutOfMemoryError` path in the Runt
 when the runtime can safely carry and unwind that error. Not every exhausted or corrupted state is
 recoverable. Failure to maintain collector invariants or safely publish mandatory metadata follows
 controlled abort rather than continuing with an incomplete heap graph.
+That catchable source error path is still planned. The implemented exhausted/invalid runtime paths
+report a diagnostic and terminate without invoking static destructors under collector locks.
 
 The reserve is not a promise that all OS commitment failures can become catchable exceptions.
 Failure injection must cover object allocation, span metadata, optional queue caches, handle storage,

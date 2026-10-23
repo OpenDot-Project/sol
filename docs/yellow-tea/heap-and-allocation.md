@@ -2,9 +2,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Heap and allocation
 
-This page defines the initial heap design. No allocator or layout described here has been qualified
-by a native implementation. Layout numbers are design inputs for the first runtime ABI, not a
-promise of binary compatibility with an existing Sol release.
+This page defines the initial heap design. Source development implements the span storage and
+size-class layer; the [current implementation](current-implementation.md) distinguishes it from
+planned TLS caches and span mark/gray work. Layout numbers do not promise compatibility with a
+published native Sol release; the current descriptors remain provisional ABI 0.
 
 ## Allocation units
 
@@ -39,7 +40,8 @@ metadata must exist; failure to provision it fails allocation before any object 
 | Runtime reserved field | 4 | Reserved by the runtime ABI. |
 
 The fixed object header is 16 bytes. Identity hash storage is a lazy side-table responsibility rather
-than a user-visible address calculation. Per-object mark state lives in span metadata.
+than a user-visible address calculation. The target mark state lives in span metadata; the current
+implementation still records mark epochs in separate per-object metadata.
 
 The planned managed-array header is 32 bytes: the base header, a signed 32-bit element count,
 an unsigned 32-bit element stride, and an 8-byte element descriptor pointer. Checked arithmetic
@@ -96,6 +98,12 @@ and reclamation protocol.
 The large-object table tracks dedicated regions and their descriptors, allocation epochs, mark state,
 and reclaim state. Release and reuse obey the same root, handle, and weak-reader constraints as small
 objects. An address cannot be reused while a reader is still entitled to promote the previous object.
+
+The current Windows storage layer explicitly reserves large regions at 64 KiB granularity and commits
+only page-rounded requested storage. It releases the complete reservation when reclaiming the
+object. This keeps reserved and committed counters distinct using
+[VirtualAlloc](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc)
+and VirtualFree rather than treating requested payload bytes as physical capacity.
 
 Non-moving collection permits external fragmentation. Measurements must separate span slack, free
 slots in partially occupied spans, large-region retention, and reserved address space. Compaction is

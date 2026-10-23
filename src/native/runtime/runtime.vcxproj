@@ -39,9 +39,9 @@
     <Link><SubSystem>Console</SubSystem><TreatLinkerWarningAsErrors>true</TreatLinkerWarningAsErrors><AdditionalOptions>/Brepro /PDBALTPATH:%_PDB% %(AdditionalOptions)</AdditionalOptions></Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="SolRT.cpp" /><ClCompile Include="Gc.cpp" /><ClCompile Include="GcWorker.cpp" /><ClCompile Include="GcConfig.cpp" /><ClCompile Include="Core.cpp" /><ClCompile Include="Arrays.cpp" />
-    <ClInclude Include="SolRT.h" /><ClInclude Include="Gc.h" /><ClInclude Include="GcInternal.h" /><ClInclude Include="Core.h" /><ClInclude Include="NativeScope.h" />
+    <ClCompile Include="SolRT.cpp" /><ClCompile Include="Gc.cpp" /><ClCompile Include="GcWorker.cpp" /><ClCompile Include="GcConfig.cpp" /><ClCompile Include="Core.cpp" /><ClCompile Include="Arrays.cpp" /><ClCompile Include="SpanAllocator.cpp" />
+    <ClInclude Include="SolRT.h" /><ClInclude Include="Gc.h" /><ClInclude Include="GcInternal.h" /><ClInclude Include="Core.h" /><ClInclude Include="NativeScope.h" /><ClInclude Include="SpanAllocator.h" />
   </ItemGroup>
-  <ItemGroup Condition="'$(TestHarness)' == 'true'"><ClCompile Include="Harness.cpp" /><ClCompile Include="GcHarness.cpp" /><ClCompile Include="GcModel.cpp" /></ItemGroup>
+  <ItemGroup Condition="'$(TestHarness)' == 'true'"><ClCompile Include="Harness.cpp" /><ClCompile Include="GcHarness.cpp" /><ClCompile Include="GcModel.cpp" /><ClCompile Include="SpanHarness.cpp" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

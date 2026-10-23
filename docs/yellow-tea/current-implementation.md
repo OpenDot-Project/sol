@@ -18,6 +18,13 @@ collector callbacks do not. Process separation is not an OS security sandbox.
 
 ## Implemented baseline
 
+- Small allocations use 64 KiB virtual-memory spans and the 44 documented size classes through
+  32,768 bytes. Resident allocation/touched bitmaps support slot reuse without embedding free-list
+  pointers in object payloads. Larger allocations have dedicated reserved/committed Windows regions.
+  An epoch change removes old spans from allocation availability in a fixed 44-class operation.
+  Old spans become available only after every previous object record in that span has been swept.
+  New spans and previously empty spans can serve black allocations during concurrent collection.
+  At most one empty span per class is retained; commit pressure trims that bounded reserve.
 - Object prefix: 16 bytes. String prefix: 24 bytes with valid immutable UTF-8, embedded NUL support,
   and atomic Unicode scalar-count caching. Array prefix: 32 bytes with count, stride, and element type.
 - Immutable descriptors identify base types and exact reference offsets. Scalar-looking addresses
@@ -38,12 +45,14 @@ collector callbacks do not. Process separation is not an OS security sandbox.
   targets resolve as null, and dead weak slots are cleared before reclaiming their targets. Closed
   handle identities remain tombstones until shutdown; a generation-based reusable table is pending.
 - `SOL_GC_HEAP_LIMIT` validates bytes or `KiB`/`MiB`/`GiB`, with a 16 MiB minimum. Budget reservations
-  serialize competing allocators; exhaustion attempts a concurrent cycle before controlled failure.
+  serialize competing allocators and count committed managed regions, including class slack and
+  retained empty spans. Native collector metadata, uncommitted reservation and process RSS are
+  excluded. Exhaustion attempts a concurrent cycle before controlled failure.
   Allocators more than 8 MiB above the current collection threshold wait for a concurrent cycle
   with their roots published, preventing sustained allocation from indefinitely outrunning sweep.
   Blocking output waits use native-safe transitions. Fail-stop invariant/OOM paths skip static
   destruction so reporting while holding a runtime lock cannot deadlock shutdown.
-- Large unpublished allocation/zeroing and rooted String byte copies use native-safe regions.
+- Large unpublished zeroing and rooted String byte copies use native-safe regions.
   UTF-8/scalar/hash loops poll periodically. A temporary native frame protects new copy results
   before transitioning; a raw result pointer alone would not survive a collection in that region.
 - The native Throwable carrier owns a shared strong handle across copies, catches, and rethrows.
@@ -51,10 +60,17 @@ collector callbacks do not. Process separation is not an OS security sandbox.
 
 ## Deliberate limits
 
-The allocator currently uses individual aligned allocations and a synchronized allocation index.
-The planned 64 KiB spans, size-class caches, mark/gray bitmaps, allocator assists, and event ring are
-not implemented. Lock contention, tombstone overhead, large root inventories, and sweep/weak cleanup
-costs require measurement and further work. This baseline is not the completed span allocator.
+The allocator and allocation index still share the heap mutex. Thread-local allocation caches,
+span mark/gray bitmaps, allocator assists and the event ring are not implemented. Marking still uses
+per-object records and intrusive gray work. Lock contention, tombstone overhead, large root inventories
+and sweep/weak cleanup costs require measurement. Virtual-memory refill/release still holds the heap
+mutex; moving slow region operations outside that lock is pending. This is not the completed fast path.
+
+The native-only `sol_gc_allocator_stats` snapshot reports committed/reserved bytes, live slot/page
+capacity, span/large/small allocation counts and reused slots. Its counters exclude native metadata;
+reuse is cumulative until runtime shutdown. The existing `GcStats` layout stays unchanged, and
+`GcStats.HeapBytes` remains aligned object bytes rather than physical committed capacity. These
+internal snapshots are not a new implemented Sol standard-library API or a stable ABI 1 promise.
 
 Generated programs currently allocate Strings and single-level arrays of supported scalars or String.
 General class construction, virtual/interface dispatch, closures, nested value scan programs, source
@@ -68,6 +84,11 @@ liveness also remain incomplete. Runtime ABI 1 compatibility is not established.
 `eng/test-runtime.ps1` builds a CLR-independent ASan harness. It exercises UTF-8/scalar boundaries,
 cyclic graphs, precise array scans, handle lifetime and weak clearing, exception copy/rethrow roots,
 suppression, seeded reachability comparisons, concurrent allocation/collection, and heap limits.
+The span harness also checks every size class, boundary rounding, address uniqueness/reuse, sealed
+epochs, empty-span retention, actual Windows region accounting, budget trimming, zero-on-reuse and
+shutdown. Two intentionally invalid child runs must produce ASan use-after-poison diagnostics for
+class slack and a reclaimed cached slot. Poisoning starts after the aligned request, not after a
+String's logical byte length; logical bounds remain the runtime operations' responsibility.
 The bounded barrier model explores two mutators and a marker and detects an intentionally missing
 barrier. It is a model of those transitions, not a proof of all native code or schedules.
 

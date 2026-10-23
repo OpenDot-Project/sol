@@ -30,7 +30,7 @@ State::~State()
     }
     for (auto &entry : Objects)
     {
-        _aligned_free(entry->Object);
+        Allocator.Release(entry->Storage);
     }
 }
 
@@ -278,6 +278,7 @@ Header *sol_gc_alloc(const TypeDescriptor *type, std::uint64_t totalBytes)
     }
     const auto bytes = (totalBytes + 15) & ~std::uint64_t{15};
     auto &state = Get();
+    Block storage;
     {
         std::unique_lock guard(state.Mutex);
         if (state.Bytes >= state.Threshold && state.Bytes - state.Threshold >= 8 * 1024 * 1024)
@@ -288,27 +289,38 @@ Header *sol_gc_alloc(const TypeDescriptor *type, std::uint64_t totalBytes)
             sol_gc_collect();
             guard.lock();
         }
-        if (bytes > state.Limit - state.Bytes)
+        try
+        {
+            storage = state.Allocator.TryAllocate(bytes, state.Limit);
+        }
+        catch (...)
+        {
+            sol_rt_fail(6);
+        }
+        if (!storage.Object)
         {
             guard.unlock();
             sol_gc_collect();
             guard.lock();
-            if (bytes > state.Limit - state.Bytes)
+            try
+            {
+                storage = state.Allocator.TryAllocate(bytes, state.Limit);
+            }
+            catch (...)
+            {
+                sol_rt_fail(6);
+            }
+            if (!storage.Object)
             {
                 sol_rt_fail(6);
             }
         }
         state.Bytes += bytes;
     }
-    Header *object = nullptr;
+    Header *object = storage.Object;
     {
         // Reserved but unpublished memory is not part of the traced graph yet.
         const NativeScope transition(bytes >= 65536);
-        object = static_cast<Header *>(_aligned_malloc(static_cast<std::size_t>(bytes), 16));
-        if (!object)
-        {
-            sol_rt_fail(6);
-        }
         std::memset(object, 0, static_cast<std::size_t>(bytes));
     }
     object->Type = type;
@@ -316,6 +328,7 @@ Header *sol_gc_alloc(const TypeDescriptor *type, std::uint64_t totalBytes)
     try
     {
         auto entry = std::make_unique<Allocation>();
+        entry->Storage = storage;
         entry->Object = object;
         entry->Bytes = bytes;
         entry->Mark = state.Epoch; // Black allocation; every initialized reference uses the store barrier.
@@ -455,6 +468,13 @@ void sol_gc_release_handle(RuntimeHandle *handle)
     found->second->Closed = true;
     found->second->Value = nullptr;
 }
+
+AllocatorStats sol_gc_allocator_stats()
+{
+    auto &state = Get();
+    const std::lock_guard guard(state.Mutex);
+    return state.Allocator.Stats();
+}
 }
 
 namespace OpenDot::Sol::Runtime
@@ -478,8 +498,9 @@ void ShutdownHeap()
     const std::lock_guard guard(state.Mutex);
     for (auto &entry : state.Objects)
     {
-        _aligned_free(entry->Object);
+        state.Allocator.Release(entry->Storage);
     }
+    state.Allocator.Reset();
     state.Objects.clear();
     state.Index.clear();
     state.Handles.clear();
