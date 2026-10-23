@@ -63,6 +63,11 @@ $sdk = Get-ChildItem (Join-Path $sdkRoot 'Lib') -Directory | Where-Object { Test
 if (-not $sdk) { throw 'Windows SDK x64 libraries are missing.' }
 $linkPaths = @((Join-Path $vs "VC/Tools/MSVC/$toolsVersion/lib/x64"), (Join-Path $sdk.FullName 'um/x64'), (Join-Path $sdk.FullName 'ucrt/x64'))
 $linkPaths | Set-Content -LiteralPath (Join-Path $output 'link-paths.txt') -Encoding utf8NoBOM
-@{ schema_version = 1; llvm_version = $version; msvc_toolset = $toolsVersion; reference_pack = $reference.Name } |
-    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8NoBOM
+Import-Module (Join-Path $PSScriptRoot 'NativeBuildEvidence.psm1') -Force
+$nativePin = Get-Content (Join-Path $PSScriptRoot 'native-package.json') -Raw | ConvertFrom-Json
+$binding = Get-NativeBuildBinding $output (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') `
+    (Join-Path $PSScriptRoot 'native-advisories.json') $nativePin.files
+@{ schema_version = 1; llvm_version = $version; msvc_toolset = $toolsVersion; reference_pack = $reference.Name
+    dependency_binding = $binding } | ConvertTo-Json -Depth 8 |
+    Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8NoBOM
 Write-Host "Qualified native backend: $output"

@@ -6,8 +6,12 @@ Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 $pin = Get-Content (Join-Path $PSScriptRoot 'native-package.json') -Raw | ConvertFrom-Json
 $backend = [IO.Path]::GetFullPath((Join-Path $root $BackendDirectory))
-$facts = Get-Content (Join-Path $backend 'build-info.json') -Raw | ConvertFrom-Json
+$facts = Get-Content (Join-Path $backend 'build-info.json') -Raw | ConvertFrom-Json -AsHashtable
 if ($facts.schema_version -ne 1 -or $facts.llvm_version -ne $pin.llvm_version) { throw 'Native package build identity mismatch.' }
+Import-Module (Join-Path $PSScriptRoot 'NativeBuildEvidence.psm1') -Force
+Assert-NativeBuildBinding $facts['dependency_binding'] $backend `
+    (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') `
+    (Join-Path $PSScriptRoot 'native-advisories.json') $pin.files
 $destination = Join-Path $Stage 'managed/native'
 $licenses = Join-Path $Stage 'licenses/native'
 New-Item -ItemType Directory -Path $destination, $licenses -Force | Out-Null
@@ -45,6 +49,10 @@ foreach ($name in @('zlib', 'zstd', 'libxml2')) {
     $components += @{ name = $name; version = $port[0].versionInfo; vcpkg_binary_abi = $binary[0].versionInfo; source_commit = $identity.commit }
 }
 Copy-Item -LiteralPath (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') -Destination $licenses
+$facts.dependency_binding | ConvertTo-Json -Depth 8 |
+    Set-Content -LiteralPath (Join-Path $licenses 'build-binding.json') -Encoding utf8NoBOM
+Assert-NativeBuildBinding $facts.dependency_binding $destination `
+    (Join-Path $licenses 'dependency-qualification.json') (Join-Path $PSScriptRoot 'native-advisories.json') $pin.files
 $source = Get-Content (Join-Path $PSScriptRoot 'llvm-native-dependencies.json') -Raw | ConvertFrom-Json
 @{
     llvm_version = $pin.llvm_version; embedded_linker = @('LLD.COFF', 'LLD.Common')

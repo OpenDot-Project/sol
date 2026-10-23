@@ -17,6 +17,8 @@ The published Sol 0.0.1 assets remain immutable.
   removal and hash-bound ASan/symbol qualification harden the native dependency inputs.
   The two libxml2 records still require shared-function applicability review and remain blocking;
   no CodeQL suppression or risk exemption is applied.
+  Native staging also rejects missing/stale build bindings and changed payload/report/catalog
+  bytes, preserving a hash inventory with the package's qualification evidence.
 
 - Resident span mark/gray bitmaps and a coalescing ready-region queue, resumable descriptor scans,
   bounded allocation assists, Idle/Sweep barrier fast paths, native diagnostic counters/histograms

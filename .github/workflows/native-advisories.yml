@@ -32,6 +32,7 @@ jobs:
         with:
           persist-credentials: false
       - run: ./eng/test-native-advisory-validation.ps1
+      - run: ./eng/test-native-build-evidence.ps1
 
   review:
     name: Native upstream commit advisory review

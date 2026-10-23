@@ -78,6 +78,20 @@ The advisory review checks the actual linker libraries and the `xml2s.lib` alias
 hashes. Missing/stale evidence, changed bytes or any new advisory identity block qualification.
 Successful feature-absence checks are hardening evidence, not clearance of the two records.
 
+The native backend build also records a `dependency_binding` in its local `build-info.json`:
+the exact source-catalog digest, qualification-report digest and names, sizes and SHA-256
+digests of every allowed native payload. Staging checks this binding before copying files
+and checks the destination bytes again, then preserves `licenses/native/build-binding.json`.
+Missing binding metadata requires rebuilding the backend; changing a binary, report, catalog
+or inventory fails staging. This prevents accidental mixing of stale build outputs with a
+new qualification report. It is a local build-consistency check, not an independently signed
+attestation or proof that a compromised build process used the recorded source inputs.
+
+`eng/test-native-build-evidence.ps1` validates matching and reordered inventories and rejects
+malformed identities, omitted/duplicate payloads, traversal, replacement binary bytes, stale
+qualification reports and changed catalogs using inert temporary fixtures. It executes no
+untrusted binary and makes no network requests.
+
 `no-known-advisories` means that a successful OSV commit query returned no records. It is not
 a guarantee of safety, complete database coverage or absence of CodeQL findings. This report
 is not a complete SPDX or CycloneDX SBOM and does not replace private-runtime/NuGet review.
@@ -104,6 +118,19 @@ Their age does not establish that they are obsolete. They remain visible in the 
 the identified XInclude and HTML paths are removed from the qualified build. This does not
 claim that all libxml2 defects are fixed or that all XML paths are absent. No CodeQL finding
 has been dismissed, and no exploitability claim is made for Sol's supported CLI.
+
+Inspection of the selected 2.15.4 source leaves two distinct lifetime questions open:
+
+| Shared function | Observed behavior | Remaining proof obligation |
+|---|---|---|
+| `xmlAddNextSibling` in `tree.c` | Rejects null, namespace and self-insertion arguments, then delegates insertion to `xmlInsertNode`. | Establish the ownership and continued validity of both nodes across the complete caller path; argument guards do not validate an already-freed pointer. |
+| `xmlCharEncCloseFunc` in `encoding.c` | Reads handler flags, retains static handlers and releases dynamic handler state. XML input/output cleanup in `xmlIO.c` also calls it. | Establish single-owner cleanup and the absence of reuse after release across those remaining paths. Removing HTML does not remove XML encoding cleanup. |
+
+The internal filename-output constructor documents that an encoder is not consumed on
+failure and clears the output buffer's encoder before closing an unsuccessful output.
+That local ownership observation is insufficient to reconstruct either OSS-Fuzz report,
+identify a fixing commit, or establish that every relevant caller obeys the contract.
+No malformed-input exploit test or advisory closure follows from this source inspection.
 
 ## CodeQL review remains separate
 
