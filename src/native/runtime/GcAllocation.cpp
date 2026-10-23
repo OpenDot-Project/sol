@@ -88,6 +88,10 @@ Header *sol_gc_alloc(const TypeDescriptor *type, std::uint64_t totalBytes)
         entry->Storage = storage;
         entry->Object = object;
         entry->Bytes = bytes;
+        if (!state.ObjectIdentities.TryNext(entry->Identity))
+        {
+            sol_rt_fail(6); // Exhaustion must not let an old weak identity alias a new allocation.
+        }
         entry->Mark = state.Epoch; // Black allocation; every initialized reference uses the store barrier.
         state.Objects.push_back(std::move(entry));
         state.Index.emplace(object, state.Objects.back().get());

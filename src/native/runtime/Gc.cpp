@@ -92,13 +92,10 @@ void Roots(State &state)
             }
         }
     }
-    for (const auto &[identity, handle] : state.Handles)
+    for (auto *handle = state.StrongHandles; handle; handle = handle->NextStrong)
     {
-        (void)identity;
-        if (!handle->Closed && !handle->Weak)
-        {
-            Shade(state, handle->Value);
-        }
+        ++state.HandleInventory.StrongRootVisits;
+        Shade(state, handle->Value);
     }
 }
 }
@@ -320,72 +317,6 @@ GcStats sol_gc_stats()
     return {state.Allocated, state.Live, state.Bytes, state.Objects.size(), state.Collections, state.Completed};
 }
 
-RuntimeHandle *sol_gc_create_handle(Header *value, bool weak)
-{
-    RequireManaged();
-    auto &state = Get();
-    const std::lock_guard guard(state.Mutex);
-    try
-    {
-        auto handle = std::make_unique<RuntimeHandle>(RuntimeHandle{value, weak});
-        auto *identity = handle.get();
-        if (!weak && state.Current == Phase::Mark)
-        {
-            Shade(state, value);
-        }
-        state.Handles.emplace(identity, std::move(handle));
-        return identity;
-    }
-    catch (...)
-    {
-        sol_rt_fail(6);
-    }
-}
-
-bool sol_gc_resolve_handle(RuntimeHandle *handle, Header **root)
-{
-    RequireManaged();
-    if (!root)
-    {
-        sol_rt_fail(7);
-    }
-    auto &state = Get();
-    const std::lock_guard guard(state.Mutex);
-    const auto found = state.Handles.find(handle);
-    if (found == state.Handles.end() || found->second->Closed)
-    {
-        return false;
-    }
-    auto *value = found->second->Value;
-    if (value && found->second->Weak && state.Current == Phase::Sweep)
-    {
-        const auto entry = state.Index.find(value);
-        if (entry != state.Index.end() && entry->second->Mark != state.Epoch)
-        {
-            value = nullptr;
-        }
-    }
-    if (state.Current == Phase::Mark || Handshake(state.Current))
-    {
-        Shade(state, value);
-    }
-    std::atomic_ref(*root).store(value, std::memory_order_release);
-    return true;
-}
-
-void sol_gc_release_handle(RuntimeHandle *handle)
-{
-    auto &state = Get();
-    const std::lock_guard guard(state.Mutex);
-    const auto found = state.Handles.find(handle);
-    if (found == state.Handles.end())
-    {
-        return;
-    }
-    found->second->Closed = true;
-    found->second->Value = nullptr;
-}
-
 AllocatorStats sol_gc_allocator_stats()
 {
     auto &state = Get();
@@ -421,6 +352,9 @@ void ShutdownHeap()
     state.Objects.clear();
     state.Index.clear();
     state.Handles.clear();
+    state.StrongHandles = nullptr;
+    state.HandleInventory = {};
+    // ObjectIdentities is process-lifetime state; do not recycle allocation identities here.
     state.Threads.clear();
     Heap::CurrentThread = nullptr;
     state.Bytes = 0;

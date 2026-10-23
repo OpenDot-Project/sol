@@ -4,7 +4,8 @@
 
 Weak promotion and reclamation share one epoch-aware protocol. Merely making a weak slot atomic is
 not enough to prevent a load from racing with object reuse. An experimental handle and concurrent
-sweeper baseline now exists; span state transitions and reusable generation handles remain pending.
+sweeper baseline now exists with allocation-identity validation and epoch-sealed slot reuse;
+span mark bitmaps, parallel sweep claims and reusable generation handle tickets remain pending.
 See the [current implementation](current-implementation.md) before treating this design as implemented.
 
 ## Strong and weak ownership
@@ -43,6 +44,22 @@ Weak slot loads, clearing, reader epochs, and reclaim ownership use one synchron
 The sweeper waits until readers entitled to inspect or promote a target are no longer active before
 reusing or releasing its storage. A later object occupying the same address must not be mistaken
 for the old weak target.
+
+The current native implementation serializes resolution with allocation-index retirement under the
+heap mutex. Each collectible weak handle stores the allocation's monotonic identity as well as its
+address. Resolution checks index membership, identity equality, and sealed mark state before reading
+object memory or publishing the root. Index removal precedes storage reuse or release, so a later
+allocation at the same address fails the identity check. Physical weak-record clearing is lazy on
+resolution; the sweeper does not traverse the handle table for each dead object. A missing or replaced
+target is cleared once and subsequent resolutions publish null. Process-lifetime immutable literals
+are separately tagged and do not require a collectible allocation record. Allocation-identity
+exhaustion fails rather than wrapping, and runtime shutdown does not reset that sequence.
+
+Open strong handles have a separate intrusive root list. Closing removes an entry under the same
+mutex, while a closed ticket remains in the validity table until shutdown. This bounds handshake
+enumeration by active strong owners, but does not bound historical ticket memory. The opaque pointer
+API still has no reusable generation ticket scheme. Handle creation requires a currently valid rooted
+reference (or a process-lifetime literal); an arbitrary stale raw pointer is not a recoverable input.
 
 The weak registry must also retire entries for unreachable WeakRef owners before the entries or
 their owner storage are reused. Protecting targets while freeing registry entries under active

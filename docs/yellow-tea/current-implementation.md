@@ -51,9 +51,16 @@ collector callbacks do not. Process separation is not an OS security sandbox.
   indefinitely extend the current sweep. It releases the heap lock after at most 64 allocation
   records or 256 KiB of examined allocations, whichever comes first. This is a work bound, not a
   measured pause bound. No full-heap STW collection fallback exists.
-- Strong handles preserve objects; weak resolution publishes directly into a root slot. Sealed white
-  targets resolve as null, and dead weak slots are cleared before reclaiming their targets. Closed
-  handle identities remain tombstones until shutdown; a generation-based reusable table is pending.
+- Strong handles preserve objects through an intrusive list containing only open strong owners.
+  Closing unlinks in constant time; root handshakes do not visit weak handles or closed history.
+  Weak resolution validates both the address and a nonzero, process-monotonic allocation identity
+  under the heap mutex before publishing directly into a root slot. Missing, replaced, or sealed
+  white targets resolve as null. Sweep removes the allocation index entry before storage retirement;
+  it does not scan the handle table. A weak record may retain stale address bits until resolution
+  clears it, but the resolver never dereferences them before identity validation. Immutable
+  process-lifetime literals are explicitly distinguished from collectible targets.
+  Closed handle identities remain tombstones until shutdown; a generation-based reusable table is
+  pending. Allocation identities survive runtime shutdown and fail on exhaustion rather than wrap.
 - `SOL_GC_HEAP_LIMIT` validates bytes or `KiB`/`MiB`/`GiB`, with a 16 MiB minimum. Budget reservations
   serialize budget decisions and count pending commit permits as well as published/retiring managed
   regions, including class slack and retained empty spans. Native collector metadata, uncommitted
@@ -73,8 +80,8 @@ collector callbacks do not. Process separation is not an OS security sandbox.
 
 The allocator and allocation index still share the heap mutex. Thread-local allocation caches,
 span mark/gray bitmaps, allocator assists and the event ring are not implemented. Marking still uses
-per-object records and intrusive gray work. Lock contention, tombstone overhead, large root inventories
-and sweep/weak cleanup costs require measurement. Region reserve/commit/release and refill metadata
+per-object records and intrusive gray work. Lock contention, tombstone overhead, large active root
+inventories and weak lookup costs require measurement. Region reserve/commit/release and refill metadata
 preparation run outside the heap mutex. Object-record/index registration still uses that mutex and can
 allocate native metadata. This is not the completed fast path or a measured latency guarantee.
 
@@ -86,6 +93,14 @@ operation the snapshot is not an atomic measurement of Windows commitment. Count
 and objects can already fall while retiring storage remains charged. The existing `GcStats` layout stays unchanged, and
 `GcStats.HeapBytes` remains aligned object bytes rather than physical committed capacity. These
 internal snapshots are not a new implemented Sol standard-library API or a stable ABI 1 promise.
+
+`sol_gc_handle_stats` adds a native-only snapshot of open strong/weak counts, closed tombstones,
+cumulative strong-root visits, collectible weak-target lookups and rejected weak targets. A cleared
+weak handle remains open until released; rejection counts advance only when a non-null target is
+cleared. Root visits count list entries examined, including null strong owners, rather than objects
+marked or elapsed time. Counts and work totals reset at runtime shutdown. Existing object prefixes,
+root frames, `GcStats`, and `AllocatorStats` layouts are unchanged. Handle pointers are valid only
+within their owning runtime lifetime; shutdown does not preserve stale pointer-handle validity.
 
 Generated programs currently allocate Strings and single-level arrays of supported scalars or String.
 General class construction, virtual/interface dispatch, closures, nested value scan programs, source
@@ -108,6 +123,11 @@ Harness-only hooks pause real reserve/commit/release paths and inject reserve or
 Tests check small and large pending permits, three epoch advances before refill publication,
 incomplete-reservation cleanup, small/large retirement accounting, and three complete collection
 cycles while a mutator is paused inside refill. The hooks are absent from production binaries.
+Handle tests leave 50,000 closed owners behind and check that two leaf strong owners cause exactly
+four visits across start and termination root snapshots. They force cached-slot address reuse and
+reject the old weak identity, verify process-lifetime literal/null behavior, race close against
+resolution and collection, and exercise the actual identity sequence at its exhaustion boundary.
+These work-count checks are not latency benchmarks.
 The bounded barrier model explores two mutators and a marker and detects an intentionally missing
 barrier. It is a model of those transitions, not a proof of all native code or schedules.
 

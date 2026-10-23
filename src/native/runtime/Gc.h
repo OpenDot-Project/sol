@@ -24,6 +24,15 @@ struct RootFrame final
 
 struct RuntimeHandle;
 
+/// Native handle inventory and cumulative work since the last runtime shutdown.
+struct HandleStats final
+{
+    std::uint64_t StrongCount, WeakCount, ClosedCount;
+    std::uint64_t StrongRootVisits, WeakLookups, RejectedWeakTargets;
+};
+
+static_assert(sizeof(HandleStats) == 48);
+
 struct GcStats final
 {
     std::uint64_t AllocatedBytes;
@@ -66,6 +75,7 @@ SOL_RT_API void sol_gc_wait(std::uint64_t epoch);
 SOL_RT_API void sol_gc_collect();
 SOL_RT_API OpenDot::Sol::Runtime::GcStats sol_gc_stats();
 SOL_RT_API OpenDot::Sol::Runtime::AllocatorStats sol_gc_allocator_stats();
+SOL_RT_API OpenDot::Sol::Runtime::HandleStats sol_gc_handle_stats();
 SOL_RT_API OpenDot::Sol::Runtime::RuntimeHandle *sol_gc_create_handle(OpenDot::Sol::Runtime::Header *value, bool weak);
 SOL_RT_API bool sol_gc_resolve_handle(OpenDot::Sol::Runtime::RuntimeHandle *handle,
                                       OpenDot::Sol::Runtime::Header **root);

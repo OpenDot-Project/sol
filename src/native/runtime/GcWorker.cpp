@@ -127,15 +127,7 @@ void Run()
             batchBytes += allocation.Bytes;
             if (allocation.Mark != state.Epoch)
             {
-                // Weak cleanup occurs incrementally during concurrent sweep, not during termination.
-                for (auto &[identity, handle] : state.Handles)
-                {
-                    (void)identity;
-                    if (handle->Weak && handle->Value == allocation.Object)
-                    {
-                        handle->Value = nullptr;
-                    }
-                }
+                // Weak resolution validates allocation identity in Index before reading any payload.
                 state.Index.erase(allocation.Object);
                 state.Bytes -= allocation.Bytes;
                 state.Allocator.Sweep(allocation.Storage, true, guard);
