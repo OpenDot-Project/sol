@@ -29,6 +29,7 @@ if (-not $toolset) { throw 'A qualified MSVC platform toolset is required.' }
 $properties = @('/nologo', '/nodeReuse:false', '/p:Configuration=Release', '/p:Platform=x64', "/p:PlatformToolset=$($toolset.Name)")
 $properties += @('/p:EnableCppCoreCheck=true', '/p:RunCodeAnalysis=true', '/p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset')
 & (Join-Path $PSScriptRoot 'install-llvm-native-deps.ps1') -LlvmRoot $LlvmRoot
+& (Join-Path $PSScriptRoot 'test-native-dependencies.ps1')
 & $msbuild (Join-Path $root 'src/native/llvm-native/llvm-native.vcxproj') @properties "/p:LLVMRoot=$LlvmRoot"
 if ($LASTEXITCODE -ne 0) { throw 'LLVM C++ native component build failed.' }
 & $msbuild (Join-Path $root 'src/native/llvm-bridge/llvm-bridge.vcxproj') @properties "/p:LLVMRoot=$LlvmRoot" "/p:DotNetPackRoot=$packs" "/p:ReferencePackVersion=$($reference.Name)"
@@ -62,6 +63,11 @@ $sdk = Get-ChildItem (Join-Path $sdkRoot 'Lib') -Directory | Where-Object { Test
 if (-not $sdk) { throw 'Windows SDK x64 libraries are missing.' }
 $linkPaths = @((Join-Path $vs "VC/Tools/MSVC/$toolsVersion/lib/x64"), (Join-Path $sdk.FullName 'um/x64'), (Join-Path $sdk.FullName 'ucrt/x64'))
 $linkPaths | Set-Content -LiteralPath (Join-Path $output 'link-paths.txt') -Encoding utf8NoBOM
-@{ schema_version = 1; llvm_version = $version; msvc_toolset = $toolsVersion; reference_pack = $reference.Name } |
-    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8NoBOM
+Import-Module (Join-Path $PSScriptRoot 'NativeBuildEvidence.psm1') -Force
+$nativePin = Get-Content (Join-Path $PSScriptRoot 'native-package.json') -Raw | ConvertFrom-Json
+$binding = Get-NativeBuildBinding $output (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') `
+    (Join-Path $PSScriptRoot 'native-advisories.json') $nativePin.files
+@{ schema_version = 1; llvm_version = $version; msvc_toolset = $toolsVersion; reference_pack = $reference.Name
+    dependency_binding = $binding } | ConvertTo-Json -Depth 8 |
+    Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8NoBOM
 Write-Host "Qualified native backend: $output"
