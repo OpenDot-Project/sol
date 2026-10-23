@@ -6,6 +6,9 @@ Sol is a Windows-only programming language and compiler project maintained by Op
 The compiler is implemented primarily in C# 14 on .NET 10. The native backend targets LLVM 23.1.3.
 
 **Current release: [Sol 0.0.1](https://github.com/OpenDot-Project/sol/releases/tag/v0.0.1).**
+
+Development source now targets 0.0.2. Its [release preparation](docs/release-notes/0.0.2.md)
+records the experimental native scope, component identities and publication gates.
 This release implements an initial lossless CST frontend. It can parse the supported syntax subset
 and produce JSON for inspection. Semantic analysis, native code generation, Yellow Tea garbage
 collection, and the standard library are still under development. It does not build runnable Sol programs.

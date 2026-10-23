@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
 #include <algorithm>
-#include <cstdlib>
 
 namespace OpenDot::Sol::Runtime::Heap
 {
@@ -10,6 +9,10 @@ namespace
 {
 bool Park(State &state, std::unique_lock<std::mutex> &guard, Phase phase)
 {
+    const auto started = MonotonicNanoseconds();
+    state.Cost.Increment(GcCounter::PhaseChanges);
+    state.Cost.Events.Append(phase == Phase::Start ? GcEventKind::StartRequested : GcEventKind::TerminationRequested,
+                             state.Epoch, state.Threads.size(), 0);
     state.Current = phase;
     state.Changed.notify_all();
     state.Changed.wait(guard, [&] {
@@ -17,50 +20,70 @@ bool Park(State &state, std::unique_lock<std::mutex> &guard, Phase phase)
             return thread->Mode != ThreadMode::Running;
         });
     });
+    state.Cost.Observe(GcHistogram::SafepointWait, ElapsedNanoseconds(started));
     return !state.Stop;
 }
 
-// At most 64 reference slots are inspected with the heap lock held. No graph walk occurs in a handshake.
-void ScanBatch(State &state)
+void RecordSweepBatch(State &state, std::uint64_t started, std::uint64_t count)
 {
-    auto *entry = state.Gray;
-    auto *object = entry->Object;
-    const auto *shape = static_cast<const ScanShape *>(object->Type->ScanShape);
-    if (!shape || shape->Count == 0)
+    if (!count)
     {
-        state.Gray = entry->NextGray;
         return;
     }
-    const auto *array = object->Type->Kind == 2 ? reinterpret_cast<const StringArray *>(object) : nullptr;
-    if (array && (array->Length < 0 || array->Stride == 0))
+    const auto elapsed = ElapsedNanoseconds(started);
+    state.Cost.Increment(GcCounter::SweepBatches);
+    state.Cost.Observe(GcHistogram::SweepBatch, elapsed);
+    state.Cost.Events.Append(GcEventKind::SweepBatch, state.Epoch, count, elapsed);
+}
+
+void Sweep(State &state, std::unique_lock<std::mutex> &guard)
+{
+    state.Current = Phase::Sweep;
+    state.Cost.Events.Append(GcEventKind::SweepStarted, state.Epoch, state.Objects.size(), 0);
+    state.Changed.notify_all();
+    state.Live = 0;
+    const auto *last = state.Objects.empty() ? nullptr : state.Objects.back().get();
+    unsigned batchCount = 0;
+    std::uint64_t batchBytes = 0;
+    auto batchStarted = MonotonicNanoseconds();
+    for (auto entry = state.Objects.begin(); entry != state.Objects.end() && !state.Stop;)
     {
-        sol_rt_fail(7);
-    }
-    const auto count = array ? static_cast<std::uint64_t>(array->Length) * shape->Count : shape->Count;
-    for (unsigned budget = 0; entry->Cursor < count && budget < 64; ++budget, ++entry->Cursor)
-    {
-        const auto index = entry->Cursor;
-        const auto offset = array
-                                ? sizeof(StringArray) + (index / shape->Count) * array->Stride
-                                  + shape->Offsets[index % shape->Count]
-                                : shape->Offsets[index];
-        if (offset < sizeof(Header) || offset > entry->Bytes - sizeof(Header *) || offset % alignof(Header *) != 0)
+        auto &allocation = **entry;
+        const bool finalEntry = &allocation == last;
+        batchBytes += allocation.Bytes;
+        ++batchCount;
+        state.Cost.Increment(GcCounter::SweepObjects);
+        if (!allocation.Tracing->Marked(allocation.Storage.Slot, state.Epoch))
         {
-            sol_rt_fail(7);
+            state.Index.erase(allocation.Object);
+            state.Bytes -= allocation.Bytes;
+            state.Cost.Increment(GcCounter::ReclaimedObjects);
+            state.Cost.Increment(GcCounter::ReclaimedBytes, allocation.Bytes);
+            state.Allocator.Sweep(allocation.Storage, true, guard);
+            entry = state.Objects.erase(entry);
         }
-        auto **slot = reinterpret_cast<Header **>(reinterpret_cast<char *>(object) + offset);
-        Shade(state, std::atomic_ref(*slot).load(std::memory_order_acquire));
-    }
-    // Shade may have prepended new gray work. Unlink this entry only after its last batch.
-    if (entry->Cursor == count)
-    {
-        auto **link = &state.Gray;
-        while (*link != entry)
+        else
         {
-            link = &(*link)->NextGray;
+            state.Live += allocation.Bytes;
+            state.Allocator.Sweep(allocation.Storage, false, guard);
+            ++entry;
         }
-        *link = entry->NextGray;
+        if (finalEntry)
+        {
+            break;
+        }
+        if (batchCount == 64 || batchBytes >= 256 * 1024)
+        {
+            RecordSweepBatch(state, batchStarted, batchCount);
+            guard.unlock();
+            std::this_thread::yield();
+            guard.lock();
+            batchCount = 0;
+            batchBytes = 0;
+            batchStarted = MonotonicNanoseconds();
+        }
     }
+    RecordSweepBatch(state, batchStarted, batchCount);
 }
 }
 
@@ -84,83 +107,47 @@ void Run()
         }
         for (const auto &thread : state.Threads)
         {
+            const auto cached = thread->AllocationCache.Stats().CachedSlots;
             thread->AllocationCache.Flush(state.Allocator);
+            state.Cost.Increment(GcCounter::CacheSlotsReturned, cached);
         }
         state.Allocator.BeginCycle();
         Roots(state);
         state.Current = Phase::Mark;
+        state.Cost.Events.Append(GcEventKind::MarkStarted, state.Epoch, state.Work.Count(), 0);
         state.Changed.notify_all();
         for (;;)
         {
-            while (state.Gray && !state.Stop)
+            while (!state.Work.Empty() && !state.Stop)
             {
-                ScanBatch(state);
+                (void)TraceBatch(state, TraceBudget{}, false);
                 guard.unlock();
                 std::this_thread::yield();
                 guard.lock();
             }
-            if (state.Stop)
-            {
-                return;
-            }
-            if (!Park(state, guard, Phase::Terminate))
+            if (state.Stop || !Park(state, guard, Phase::Terminate))
             {
                 return;
             }
             Roots(state);
-            if (!state.Gray)
+            if (state.Work.Empty())
             {
                 break;
             }
-            // New root work is processed with mutators running, never drained while parked.
+            state.Cost.Increment(GcCounter::TerminationRetries);
             state.Current = Phase::Mark;
             state.Changed.notify_all();
         }
-        state.Current = Phase::Sweep;
-        state.Changed.notify_all();
-        state.Live = 0;
-        // Freeze the sweep boundary: mutators can append black allocations faster than a sweep.
-        // Chasing those allocations would prevent cycle completion under sustained allocation.
-        const auto *last = state.Objects.empty() ? nullptr : state.Objects.back().get();
-        unsigned batchCount = 0;
-        std::uint64_t batchBytes = 0;
-        for (auto entry = state.Objects.begin(); entry != state.Objects.end() && !state.Stop;)
+        Sweep(state, guard);
+        if (state.Stop)
         {
-            auto &allocation = **entry;
-            const bool finalEntry = &allocation == last;
-            batchBytes += allocation.Bytes;
-            if (allocation.Mark != state.Epoch)
-            {
-                // Weak resolution validates allocation identity in Index before reading any payload.
-                state.Index.erase(allocation.Object);
-                state.Bytes -= allocation.Bytes;
-                state.Allocator.Sweep(allocation.Storage, true, guard);
-                entry = state.Objects.erase(entry);
-            }
-            else
-            {
-                state.Live += allocation.Bytes;
-                state.Allocator.Sweep(allocation.Storage, false, guard);
-                ++entry;
-            }
-            if (finalEntry)
-            {
-                break;
-            }
-            // Bound lock ownership without yielding once per tiny allocation. Per-object yields let
-            // allocating mutators outrun reclamation even with a frozen sweep boundary.
-            if (++batchCount == 64 || batchBytes >= 256 * 1024)
-            {
-                guard.unlock();
-                std::this_thread::yield();
-                guard.lock();
-                batchCount = 0;
-                batchBytes = 0;
-            }
+            return;
         }
         state.Completed = state.Epoch;
         ++state.Collections;
-        state.Threshold = (std::max)(std::uint64_t{16 * 1024 * 1024}, state.Live + state.Live / 2 + 8 * 1024 * 1024);
+        state.Cost.Increment(GcCounter::Collections);
+        state.Cost.Events.Append(GcEventKind::CycleCompleted, state.Epoch, state.Live, 0);
+        state.Threshold = PacingPolicy::NextThreshold(state.Live, state.Limit);
         state.Current = Phase::Idle;
         state.Changed.notify_all();
     }

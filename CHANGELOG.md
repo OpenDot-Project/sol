@@ -6,7 +6,16 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ## [Unreleased]
 
+The next release target is **Sol 0.0.2**, tag `v0.0.2`. Source version metadata has advanced;
+publication still requires the protected-branch, merged-commit and tag-build validation gates.
+The published Sol 0.0.1 assets remain immutable.
+
 ### Added
+
+- Resident span mark/gray bitmaps and a coalescing ready-region queue, resumable descriptor scans,
+  bounded allocation assists, Idle/Sweep barrier fast paths, native diagnostic counters/histograms
+  and an opt-in bounded event ring. Native model, descriptor, concurrency and profiling fixtures
+  cover these experimental paths; no comparative performance or production-readiness claim is made.
 
 - Bounded thread-owned small-allocation slot batches, epoch/detach/shutdown cache return and
   native cache diagnostics. Small refills prepare empty spans before managed slot publication.

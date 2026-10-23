@@ -89,7 +89,7 @@ public sealed class CompilerApplicationTests : IDisposable
     {
         var result = Run(option);
         Assert.Equal(0, result.Exit);
-        Assert.Contains("0.0.1", result.Stdout);
+        Assert.Contains("0.0.2", result.Stdout);
         Assert.Empty(result.Stderr);
     }
 

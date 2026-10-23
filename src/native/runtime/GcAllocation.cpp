@@ -26,8 +26,11 @@ Block AcquireStorage(State &state, std::uint64_t bytes)
     {
         std::unique_lock guard(state.Mutex);
         cache.Flush(state.Allocator);
-        if (state.Bytes >= state.Threshold && state.Bytes - state.Threshold >= 8ULL * 1024 * 1024)
+        AssistAllocation(state);
+        if (PacingPolicy::ShouldWait(Pressure(state)))
         {
+            state.Cost.Increment(GcCounter::PressureWaits);
+            state.Cost.Events.Append(GcEventKind::PressureWait, state.Epoch, state.Bytes, 0);
             guard.unlock();
             sol_gc_collect();
             guard.lock();
@@ -96,6 +99,11 @@ Block AcquireStorage(State &state, std::uint64_t bytes)
         {
             sol_rt_fail(6);
         }
+        {
+            const std::lock_guard guard(state.Mutex);
+            state.Cost.Increment(GcCounter::RefillFailures);
+            state.Cost.Events.Append(GcEventKind::RefillFailure, state.Epoch, bytes, 0);
+        }
         sol_gc_collect();
     }
 }
@@ -140,7 +148,17 @@ Header *sol_gc_alloc(const TypeDescriptor *type, std::uint64_t totalBytes)
         {
             sol_rt_fail(6); // Exhaustion must not let an old weak identity alias a new allocation.
         }
-        entry->Mark = state.Epoch; // Black allocation; every initialized reference uses the store barrier.
+        if (storage.Owner)
+        {
+            entry->Tracing = &state.Allocator.Tracing(storage);
+        }
+        else
+        {
+            entry->DedicatedTracing = std::make_unique<MarkRegion>();
+            entry->DedicatedTracing->Initialize(object, 1, 0);
+            entry->Tracing = entry->DedicatedTracing.get();
+        }
+        entry->Tracing->Black(storage.Slot, state.Epoch);
         state.Objects.push_back(std::move(entry));
         state.Index.emplace(object, state.Objects.back().get());
     }
@@ -150,6 +168,9 @@ Header *sol_gc_alloc(const TypeDescriptor *type, std::uint64_t totalBytes)
     }
     state.Allocated += bytes;
     state.Bytes += bytes;
+    CurrentThread->Debt.Charge(state.Epoch, bytes);
+    state.Cost.Increment(GcCounter::AllocationCalls);
+    state.Cost.Increment(GcCounter::AllocationBytes, bytes);
     if (state.Bytes >= state.Threshold)
     {
         state.Requested = (std::max)(state.Requested, state.Epoch + 1);

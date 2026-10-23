@@ -15,6 +15,7 @@ inline constexpr std::array<std::uint32_t, 44> SizeClasses{
     16384, 20480, 24576, 28672, 32768};
 
 struct Span;
+class MarkRegion;
 
 struct Block final
 {
@@ -46,6 +47,7 @@ public:
     bool PrepareSmall(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard);
     std::uint32_t TakeBatch(std::uint64_t bytes, Block *blocks, std::uint32_t capacity);
     void ReturnUnused(const Block &block);
+    MarkRegion &Tracing(const Block &block);
 
     /// A ManagedRunning mutator may also read this: epoch advance waits for every mutator to park.
     std::uint64_t Epoch() const noexcept

@@ -11,6 +11,9 @@ private .NET 10 runtime, managed frontend, LLVM/LLD component, ORC hosts and Sol
 package command still produces the smaller frontend component. Native Windows CI qualifies and
 uploads the additional archive.
 
+The ordinary archive is `sol-<version>-windows-x86_64.zip`; `-IncludeNative` produces
+`sol-<version>-windows-x86_64-native.zip`. Each has its own matching checksum and root directory.
+
 ## Payload and integrity
 
 The launcher remains `bin/solc.exe`, the framework-dependent payload is under `managed`, and the

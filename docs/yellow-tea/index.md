@@ -8,7 +8,8 @@ run alongside application threads. Cycle start and mark termination use coordina
 
 **Implementation status:** an experimental concurrent baseline now has descriptors, generated roots,
 barriers, handles, a collector worker, and native ASan/model/stress fixtures. The span allocator,
-complete source object/EH support, and performance qualification remain incomplete. Read the
+complete source object/EH support, and performance qualification remain incomplete. Resident span
+tracing, bounded allocation assists and native diagnostics now have direct runtime fixtures. Read the
 [current implementation](current-implementation.md) for exact boundaries. These design chapters do
 not claim every described feature is implemented or released. There are no measured pause,
 throughput, memory-overhead, or production-readiness claims.
@@ -64,6 +65,9 @@ bound is part of this contract.
 6. [Compiler/runtime ABI](compiler-runtime-abi.md): descriptors, runtime entry points, and unwinding.
 7. [Pacing and diagnostics](pacing-and-diagnostics.md): budgets, assists, configuration, and telemetry.
 8. [Validation and delivery](validation-and-delivery.md): model, stress, sanitizer, and performance gates.
+9. [Resident tracing implementation](resident-tracing.md): current bitmap, ready queue and assist protocol.
+10. [Native diagnostic reference](diagnostic-reference.md): counter units, timing boundaries and event loss.
+11. [Native runtime profiling](native-profiling.md): checked workloads, configuration and report validation.
 
 The [repository status](../status.md) distinguishes existing frontend capabilities from planned native
 execution. Documentation of an ABI or state machine does not mean that its implementation exists.

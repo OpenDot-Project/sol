@@ -5,14 +5,14 @@
       "opendot.sol.cst": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Diagnostics": "[0.0.1, )",
-          "OpenDot.Sol.Text": "[0.0.1, )"
+          "OpenDot.Sol.Diagnostics": "[0.0.2, )",
+          "OpenDot.Sol.Text": "[0.0.2, )"
         }
       },
       "opendot.sol.diagnostics": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Text": "[0.0.1, )"
+          "OpenDot.Sol.Text": "[0.0.2, )"
         }
       },
       "opendot.sol.text": {

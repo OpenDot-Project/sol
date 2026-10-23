@@ -6,6 +6,13 @@ The following settings and counters define the initial collector design. They ar
 runtime options in Sol 0.0.1. Numeric work targets require qualification on real workloads before
 they can become release performance claims.
 
+The development implementation now provides work-bounded assists, native counters, fixed timing
+histograms and an opt-in event ring. Its trigger is `live * 1.5 + 8 MiB`, its worker count remains one,
+and assist limits count references/objects rather than claiming a 100-microsecond deadline.
+The adaptive controller and timed-assist policy below remain design work.
+See [resident tracing](resident-tracing.md), the [diagnostic reference](diagnostic-reference.md),
+and the [native profiling guide](native-profiling.md) for the exact implemented boundary.
+
 ## Trigger and capacity accounting
 
 The initial target is `live_bytes * 1.75 + 8 MiB reserve`, with a minimum managed heap of 16 MiB.

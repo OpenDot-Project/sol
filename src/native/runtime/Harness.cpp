@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "SolRT.h"
 #include "Gc.h"
+#include "GcProfile.h"
 #include <cstring>
 #include <cwchar>
 
@@ -14,9 +15,27 @@ int RunRegionTests();
 int RunHandleTests();
 int RunThreadAllocationTests();
 int RunThreadAllocationPoisonTest();
+int RunMarkBitmapTests();
+int RunReadyWorkModel();
+int RunBarrierPhaseModel();
+int RunSpanTraceTests();
+int RunDiagnosticsTests();
+int RunPacingTests();
+int RunBarrierTests();
+int RunDescriptorFailure(const wchar_t *mode);
+int RunTraceLayoutTests();
+int RunProfileOptionsTests();
 
 int wmain(int argc, wchar_t **argv)
 {
+    if (argc > 1 && std::wcscmp(argv[1], L"gc-profile") == 0)
+    {
+        return OpenDot::Sol::Runtime::Test::RunGcProfile(argc - 2, argv + 2);
+    }
+    if (argc == 2 && std::wcsncmp(argv[1], L"descriptor-", 11) == 0)
+    {
+        return RunDescriptorFailure(argv[1] + 11);
+    }
     if (argc == 2 && std::wcscmp(argv[1], L"cache-use-after-return") == 0)
     {
         return RunThreadAllocationPoisonTest();
@@ -99,5 +118,19 @@ int wmain(int argc, wchar_t **argv)
         return handles;
     }
     const int caches = RunThreadAllocationTests();
-    return caches ? caches : RunGcTests();
+    if (caches)
+    {
+        return caches;
+    }
+    const auto suites = {RunMarkBitmapTests, RunReadyWorkModel, RunBarrierPhaseModel,
+                         RunSpanTraceTests, RunTraceLayoutTests, RunProfileOptionsTests,
+                         RunDiagnosticsTests, RunPacingTests, RunBarrierTests, RunGcTests};
+    for (auto suite : suites)
+    {
+        if (const int failure = suite())
+        {
+            return failure;
+        }
+    }
+    return 0;
 }

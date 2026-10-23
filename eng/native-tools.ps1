@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-param([ValidateSet('Cleanup', 'Inspect')][string]$Mode = 'Inspect')
+param(
+    [ValidateSet('Cleanup', 'Inspect')][string]$Mode = 'Inspect',
+    [ValidateRange(1, 8)][int]$Jobs = 2
+)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
@@ -21,7 +24,10 @@ $reference = Get-ChildItem (Join-Path $packs 'Microsoft.NETCore.App.Ref') -Direc
 if (-not $reference) { throw '.NET 10 reference packs are missing.' }
 $properties = "Configuration=Release;Platform=x64;PlatformToolset=$($toolset.Name);DotNetPackRoot=$packs;ReferencePackVersion=$($reference.Name);LLVMRoot=$env:LLVM_ROOT;TestHarness=true;StaticRuntime=true"
 $sourceFiles = 'llvm-bridge/Compiler.cpp;llvm-native/Api.h;llvm-native/Support.h;llvm-native/Session.h;llvm-native/Session.cpp;llvm-native/Output.cpp;llvm-native/Orc.cpp;llvm-native/Linker.cpp;runtime/SolRT.cpp;runtime/SolRT.h;runtime/Core.cpp;runtime/Core.h;runtime/Arrays.cpp;runtime/Gc.cpp;runtime/GcAllocation.cpp;runtime/GcHandles.cpp;runtime/IdentitySequence.h;runtime/ThreadAllocation.h;runtime/ThreadAllocation.cpp;runtime/ThreadAllocationHarness.cpp;runtime/HandleHarness.cpp;runtime/Gc.h;runtime/GcConfig.cpp;runtime/GcInternal.h;runtime/GcWorker.cpp;runtime/GcModel.cpp;runtime/NativeScope.h;runtime/Harness.cpp;runtime/GcHarness.cpp;runtime/SpanAllocator.h;runtime/SpanAllocator.cpp;runtime/SpanHarness.cpp;runtime/RegionHarness.cpp;exec-host/Main.cpp;launcher/main.cpp'
+$sourceFiles += ';runtime/MarkWork.h;runtime/GcDiagnostics.h;runtime/GcPacing.h;runtime/GcProfile.h;runtime/TraceHarnessSupport.h;runtime/MarkWork.cpp;runtime/GcDiagnostics.cpp;runtime/GcDiagnosticNames.cpp;runtime/GcPacing.cpp;runtime/GcTracing.cpp;runtime/MarkBitmapHarness.cpp;runtime/ReadyWorkModel.cpp;runtime/BarrierPhaseModel.cpp;runtime/SpanTraceHarness.cpp;runtime/DiagnosticsHarness.cpp;runtime/PacingHarness.cpp;runtime/BarrierHarness.cpp;runtime/DescriptorHarness.cpp;runtime/GcProfile.cpp;runtime/ProfileWorkloads.cpp;runtime/ProfileJson.cpp'
 $arguments = @('src/native/Sol.Native.sln', '--no-build', '--no-updates', '--disable-settings-layers=GlobalAll;GlobalPerProduct;SolutionPersonal;ProjectPersonal', "--toolset-path=$(Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe')", "--properties=$properties", '--caches-home=out/jetbrains/cache', "--include=$sourceFiles")
+$sourceFiles += ';runtime/TraceLayoutHarness.cpp;runtime/ProfileOptionsHarness.cpp'
+$arguments[-1] = "--include=$sourceFiles"
 Push-Location $root
 try {
     New-Item -ItemType Directory -Path out/jetbrains -Force | Out-Null
@@ -46,12 +52,26 @@ try {
             }
         }
     } else {
-        & dotnet jb inspectcode @arguments '--format=Sarif' '--output=out/jetbrains/native.sarif.json' '--severity=WARNING' '--jobs=2'
+        $run = [guid]::NewGuid().ToString('N')
+        $reportPath = Join-Path $root "out/jetbrains/native-$run.sarif.json"
+        $latestPath = Join-Path $root 'out/jetbrains/native.sarif.json'
+        if (Test-Path -LiteralPath $latestPath) {
+            Move-Item -LiteralPath $latestPath -Destination (Join-Path $root "out/jetbrains/native-previous-$run.sarif.json")
+        }
+        & dotnet jb inspectcode @arguments '--format=Sarif' "--output=$reportPath" '--severity=WARNING' "--jobs=$Jobs" 2>&1 |
+            Tee-Object -Variable inspectionOutput
         if ($LASTEXITCODE -ne 0) { throw 'Native InspectCode failed.' }
-        $report = Get-Content out/jetbrains/native.sarif.json -Raw | ConvertFrom-Json
+        # InspectCode can log an internal stage timeout and still return zero. Such a run is
+        # incomplete analysis, even when it emits a valid-looking report for other stages.
+        if (@($inspectionOutput | Where-Object { "$_" -match 'EXCEPTION #\d+/\d+ \[' }).Count -ne 0) {
+            throw 'Native InspectCode logged an internal analyzer exception; its report was not promoted.'
+        }
+        if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Fresh InspectCode output is missing.' }
+        $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
         if ($report.version -ne '2.1.0' -or @($report.runs).Count -eq 0) { throw 'Invalid InspectCode SARIF output.' }
         $results = @($report.runs | ForEach-Object { $_.results })
-        if ($results | Where-Object { $_.level -eq 'error' }) { throw 'Native InspectCode reported errors; see out/jetbrains/native.sarif.json.' }
+        if ($results | Where-Object { $_.level -eq 'error' }) { throw "Native InspectCode reported errors; see $reportPath." }
+        Copy-Item -LiteralPath $reportPath -Destination $latestPath
         Write-Host "Native InspectCode completed: $($results.Count) warning/error findings."
     }
 } finally { Pop-Location }
