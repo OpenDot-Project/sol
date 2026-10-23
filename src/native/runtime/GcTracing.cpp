@@ -28,6 +28,7 @@ bool ScanObject(State &state, Allocation &entry, TraceBudget &budget, TraceResul
     {
         sol_rt_fail(7);
     }
+    const auto extent = array ? entry.Bytes : (std::min)(entry.Bytes, std::uint64_t{object->Type->Size});
     const auto count = array ? static_cast<std::uint64_t>(array->Length) * shape->Count : shape->Count;
     while (entry.Cursor < count && budget.ReferenceSlots)
     {
@@ -41,7 +42,8 @@ bool ScanObject(State &state, Allocation &entry, TraceBudget &budget, TraceResul
                                 ? sizeof(StringArray) + (index / shape->Count) * array->Stride
                                   + shape->Offsets[index % shape->Count]
                                 : shape->Offsets[index];
-        if (offset < sizeof(Header) || offset > entry.Bytes - sizeof(Header *) || offset % alignof(Header *) != 0)
+        if (extent < sizeof(Header) || offset < sizeof(Header)
+            || offset > extent - sizeof(Header *) || offset % alignof(Header *) != 0)
         {
             sol_rt_fail(7);
         }

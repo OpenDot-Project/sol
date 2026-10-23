@@ -11,7 +11,7 @@ namespace
 {
 bool Parse(std::array<std::wstring, 6> values, ProfileOptions &options, int count = 6)
 {
-    std::array<wchar_t *, 6> arguments;
+    std::array<wchar_t *, 6> arguments{};
     for (unsigned index = 0; index < arguments.size(); ++index)
     {
         arguments[index] = values[index].data();
@@ -116,7 +116,7 @@ bool AllocationRanks()
         AllocationTimings second;
         for (unsigned value = 1; value <= count; ++value)
         {
-            (value % 2 ? first : second).Record(count + 1 - value);
+            (value % 2 ? first : second).Record(count + 1ULL - value);
         }
         first.Merge(std::move(second));
         if (first.Nanoseconds.size() != count || first.Maximum != count

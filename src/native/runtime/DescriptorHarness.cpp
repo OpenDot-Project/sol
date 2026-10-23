@@ -31,7 +31,14 @@ int RunDescriptorFailure(const wchar_t *mode)
     }
     else if (std::wcscmp(mode, L"outside-object") == 0)
     {
-        offset = sizeof(Node);
+        offset = (sizeof(Node) + 15) & ~15U;
+        object = fixture.Allocate(type, sizeof(Node));
+    }
+    else if (std::wcscmp(mode, L"descriptor-extent") == 0)
+    {
+        // Extra aligned allocation bytes cannot extend a fixed object's declared reference fields.
+        type.Size = offsetof(Node, Value);
+        offset = offsetof(Node, Value);
         object = fixture.Allocate(type, sizeof(Node));
     }
     else if (std::wcscmp(mode, L"short-array") == 0)

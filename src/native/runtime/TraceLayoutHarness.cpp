@@ -17,23 +17,24 @@ bool CompositeArrayElements()
     {
         TraceFixture fixture;
         std::array<std::uint32_t, 2> offsets{0, stride - 8};
-        ScanShape shape{offsets.data(), 2};
+        const ScanShape shape{offsets.data(), 2};
         TypeDescriptor type = ArrayType;
         type.ScanShape = &shape;
         constexpr unsigned count = 513;
-        auto *array = reinterpret_cast<StringArray *>(fixture.Allocate(type, sizeof(StringArray) + count * stride));
+        auto *array = reinterpret_cast<StringArray *>(fixture.Allocate(
+            type, sizeof(StringArray) + count * std::uint64_t{stride}));
         array->Length = count;
         array->Stride = stride;
-        std::array<Node *, 17> nodes;
+        std::array<Node *, 17> nodes{};
         for (unsigned index = 0; index < nodes.size(); ++index)
         {
             nodes[index] = fixture.NewNode(index);
         }
         for (unsigned index = 0; index < count; ++index)
         {
-            auto *element = reinterpret_cast<char *>(array + 1) + index * stride;
+            auto *element = reinterpret_cast<char *>(array + 1) + index * std::uint64_t{stride};
             *reinterpret_cast<Header **>(element) = &nodes[index % nodes.size()]->Object;
-            *reinterpret_cast<Header **>(element + stride - 8) = &nodes[(index + 7) % nodes.size()]->Object;
+            *reinterpret_cast<Header **>(element + stride - 8) = &nodes[(index + 7ULL) % nodes.size()]->Object;
         }
         fixture.Begin();
         fixture.Root(&array->Object);
@@ -83,8 +84,8 @@ bool ArrayPaddingIsNotAReference()
 {
     TraceFixture fixture;
     constexpr unsigned count = 25;
-    std::uint32_t offset = 0;
-    ScanShape shape{&offset, 1};
+    const std::uint32_t offset = 0;
+    const ScanShape shape{&offset, 1};
     auto type = ArrayType;
     type.ScanShape = &shape;
     auto *array = reinterpret_cast<StringArray *>(fixture.Allocate(type, sizeof(StringArray) + count * 32));
@@ -94,7 +95,7 @@ bool ArrayPaddingIsNotAReference()
     auto *hidden = fixture.NewNode(2);
     for (unsigned index = 0; index < count; ++index)
     {
-        auto **element = reinterpret_cast<Header **>(reinterpret_cast<char *>(array + 1) + index * 32);
+        auto **element = reinterpret_cast<Header **>(reinterpret_cast<char *>(array + 1) + index * 32ULL);
         element[0] = &visible->Object;
         element[1] = &hidden->Object;
         element[2] = &hidden->Object;
@@ -130,7 +131,7 @@ bool NewBlackAllocationUsesInsertionWork()
 bool MultipleEpochGraphs()
 {
     TraceFixture fixture;
-    std::array<Node *, 257> nodes;
+    std::array<Node *, 257> nodes{};
     for (unsigned index = 0; index < nodes.size(); ++index)
     {
         nodes[index] = fixture.NewNode(index);
@@ -186,7 +187,7 @@ bool MultipleEpochGraphs()
 bool AlternatingEpochRoots()
 {
     TraceFixture fixture;
-    std::array<Node *, 130> nodes;
+    std::array<Node *, 130> nodes{};
     for (unsigned index = 0; index < nodes.size(); ++index)
     {
         nodes[index] = fixture.NewNode(index);

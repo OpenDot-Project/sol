@@ -159,7 +159,7 @@ bool RootChurnAcrossThreads()
     const bool okay = valid.load(std::memory_order_acquire) && ready == 4 && finished == 4
                       && sol_gc_stats().ObjectCount == 0 && Counter(snapshot, GcCounter::Collections) > 0
                       && Counter(snapshot, GcCounter::ActiveBarriers)
-                             + Counter(snapshot, GcCounter::IdleBarriers) >= 16000;
+                      + Counter(snapshot, GcCounter::IdleBarriers) >= 16000;
     sol_gc_detach();
     sol_rt_shutdown();
     return okay;

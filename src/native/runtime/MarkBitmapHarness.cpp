@@ -43,6 +43,16 @@ int WordBoundaries()
         {
             return 203;
         }
+    }
+    region.Black(0, 2);
+    // A word stores one epoch, not a history of each slot's marks. Updating word zero
+    // invalidates its old neighbor marks while leaving an untouched word resident.
+    if (region.Marked(1, 1) || region.Marked(1, 2) || !region.Marked(64, 1))
+    {
+        return 203;
+    }
+    for (auto slot : slots)
+    {
         region.Black(slot, 2);
         if (!region.Marked(slot, 2) || region.Shade(slot, 2) || region.HasGray(2))
         {

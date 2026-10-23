@@ -127,6 +127,8 @@ offset  = array_prefix + element * stride + reference_offsets[field]
 The runtime checks the array prefix size before reading count and stride.
 It rejects a negative count, zero stride or payload that exceeds the registered allocation.
 Each reference field must fit within one element and within the whole allocation.
+Fixed-object reference fields must also fit within the descriptor's declared size;
+extra aligned allocation bytes do not extend a fixed object's scan layout.
 Reference loads must be pointer-aligned and must not point inside the object prefix.
 Nonempty scan shapes require an offset table.
 Malformed metadata follows the invariant failure path before the invalid reference load.

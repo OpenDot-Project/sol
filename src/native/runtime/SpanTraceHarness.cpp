@@ -170,7 +170,17 @@ int AssistActualWork()
     AssistAllocation(fixture.State);
     snapshot = fixture.State.Cost.Snapshot();
     if (Counter(snapshot, GcCounter::AssistBatches) != 2
-        || Counter(snapshot, GcCounter::AssistReferenceSlots) != 80)
+        || Counter(snapshot, GcCounter::AssistReferenceSlots) != 18
+        || Counter(snapshot, GcCounter::AssistObjects) != 1)
+    {
+        return 239;
+    }
+    // The newly discovered child region precedes the requeued partial array in the FIFO.
+    // After completing that child, a pressure assist resumes the array for its full 64 slots.
+    AssistAllocation(fixture.State);
+    snapshot = fixture.State.Cost.Snapshot();
+    if (Counter(snapshot, GcCounter::AssistBatches) != 3
+        || Counter(snapshot, GcCounter::AssistReferenceSlots) != 82)
     {
         return 239;
     }

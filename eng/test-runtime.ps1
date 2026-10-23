@@ -63,7 +63,7 @@ foreach ($mode in @('slot-use-after-free', 'slot-overflow', 'cache-use-after-ret
         }
     } finally { $child.Dispose() }
 }
-foreach ($mode in @('null-offsets', 'header-offset', 'unaligned-offset', 'outside-object', 'short-array',
+foreach ($mode in @('null-offsets', 'header-offset', 'unaligned-offset', 'outside-object', 'descriptor-extent', 'short-array',
                     'negative-length', 'zero-stride', 'oversized-payload', 'element-overlap', 'element-overflow')) {
     $info = [Diagnostics.ProcessStartInfo]::new($exe)
     $info.UseShellExecute = $false
