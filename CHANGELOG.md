@@ -12,6 +12,10 @@ The published Sol 0.0.1 assets remain immutable.
 
 ### Added
 
+- Explicit native upstream-commit OSV queries, strict paginated advisory evidence validation,
+  and a separate Windows advisory workflow. The current native release target is blocked by
+  two zlib CVEs and two libxml2 OSS-Fuzz records; no suppression or risk exemption is applied.
+
 - Resident span mark/gray bitmaps and a coalescing ready-region queue, resumable descriptor scans,
   bounded allocation assists, Idle/Sweep barrier fast paths, native diagnostic counters/histograms
   and an opt-in bounded event ring. Native model, descriptor, concurrency and profiling fixtures

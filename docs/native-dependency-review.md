@@ -1,0 +1,115 @@
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
+# Native dependency review
+
+Native package execution tests, source analysis, advisory matching and release qualification
+provide different evidence. A passing compiler or GC test does not clear an upstream advisory.
+This page records the native dependency review for the experimental 0.0.2 release target.
+
+## Exact inputs
+
+`eng/native-advisories.json` records the source repositories, release tags, annotated tag objects
+and dereferenced commits verified on October 23, 2026. LLVM remains pinned to 23.1.3.
+The three native libraries are selected by the hash-pinned vcpkg revision in
+`eng/llvm-native-dependencies.json`.
+
+| Component | Upstream version | Source commit |
+|---|---|---|
+| LLVM, including embedded LLD | 23.1.3 | `0d261d1ca552c95a8f007e061c787ac7132fbcbc` |
+| zlib | 1.3.2 | `da607da739fa6047df13e66a2af6b8bec7c2a498` |
+| zstd | 1.5.7 | `f8745da6ff1ad1e7bab384bd1f9d742439278e99` |
+| libxml2 | 2.15.4 | `96498992efa48d52b0e8b83058bd88dbdaf153c1` |
+
+The zlib vcpkg port revision is 2; the upstream version remains 1.3.2. Port revisions and
+vcpkg binary ABI hashes are not upstream source versions. libxml2's explicit GitLab mirror
+mapping permits OSV records that use its canonical GitLab repository rather than GitHub.
+An unrelated repository is not accepted as evidence about a component.
+
+These inputs are not an attestation that every release binary was built from a locally
+reproduced source tree. Native package metadata separately records the actual vcpkg ABI
+identities and LLVM version. Binary/source provenance and patch accounting remain separate work.
+
+## Native advisory gate
+
+```powershell
+./eng/test-native-advisory-validation.ps1
+./eng/test-native-advisories.ps1
+```
+
+The first command runs offline evidence-validation regressions. The second checks the build
+pins and port versions, then queries each native source commit through OSV's
+[commit query API](https://google.github.io/osv.dev/post-v1-query/).
+The existing OSV-Scanner job continues to scan NuGet lockfiles.
+
+Native repositories must not be represented as GitHub Actions packages. In a qualification
+probe, OSV-Scanner 2.7.0 interpreted `pkg:github/...@<commit>` entries in a CycloneDX document
+as the GitHub Actions ecosystem. That probe returned no findings for the four projects,
+whereas explicit native commit queries returned four records. The probe's clean result is
+not native advisory coverage and is not used by this gate.
+
+The script writes a new report under `out/security/native-advisories/`. It includes the Sol
+source SHA, query time, catalog digest, query commits, pagination counts and full returned
+advisory records. The Windows workflow preserves that report when a query finds an advisory.
+It does not require a native build, credentials or execution of downloaded dependency code.
+
+The evidence validator rejects malformed responses, wrong repositories, missing affected
+component evidence, duplicate advisory identities, repeated continuation tokens and pagination
+beyond ten pages. Each continuation retains the original source commit. Unknown or failed
+queries fail qualification; they are not converted into empty results. All returned advisories
+block this gate, including records without a numerical severity. No exception list is applied.
+
+`no-known-advisories` means that a successful OSV commit query returned no records. It is not
+a guarantee of safety, complete database coverage or absence of CodeQL findings. This report
+is not a complete SPDX or CycloneDX SBOM and does not replace private-runtime/NuGet review.
+
+## Current release blockers
+
+The October 23, 2026 commit queries returned these records:
+
+| Component | Advisory | Reported affected behavior | Disposition |
+|---|---|---|---|
+| zlib | [CVE-2026-76844](https://osv.dev/vulnerability/CVE-2026-76844) | Stale gzip write input after a failed write can lead to a heap buffer overflow. | Open; native publication blocked. |
+| zlib | [CVE-2026-85091](https://osv.dev/vulnerability/CVE-2026-85091) | Non-blocking gzip writes followed by formatted writes can reach an invalid buffer move. | Open; native publication blocked. |
+| libxml2 | [OSV-2021-777](https://osv.dev/vulnerability/OSV-2021-777) | Heap use-after-free in an XInclude sibling/copy path. | Open; native publication blocked. |
+| libxml2 | [OSV-2024-698](https://osv.dev/vulnerability/OSV-2024-698) | Heap use-after-free in an encoding-close/HTML-save path. | Open; native publication blocked. |
+
+The zlib port used by this source does not apply the upstream gzip-write fix:
+[commit df84af25](https://github.com/madler/zlib/commit/df84af25dc1942490e1d1c899a07619152a46148).
+That commit resets the pending input after an error. Neither a passing package smoke test nor
+an assumption that LLVM does not call gzip file APIs qualifies the current binary as fixed.
+
+The libxml2 OSS-Fuzz records returned open-ended Git ranges and high ecosystem severity.
+They require reproduction/fix verification or a documented, binary-specific applicability
+review. Their age does not establish that they are obsolete. No finding has been dismissed,
+and this change does not claim that the four issues are exploitable through Sol's supported CLI.
+
+## CodeQL review remains separate
+
+The existing main revision `901666fdc43aac7c08ff8500a1c8b879df911d37` had 72 open C++
+CodeQL records: 17 in downloaded LLVM headers and 55 in vcpkg dependency build sources.
+The review snapshot had no first-party source locations. That observation does not clear
+the upstream records or prove absence of first-party vulnerabilities.
+
+| Query family | Records | Required review |
+|---|---:|---|
+| Suspicious pointer scaling | 34 | Allocation/layout invariants and the actual instantiated types. |
+| Wrong format argument type | 8 | Vararg types, format conversions and platform ABI. |
+| Incorrect logical-not operator use | 7 | Intended Boolean/bitmask expression semantics. |
+| Invalid pointer dereference | 6 | Bounds, buffer lifetimes and full caller preconditions. |
+| External entity expansion | 4 | Parser options and callers that can supply external resources. |
+| Unsafe string concatenation | 4 | Source lengths and destination capacity at every call. |
+| Integer multiplication conversion | 3 | Operand limits and arithmetic width before multiplication. |
+| Pointer overflow check | 2 | Pointer provenance, integer bounds and supported platform semantics. |
+| Non-constant format | 1 | The actual format-string source and caller trust boundary. |
+| Path injection | 1 | Catalog input and permitted filesystem access. |
+| Filesystem check/use race | 1 | File identity, replacement and read-size handling. |
+| Type confusion | 1 | LLVM object/use storage and placement invariants. |
+
+Initial source inspection found explicit capacity checks in the reported zstd RLE write
+helper and configurable options in the reported libxml2 parser wrappers. Those observations
+are not complete interprocedural proofs. The records remain open; vendor-path location alone
+does not justify suppression, exclusion, or automatic risk acceptance.
+
+The protected merge of the resident-span GC change does not publish 0.0.2 or resolve this
+dependency review. Native release publication requires remediation or verified binary-specific
+applicability evidence, fresh advisory results, and the separate merged-SHA/tag/package gates.
