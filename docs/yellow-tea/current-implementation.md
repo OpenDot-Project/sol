@@ -29,7 +29,8 @@ collector callbacks do not. Process separation is not an OS security sandbox.
   metadata and Windows reservation/commit with that mutex released. Allocating mutators publish
   their roots and enter native-safe mode for this slow path. Publication reacquires the mutex and
   stamps the span with the allocator's current epoch; preparation may cross collection cycles.
-  Cached-slot allocation remains under the heap mutex without a native transition.
+  Small preparation publishes an empty span. Slot reservation occurs only after managed reentry,
+  so an unregistered small slot cannot remain hidden across collection epochs.
   Failed reserve/commit returns its permit and releases an incomplete reservation before retry.
 - Reclaiming a large region or an excess empty span detaches it before releasing the mutex for
   `VirtualFree`. Its commitment remains charged until release completes and the mutex is acquired
@@ -61,6 +62,14 @@ collector callbacks do not. Process separation is not an OS security sandbox.
   process-lifetime literals are explicitly distinguished from collectible targets.
   Closed handle identities remain tombstones until shutdown; a generation-based reusable table is
   pending. Allocation identities survive runtime shutdown and fail on exhaustion rather than wrap.
+- Each attached thread caches at most eight reserved slots from one span for one aligned request size.
+  The first slot is consumed immediately, leaving at most seven unused entries. Cache hits take a
+  slot under thread ownership without acquiring the heap mutex. A size change returns the old cache;
+  start handshakes return every thread's unused slots before advancing the allocator epoch. Detach
+  and shutdown also return them. Returning unused entries performs no OS release or graph traversal.
+  The batch's handed-out object record remains present until the next start flush, so reserved cache
+  slots cannot leave an old span's sweep count permanently outstanding. Existing polls and allocation
+  index publication still acquire the heap mutex; the complete allocation call is not lock-free.
 - `SOL_GC_HEAP_LIMIT` validates bytes or `KiB`/`MiB`/`GiB`, with a 16 MiB minimum. Budget reservations
   serialize budget decisions and count pending commit permits as well as published/retiring managed
   regions, including class slack and retained empty spans. Native collector metadata, uncommitted
@@ -78,12 +87,20 @@ collector callbacks do not. Process separation is not an OS security sandbox.
 
 ## Deliberate limits
 
-The allocator and allocation index still share the heap mutex. Thread-local allocation caches,
-span mark/gray bitmaps, allocator assists and the event ring are not implemented. Marking still uses
+Shared slot metadata and the allocation index still use the heap mutex. The bounded thread slot cache
+does not remove poll or registration locks. Span mark/gray bitmaps, allocator assists and the event
+ring are not implemented. Marking still uses
 per-object records and intrusive gray work. Lock contention, tombstone overhead, large active root
 inventories and weak lookup costs require measurement. Region reserve/commit/release and refill metadata
 preparation run outside the heap mutex. Object-record/index registration still uses that mutex and can
 allocate native metadata. This is not the completed fast path or a measured latency guarantee.
+
+Locality still depends on per-object gray records; span-coalesced mark/gray traversal is pending.
+Every reference store takes the heap mutex for insertion shading. Memory pressure can wait for a
+cycle or fail within the physical budget; scan-proportional bounded assists are not implemented.
+Root snapshots still scale with active frame slots and strong owners, and cache flushing adds bounded
+work per thread. These costs require separate locality, barrier, pressure and safepoint measurements;
+the thread slot cache does not establish improvements in those areas.
 
 The native-only `sol_gc_allocator_stats` snapshot reports committed/reserved bytes, live slot/page
 capacity, span/large/small allocation counts and reused slots. Its counters exclude native metadata;
@@ -93,6 +110,17 @@ operation the snapshot is not an atomic measurement of Windows commitment. Count
 and objects can already fall while retiring storage remains charged. The existing `GcStats` layout stays unchanged, and
 `GcStats.HeapBytes` remains aligned object bytes rather than physical committed capacity. These
 internal snapshots are not a new implemented Sol standard-library API or a stable ABI 1 promise.
+
+`sol_gc_thread_allocation_stats` reports cache hits, successful batch refills, unused cached slots,
+returned slots, nonempty flushes and dedicated large allocations. Detached thread totals remain until
+shutdown. Per-thread counters use relaxed atomics so concurrent diagnostics do not race cache hits;
+the aggregate is observational rather than one transactional instant. Existing allocator slot/capacity
+counters include reserved cache entries. `GcStats.ObjectCount` and `HeapBytes` count registered objects
+and their aligned requests. Physical commitment includes all cache reservation and class slack.
+`ReusedSlots` counts reused slot reservations, including cache entries returned without being handed
+to a caller. The allocation-pressure wait is checked on cache misses; up to seven cached acquisitions
+can precede the next check, while physical budget enforcement still covers the entire reserved region.
+Start flushing adds at most seven unused entries per attached thread to handshake work.
 
 `sol_gc_handle_stats` adds a native-only snapshot of open strong/weak counts, closed tombstones,
 cumulative strong-root visits, collectible weak-target lookups and rejected weak targets. A cleared
@@ -128,6 +156,10 @@ four visits across start and termination root snapshots. They force cached-slot 
 reject the old weak identity, verify process-lifetime literal/null behavior, race close against
 resolution and collection, and exercise the actual identity sequence at its exhaustion boundary.
 These work-count checks are not latency benchmarks.
+Thread-cache checks cover all 44 classes, size changes, epoch sealing, detached ownership, rooted
+objects in four native-safe threads across repeated cycles, and a poisoned returned-cache slot.
+An additional harness-only hook pauses after empty-span preparation and before managed reentry;
+three collections must complete with no reserved small slots before allocation resumes.
 The bounded barrier model explores two mutators and a marker and detects an intentionally missing
 barrier. It is a model of those transitions, not a proof of all native code or schedules.
 

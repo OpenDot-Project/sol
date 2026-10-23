@@ -43,7 +43,7 @@ foreach ($limit in @('0', '8MiB', '16MB', '18446744073709551615GiB', '16MiB')) {
         if ($child.ExitCode -ne 1 -or $message -notmatch $expected -or $message -match 'AddressSanitizer') { throw "Unexpected heap failure: $message" }
     } finally { $child.Dispose() }
 }
-foreach ($mode in @('slot-use-after-free', 'slot-overflow')) {
+foreach ($mode in @('slot-use-after-free', 'slot-overflow', 'cache-use-after-return')) {
     $info = [Diagnostics.ProcessStartInfo]::new($exe)
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true

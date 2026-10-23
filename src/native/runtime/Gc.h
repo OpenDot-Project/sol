@@ -24,6 +24,15 @@ struct RootFrame final
 
 struct RuntimeHandle;
 
+/// Slot-cache diagnostics; counters reset at shutdown and retain detached thread totals.
+struct ThreadAllocationStats final
+{
+    std::uint64_t CacheHits, BatchRefills, CachedSlots;
+    std::uint64_t ReturnedSlots, CacheFlushes, DirectAllocations;
+};
+
+static_assert(sizeof(ThreadAllocationStats) == 48);
+
 /// Native handle inventory and cumulative work since the last runtime shutdown.
 struct HandleStats final
 {
@@ -76,6 +85,7 @@ SOL_RT_API void sol_gc_collect();
 SOL_RT_API OpenDot::Sol::Runtime::GcStats sol_gc_stats();
 SOL_RT_API OpenDot::Sol::Runtime::AllocatorStats sol_gc_allocator_stats();
 SOL_RT_API OpenDot::Sol::Runtime::HandleStats sol_gc_handle_stats();
+SOL_RT_API OpenDot::Sol::Runtime::ThreadAllocationStats sol_gc_thread_allocation_stats();
 SOL_RT_API OpenDot::Sol::Runtime::RuntimeHandle *sol_gc_create_handle(OpenDot::Sol::Runtime::Header *value, bool weak);
 SOL_RT_API bool sol_gc_resolve_handle(OpenDot::Sol::Runtime::RuntimeHandle *handle,
                                       OpenDot::Sol::Runtime::Header **root);

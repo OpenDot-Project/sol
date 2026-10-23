@@ -26,6 +26,10 @@ State::~State()
         Worker.join();
     }
     std::unique_lock guard(Mutex);
+    for (const auto &thread : Threads)
+    {
+        thread->AllocationCache.Flush(Allocator);
+    }
     for (auto &entry : Objects)
     {
         Allocator.Release(entry->Storage, guard);
@@ -143,6 +147,8 @@ void sol_gc_detach()
     {
         sol_rt_fail(7);
     }
+    CurrentThread->AllocationCache.Flush(state.Allocator);
+    AddThreadAllocationStats(state.RetiredThreadAllocation, CurrentThread->AllocationCache.Stats());
     state.Threads.remove_if([](const auto &thread) {
         return thread.get() == CurrentThread;
     });
@@ -344,6 +350,10 @@ void ShutdownHeap()
         state.Worker.join();
     }
     std::unique_lock guard(state.Mutex);
+    for (const auto &thread : state.Threads)
+    {
+        thread->AllocationCache.Flush(state.Allocator);
+    }
     for (auto &entry : state.Objects)
     {
         state.Allocator.Release(entry->Storage, guard);
@@ -356,6 +366,7 @@ void ShutdownHeap()
     state.HandleInventory = {};
     // ObjectIdentities is process-lifetime state; do not recycle allocation identities here.
     state.Threads.clear();
+    state.RetiredThreadAllocation = {};
     Heap::CurrentThread = nullptr;
     state.Bytes = 0;
     state.Live = 0;

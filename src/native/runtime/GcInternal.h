@@ -4,6 +4,7 @@
 #include "Gc.h"
 #include "IdentitySequence.h"
 #include "SpanAllocator.h"
+#include "ThreadAllocation.h"
 #include <atomic>
 #include <condition_variable>
 #include <list>
@@ -35,6 +36,7 @@ struct ThreadState final
 {
     RootFrame *Top = nullptr;
     ThreadMode Mode = ThreadMode::Running;
+    ThreadAllocationCache AllocationCache;
 };
 
 struct Allocation final
@@ -61,6 +63,7 @@ struct State final
     RuntimeHandle *StrongHandles = nullptr;
     HandleStats HandleInventory{};
     IdentitySequence ObjectIdentities;
+    ThreadAllocationStats RetiredThreadAllocation{};
     std::thread Worker;
     Allocation *Gray = nullptr;
     Phase Current = Phase::Idle;
