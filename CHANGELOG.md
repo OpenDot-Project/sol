@@ -8,6 +8,10 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Active strong-handle root enumeration and allocation-identity validation for weak targets, avoiding
+  scans of closed handle history in handshakes and of all weak handles per reclaimed object.
+  Native inventory counters and ASan fixtures cover address reuse, concurrent close and identity exhaustion.
+
 - Yellow Tea region preparation and release outside the heap mutex, with pending commit permits,
   conservative retirement accounting and native-safe refill. Deterministic ASan harness probes cover
   reserve/commit failure, epoch changes during preparation and collector progress during a paused refill.

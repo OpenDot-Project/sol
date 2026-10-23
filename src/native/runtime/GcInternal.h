@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #pragma once
 #include "Gc.h"
+#include "IdentitySequence.h"
 #include "SpanAllocator.h"
 #include <atomic>
 #include <condition_variable>
@@ -15,9 +16,13 @@ namespace OpenDot::Sol::Runtime
 {
 struct RuntimeHandle final
 {
-    Header *Value;
-    bool Weak;
+    Header *Value = nullptr;
+    std::uint64_t ObjectIdentity = 0;
+    RuntimeHandle *PreviousStrong = nullptr;
+    RuntimeHandle *NextStrong = nullptr;
+    bool Weak = false;
     bool Closed = false;
+    bool Immortal = false;
 };
 
 namespace Heap
@@ -37,6 +42,7 @@ struct Allocation final
     Block Storage;
     Header *Object;
     std::uint64_t Bytes;
+    std::uint64_t Identity = 0;
     std::uint64_t Mark = 0;
     std::uint64_t Cursor = 0;
     Allocation *NextGray = nullptr;
@@ -52,6 +58,9 @@ struct State final
     std::unordered_map<Header *, Allocation *> Index;
     // Closed entries are tombstones until shutdown: stale identities cannot alias new handles.
     std::unordered_map<RuntimeHandle *, std::unique_ptr<RuntimeHandle>> Handles;
+    RuntimeHandle *StrongHandles = nullptr;
+    HandleStats HandleInventory{};
+    IdentitySequence ObjectIdentities;
     std::thread Worker;
     Allocation *Gray = nullptr;
     Phase Current = Phase::Idle;

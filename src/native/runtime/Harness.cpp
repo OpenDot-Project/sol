@@ -11,6 +11,7 @@ int RunGcModelTests();
 int RunSpanTests();
 int RunSpanPoisonTest(bool freed);
 int RunRegionTests();
+int RunHandleTests();
 
 int wmain(int argc, wchar_t **argv)
 {
@@ -82,5 +83,10 @@ int wmain(int argc, wchar_t **argv)
         return spans;
     }
     const int regions = RunRegionTests();
-    return regions ? regions : RunGcTests();
+    if (regions)
+    {
+        return regions;
+    }
+    const int handles = RunHandleTests();
+    return handles ? handles : RunGcTests();
 }
