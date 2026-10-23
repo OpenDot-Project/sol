@@ -5,6 +5,9 @@
 #include "IdentitySequence.h"
 #include "SpanAllocator.h"
 #include "ThreadAllocation.h"
+#include "MarkWork.h"
+#include "GcDiagnostics.h"
+#include "GcPacing.h"
 #include <atomic>
 #include <condition_variable>
 #include <list>
@@ -37,6 +40,7 @@ struct ThreadState final
     RootFrame *Top = nullptr;
     ThreadMode Mode = ThreadMode::Running;
     ThreadAllocationCache AllocationCache;
+    AllocationDebt Debt;
 };
 
 struct Allocation final
@@ -45,9 +49,9 @@ struct Allocation final
     Header *Object;
     std::uint64_t Bytes;
     std::uint64_t Identity = 0;
-    std::uint64_t Mark = 0;
     std::uint64_t Cursor = 0;
-    Allocation *NextGray = nullptr;
+    std::unique_ptr<MarkRegion> DedicatedTracing;
+    MarkRegion *Tracing = nullptr;
 };
 
 struct State final
@@ -65,8 +69,9 @@ struct State final
     IdentitySequence ObjectIdentities;
     ThreadAllocationStats RetiredThreadAllocation{};
     std::thread Worker;
-    Allocation *Gray = nullptr;
-    Phase Current = Phase::Idle;
+    ReadyWork Work;
+    Diagnostics Cost;
+    std::atomic<Phase> Current{Phase::Idle};
     std::uint64_t Epoch = 0;
     std::uint64_t Requested = 0;
     std::uint64_t Completed = 0;
@@ -89,5 +94,8 @@ void RequireManaged();
 bool Handshake(Phase phase);
 void StartWorker(State &state);
 std::uint64_t ReadHeapLimit();
+TraceResult TraceBatch(State &state, TraceBudget budget, bool assist);
+PressureSnapshot Pressure(const State &state);
+void AssistAllocation(State &state);
 }
 }

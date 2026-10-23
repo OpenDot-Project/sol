@@ -63,4 +63,74 @@ foreach ($mode in @('slot-use-after-free', 'slot-overflow', 'cache-use-after-ret
         }
     } finally { $child.Dispose() }
 }
-Write-Host 'ASan runtime, span poison self-tests, concurrent collector, exception roots, and committed heap budget checks passed.'
+foreach ($mode in @('null-offsets', 'header-offset', 'unaligned-offset', 'outside-object', 'descriptor-extent', 'short-array',
+                    'negative-length', 'zero-stride', 'oversized-payload', 'element-overlap', 'element-overflow')) {
+    $info = [Diagnostics.ProcessStartInfo]::new($exe)
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardError = $true
+    $info.RedirectStandardOutput = $true
+    $info.ArgumentList.Add("descriptor-$mode")
+    $child = [Diagnostics.Process]::Start($info)
+    try {
+        $errorTask = $child.StandardError.ReadToEndAsync()
+        $outputTask = $child.StandardOutput.ReadToEndAsync()
+        if (-not $child.WaitForExit(30000)) { $child.Kill($true); throw 'Descriptor rejection timed out.' }
+        $message = $errorTask.GetAwaiter().GetResult()
+        $output = $outputTask.GetAwaiter().GetResult()
+        if ($child.ExitCode -ne 1 -or $message -notmatch 'bootstrap invariant failed' -or
+            $message -match 'AddressSanitizer' -or $output.Length -ne 0) {
+            throw "Malformed descriptor reached an invalid load or was accepted: ${mode}: $message"
+        }
+    } finally { $child.Dispose() }
+}
+foreach ($setting in @('', 'true', '2', ' 1', '1 ')) {
+    $info = [Diagnostics.ProcessStartInfo]::new($exe)
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardError = $true
+    $info.RedirectStandardOutput = $true
+    $info.Environment['SOL_GC_DIAGNOSTICS'] = $setting
+    $info.ArgumentList.Add('heap-pressure')
+    $child = [Diagnostics.Process]::Start($info)
+    try {
+        $errorTask = $child.StandardError.ReadToEndAsync()
+        $outputTask = $child.StandardOutput.ReadToEndAsync()
+        if (-not $child.WaitForExit(30000)) { $child.Kill($true); throw 'Diagnostic configuration test timed out.' }
+        $message = $errorTask.GetAwaiter().GetResult()
+        $null = $outputTask.GetAwaiter().GetResult()
+        if ($child.ExitCode -ne 1 -or $message -notmatch 'invalid SOL_GC_DIAGNOSTICS' -or $message -match 'AddressSanitizer') {
+            throw 'Invalid diagnostic setting was not rejected before allocation.'
+        }
+    } finally { $child.Dispose() }
+}
+Import-Module (Join-Path $PSScriptRoot 'RuntimeProfile.psm1') -Force
+$profiles = @()
+foreach ($scenario in @('dense', 'sparse', 'wide', 'churn', 'roots', 'concurrent')) {
+    $workers = if ($scenario -eq 'concurrent') { 3 } else { 1 }
+    $info = [Diagnostics.ProcessStartInfo]::new($exe)
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardError = $true
+    $info.RedirectStandardOutput = $true
+    $info.Environment['SOL_GC_DIAGNOSTICS'] = '1'
+    $info.Environment['SOL_GC_HEAP_LIMIT'] = '128MiB'
+    foreach ($argument in @('gc-profile', $scenario, '512', '2', '17', "$workers", '42')) { $info.ArgumentList.Add($argument) }
+    $child = [Diagnostics.Process]::Start($info)
+    try {
+        $errorTask = $child.StandardError.ReadToEndAsync()
+        $outputTask = $child.StandardOutput.ReadToEndAsync()
+        if (-not $child.WaitForExit(60000)) { $child.Kill($true); throw 'ASan profile correctness workload timed out.' }
+        $message = $errorTask.GetAwaiter().GetResult()
+        $json = $outputTask.GetAwaiter().GetResult()
+        if ($child.ExitCode -ne 0 -or $message.Trim().Length -ne 0) { throw "ASan profile workload failed: ${scenario}: $message" }
+        $value = $json | ConvertFrom-Json -AsHashtable -Depth 64
+        Test-RuntimeProfile $value -AllowSanitized
+        if (-not $value.environment.address_sanitized) { throw 'ASan profile correctness run lacks its sanitizer build marker.' }
+        $path = Join-Path $root "out/native/runtime/asan-harness/profile-$scenario.json"
+        [IO.File]::WriteAllText($path, $json, [Text.UTF8Encoding]::new($false))
+        $profiles += $path
+    } finally { $child.Dispose() }
+}
+& (Join-Path $PSScriptRoot 'test-runtime-profiles.ps1') -ProfilePath $profiles -AllowSanitized
+Write-Host 'ASan runtime, poison/descriptor failures, barrier models, bounded tracing, profile validation and heap budget checks passed.'

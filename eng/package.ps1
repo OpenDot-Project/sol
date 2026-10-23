@@ -11,6 +11,7 @@ try {
     $version = [string]$props.Project.PropertyGroup.Version
     $runtime = Get-Content -LiteralPath eng/runtime.json -Raw | ConvertFrom-Json
     $name = "sol-$version-windows-x86_64"
+    if ($IncludeNative) { $name += '-native' }
     $stageParent = Join-Path $root "out/stage/$name-$([guid]::NewGuid().ToString('N'))"
     $stage = Join-Path $stageParent $name
     foreach ($directory in @('bin', 'managed', 'runtime', 'licenses')) {

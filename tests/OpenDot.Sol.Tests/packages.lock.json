@@ -225,58 +225,58 @@
       "opendot.sol.analysis": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Ast": "[0.0.1, )"
+          "OpenDot.Sol.Ast": "[0.0.2, )"
         }
       },
       "opendot.sol.ast": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Psi": "[0.0.1, )"
+          "OpenDot.Sol.Psi": "[0.0.2, )"
         }
       },
       "opendot.sol.cli": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Driver": "[0.0.1, )",
-          "OpenDot.Sol.Lowering": "[0.0.1, )"
+          "OpenDot.Sol.Driver": "[0.0.2, )",
+          "OpenDot.Sol.Lowering": "[0.0.2, )"
         }
       },
       "opendot.sol.cst": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Diagnostics": "[0.0.1, )",
-          "OpenDot.Sol.Text": "[0.0.1, )"
+          "OpenDot.Sol.Diagnostics": "[0.0.2, )",
+          "OpenDot.Sol.Text": "[0.0.2, )"
         }
       },
       "opendot.sol.diagnostics": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Text": "[0.0.1, )"
+          "OpenDot.Sol.Text": "[0.0.2, )"
         }
       },
       "opendot.sol.driver": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Analysis": "[0.0.1, )",
-          "OpenDot.Sol.Cst": "[0.0.1, )"
+          "OpenDot.Sol.Analysis": "[0.0.2, )",
+          "OpenDot.Sol.Cst": "[0.0.2, )"
         }
       },
       "opendot.sol.fir": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Analysis": "[0.0.1, )"
+          "OpenDot.Sol.Analysis": "[0.0.2, )"
         }
       },
       "opendot.sol.lowering": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Fir": "[0.0.1, )"
+          "OpenDot.Sol.Fir": "[0.0.2, )"
         }
       },
       "opendot.sol.psi": {
         "type": "Project",
         "dependencies": {
-          "OpenDot.Sol.Cst": "[0.0.1, )"
+          "OpenDot.Sol.Cst": "[0.0.2, )"
         }
       },
       "opendot.sol.text": {

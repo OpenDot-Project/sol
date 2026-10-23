@@ -56,12 +56,20 @@
       href: yellow-tea/pacing-and-diagnostics.md
     - name: Validation and delivery
       href: yellow-tea/validation-and-delivery.md
+    - name: Resident tracing implementation
+      href: yellow-tea/resident-tracing.md
+    - name: Native diagnostic reference
+      href: yellow-tea/diagnostic-reference.md
+    - name: Native runtime profiling
+      href: yellow-tea/native-profiling.md
 - name: Development and validation
   href: development.md
 - name: Native implementation tooling
   href: native-tooling.md
 - name: Status and roadmap
   href: status.md
+- name: Sol 0.0.2 release preparation
+  href: release-notes/0.0.2.md
 - name: API reference
   href: ../out/docfx/metadata/toc.yml
 - name: GitHub

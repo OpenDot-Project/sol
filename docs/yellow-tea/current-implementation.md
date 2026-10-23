@@ -45,8 +45,10 @@ collector callbacks do not. Process separation is not an OS security sandbox.
   Functions poll after publishing parameters; loop backedges also poll. Temporaries are retained
   conservatively until reuse or function exit; fine-grained root liveness remains future work.
 - A collector worker coordinates start and termination root handshakes, concurrent mark, and
-  concurrent sweep. Marking examines at most 64 reference slots per locked batch. Gray work is
-  intrusive resident allocation metadata; the store barrier does not allocate a work queue.
+  concurrent sweep. Marking examines at most 64 reference slots and completes at most 32 objects
+  per locked batch. Resident per-span epoch/mark/gray words group work by slot address. An intrusive
+  ready-region queue coalesces publication and rechecks gray work when a claim finishes.
+  Large arrays retain descriptor cursors between claims; the barrier does not allocate queue nodes.
   Outstanding termination work returns to concurrent mark instead of draining the heap while parked.
 - Sweep stops at its initial allocation-list boundary. Newly appended black allocations cannot
   indefinitely extend the current sweep. It releases the heap lock after at most 64 allocation
@@ -87,17 +89,20 @@ collector callbacks do not. Process separation is not an OS security sandbox.
 
 ## Deliberate limits
 
-Shared slot metadata and the allocation index still use the heap mutex. The bounded thread slot cache
-does not remove poll or registration locks. Span mark/gray bitmaps, allocator assists and the event
-ring are not implemented. Marking still uses
-per-object records and intrusive gray work. Lock contention, tombstone overhead, large active root
+Shared slot metadata, tracing words, active barriers and the allocation index still use the heap mutex.
+The bounded thread slot cache does not remove poll or registration locks. Idle/Sweep reference stores
+now bypass that mutex using the phase/handshake protocol; active stores still shade under the lock.
+Span mark/gray bitmaps, work-bounded cache-miss assists and the opt-in resident event ring are implemented.
+Object records still retain scan cursors, storage ownership and the allocation index entry.
+Lock contention, tombstone overhead, large active root
 inventories and weak lookup costs require measurement. Region reserve/commit/release and refill metadata
 preparation run outside the heap mutex. Object-record/index registration still uses that mutex and can
 allocate native metadata. This is not the completed fast path or a measured latency guarantee.
 
-Locality still depends on per-object gray records; span-coalesced mark/gray traversal is pending.
-Every reference store takes the heap mutex for insertion shading. Memory pressure can wait for a
-cycle or fail within the physical budget; scan-proportional bounded assists are not implemented.
+Locality now groups gray work in resident span words, with address-ordered slots and coalesced claims.
+The allocation index and partially scanned object cursors remain per-object metadata. Idle/Sweep stores
+avoid the heap mutex; active stores still acquire it. Cache-miss assists repay allocation debt in
+bounded scan units. Memory pressure can still wait for a cycle or fail within the physical budget.
 Root snapshots still scale with active frame slots and strong owners, and cache flushing adds bounded
 work per thread. These costs require separate locality, barrier, pressure and safepoint measurements;
 the thread slot cache does not establish improvements in those areas.
@@ -139,6 +144,11 @@ liveness also remain incomplete. Runtime ABI 1 compatibility is not established.
 
 ## Validation entry points
 
+The [resident tracing protocol](resident-tracing.md) defines gray/ready ownership and barrier assumptions.
+The [diagnostic reference](diagnostic-reference.md) defines native counters and coarse timing histograms.
+The [native profiler](native-profiling.md) runs real graph/reclaim checkpoints and validates reports.
+These additions do not establish a comparative throughput or tail-latency result.
+
 `eng/test-runtime.ps1` builds a CLR-independent ASan harness. It exercises UTF-8/scalar boundaries,
 cyclic graphs, precise array scans, handle lifetime and weak clearing, exception copy/rethrow roots,
 suppression, seeded reachability comparisons, concurrent allocation/collection, and heap limits.
@@ -162,6 +172,11 @@ An additional harness-only hook pauses after empty-span preparation and before m
 three collections must complete with no reserved small slots before allocation resumes.
 The bounded barrier model explores two mutators and a marker and detects an intentionally missing
 barrier. It is a model of those transitions, not a proof of all native code or schedules.
+Additional models require counterexamples when ready-work Finish omits its gray recheck or a mutator
+retains an idle phase decision across parking. Native fixtures check word boundaries, composite array
+strides, scalar lookalikes, changing graphs across epochs, actual assist work and Start publication.
+Malformed descriptor children must fail before an ASan invalid-load report. Idle stores must complete
+while another test thread owns the heap mutex. Four mutators churn roots across real worker cycles.
 
 `eng/test-backends.ps1` compares actual AOT/ORC String/array/GC behavior in both runtime linkage modes,
 links native consumers against libraries, checks deterministic containers, and inspects native imports

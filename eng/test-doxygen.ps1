@@ -21,10 +21,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Doxygen native documentation validation failed.' }
     if (-not (Test-Path out/doxygen/html/index.html)) { throw 'Missing Doxygen HTML output.' }
     [xml]$index = Get-Content out/doxygen/xml/index.xml -Raw
-    foreach ($name in @('SolRT.h', 'Gc.h', 'Core.h', 'GcWorker.cpp', 'Api.h', 'Session.h', 'Compiler.cpp', 'main.cpp', 'Main.cpp')) {
+    foreach ($name in @('SolRT.h', 'Gc.h', 'Core.h', 'GcWorker.cpp', 'MarkWork.h', 'GcDiagnostics.h', 'GcPacing.h', 'Api.h', 'Session.h', 'Compiler.cpp', 'main.cpp', 'Main.cpp')) {
         if ($name -notin @($index.doxygenindex.compound.name)) { throw "Native documentation input is missing: $name" }
     }
-    foreach ($name in @('OpenDot::Sol::LlvmBridge::Compiler', 'OpenDot::Sol::Runtime::TypeDescriptor', 'OpenDot::Sol::Runtime::StringArray', 'OpenDot::Sol::Runtime::RootFrame', 'OpenDot::Sol::Runtime::ExceptionCarrier')) {
+    foreach ($name in @('OpenDot::Sol::LlvmBridge::Compiler', 'OpenDot::Sol::Runtime::TypeDescriptor', 'OpenDot::Sol::Runtime::StringArray', 'OpenDot::Sol::Runtime::RootFrame', 'OpenDot::Sol::Runtime::ExceptionCarrier', 'OpenDot::Sol::Runtime::Heap::MarkRegion', 'OpenDot::Sol::Runtime::GcDiagnosticSnapshot')) {
         if ($name -notin @($index.doxygenindex.compound.name)) { throw "Native API extraction is missing: $name" }
     }
     Write-Host "Doxygen $($pin.version) native HTML/XML validation passed."

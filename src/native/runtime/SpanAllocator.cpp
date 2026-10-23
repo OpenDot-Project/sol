@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "SpanAllocator.h"
+#include "MarkWork.h"
 #include <Windows.h>
 #include <algorithm>
 #include <atomic>
@@ -15,6 +16,7 @@ namespace OpenDot::Sol::Runtime::Heap
 {
 struct Span final
 {
+    MarkRegion Tracing;
     void *Memory = nullptr;
     Span *Next = nullptr, *Previous = nullptr;
     Span *AvailableNext = nullptr, *AvailablePrevious = nullptr;
@@ -87,6 +89,11 @@ struct Prepared final
 Prepared Prepare(bool small, std::uint64_t bytes, std::uint64_t committed, std::uint64_t reserved)
 {
     auto metadata = small ? std::make_unique<Span>() : nullptr;
+    if (metadata)
+    {
+        const auto slotSize = *std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes);
+        metadata->Tracing.Initialize(nullptr, static_cast<std::uint32_t>(SpanBytes / slotSize), slotSize);
+    }
     if (!Allow(RegionOperation::Reserve, nullptr, reserved))
     {
         return {};
@@ -322,6 +329,7 @@ Block SpanAllocator::PrepareRegion(std::uint64_t bytes, std::uint64_t limit, std
     }
     auto *span = prepared.Small.release();
     span->Memory = prepared.Memory;
+    span->Tracing.SetBase(static_cast<Header *>(prepared.Memory));
     span->Class = static_cast<std::uint32_t>(index);
     span->Count = static_cast<std::uint32_t>(SpanBytes / SizeClasses[index]);
     span->Epoch = _epoch;
@@ -434,6 +442,15 @@ void SpanAllocator::ReturnUnused(const Block &block)
         sol_rt_fail(7);
     }
     Publish(block.Owner);
+}
+
+MarkRegion &SpanAllocator::Tracing(const Block &block)
+{
+    if (!block.Owner)
+    {
+        sol_rt_fail(7);
+    }
+    return block.Owner->Tracing;
 }
 
 void SpanAllocator::BeginCycle() noexcept

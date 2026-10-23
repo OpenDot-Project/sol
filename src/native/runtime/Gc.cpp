@@ -26,6 +26,7 @@ State::~State()
         Worker.join();
     }
     std::unique_lock guard(Mutex);
+    Work.CancelAll();
     for (const auto &thread : Threads)
     {
         thread->AllocationCache.Flush(Allocator);
@@ -59,6 +60,7 @@ void StartWorker(State &state)
 
 void Shade(State &state, Header *value)
 {
+    state.Cost.Increment(GcCounter::ShadeCalls);
     if (!value)
     {
         return;
@@ -74,24 +76,29 @@ void Shade(State &state, Header *value)
         return;
     }
     auto *entry = found->second;
-    if (entry->Mark == state.Epoch)
+    if (!entry->Tracing->Shade(entry->Storage.Slot, state.Epoch))
     {
+        state.Cost.Increment(GcCounter::AlreadyMarked);
         return;
     }
-    entry->Mark = state.Epoch;
+    state.Cost.Increment(GcCounter::NewMarks);
     entry->Cursor = 0;
-    entry->NextGray = state.Gray;
-    state.Gray = entry;
+    state.Work.Publish(*entry->Tracing);
 }
 
 void Roots(State &state)
 {
+    const auto started = MonotonicNanoseconds();
+    std::uint64_t visits = 0;
     for (const auto &thread : state.Threads)
     {
         for (auto *frame = thread->Top; frame; frame = frame->Previous)
         {
+            state.Cost.Increment(GcCounter::RootFrames);
             for (std::uint32_t index = 0; index < frame->Count; ++index)
             {
+                ++visits;
+                state.Cost.Increment(GcCounter::RootSlots);
                 Shade(state, std::atomic_ref(frame->Slots[index]).load(std::memory_order_acquire));
             }
         }
@@ -99,8 +106,13 @@ void Roots(State &state)
     for (auto *handle = state.StrongHandles; handle; handle = handle->NextStrong)
     {
         ++state.HandleInventory.StrongRootVisits;
+        ++visits;
+        state.Cost.Increment(GcCounter::StrongRoots);
         Shade(state, handle->Value);
     }
+    const auto elapsed = ElapsedNanoseconds(started);
+    state.Cost.Observe(GcHistogram::RootSnapshot, elapsed);
+    state.Cost.Events.Append(GcEventKind::RootsScanned, state.Epoch, visits, elapsed);
 }
 }
 
@@ -126,6 +138,10 @@ void sol_gc_attach()
         if (!state.Limit)
         {
             state.Limit = ReadHeapLimit();
+        }
+        if (state.Threads.empty())
+        {
+            state.Cost.Events.Enable(ReadEventSetting());
         }
         CurrentThread = thread.get();
         state.Threads.push_back(std::move(thread));
@@ -276,7 +292,16 @@ void sol_gc_store_ref(Header **destination, Header *value)
         sol_rt_fail(7);
     }
     auto &state = Get();
+    const auto phase = state.Current.load(std::memory_order_acquire);
+    if (phase == Phase::Idle || phase == Phase::Sweep)
+    {
+        // Start cannot finish while this mutator is running. Publication precedes its next park.
+        state.Cost.IdleBarrier();
+        std::atomic_ref(*destination).store(value, std::memory_order_release);
+        return;
+    }
     const std::lock_guard guard(state.Mutex);
+    state.Cost.Increment(GcCounter::ActiveBarriers);
     if (state.Current == Phase::Mark || Handshake(state.Current))
     {
         Shade(state, value);
@@ -350,6 +375,7 @@ void ShutdownHeap()
         state.Worker.join();
     }
     std::unique_lock guard(state.Mutex);
+    state.Work.CancelAll();
     for (const auto &thread : state.Threads)
     {
         thread->AllocationCache.Flush(state.Allocator);
@@ -370,7 +396,8 @@ void ShutdownHeap()
     Heap::CurrentThread = nullptr;
     state.Bytes = 0;
     state.Live = 0;
-    state.Gray = nullptr;
+    state.Work.ResetCounters();
+    state.Cost.Reset();
     state.Requested = state.Epoch;
     state.Completed = state.Epoch;
     state.Stop = false;

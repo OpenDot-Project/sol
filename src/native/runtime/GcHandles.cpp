@@ -24,7 +24,8 @@ RuntimeHandle *sol_gc_create_handle(Header *value, bool weak)
             {
                 handle->ObjectIdentity = entry->second->Identity;
                 // Creating ownership cannot resurrect an already sealed white object.
-                if (state.Current == Phase::Sweep && entry->second->Mark != state.Epoch)
+                if (state.Current == Phase::Sweep
+                    && !entry->second->Tracing->Marked(entry->second->Storage.Slot, state.Epoch))
                 {
                     sol_rt_fail(7);
                 }
@@ -88,7 +89,8 @@ bool sol_gc_resolve_handle(RuntimeHandle *handle, Header **root)
         // Never dereference the stored address until both registry membership and identity match.
         const auto entry = state.Index.find(record.Value);
         if (entry == state.Index.end() || entry->second->Identity != record.ObjectIdentity
-            || (state.Current == Phase::Sweep && entry->second->Mark != state.Epoch))
+            || (state.Current == Phase::Sweep
+                && !entry->second->Tracing->Marked(entry->second->Storage.Slot, state.Epoch)))
         {
             record.Value = nullptr;
             record.ObjectIdentity = 0;
