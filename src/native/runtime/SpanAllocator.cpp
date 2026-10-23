@@ -3,6 +3,7 @@
 #include "SpanAllocator.h"
 #include <Windows.h>
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <limits>
 #include <memory>
@@ -24,6 +25,23 @@ struct Span final
 
 namespace
 {
+#if defined(SOL_RT_TESTS)
+std::atomic<RegionHook> Observer{nullptr};
+#endif
+
+bool Allow(RegionOperation operation, void *memory, std::uint64_t bytes) noexcept
+{
+#if defined(SOL_RT_TESTS)
+    const auto hook = Observer.load(std::memory_order_acquire);
+    return !hook || hook(operation, memory, bytes);
+#else
+    (void)operation;
+    (void)memory;
+    (void)bytes;
+    return true;
+#endif
+}
+
 void Poison(void *memory, std::uint64_t bytes, bool inaccessible) noexcept
 {
 #if defined(__SANITIZE_ADDRESS__)
@@ -50,7 +68,55 @@ std::uint64_t Rounded(std::uint64_t bytes, std::uint64_t alignment) noexcept
     }
     return (bytes + alignment - 1) & ~(alignment - 1);
 }
+
+void FreeRegion(void *memory, std::uint64_t committed) noexcept
+{
+    Poison(memory, committed, false);
+    if (!Allow(RegionOperation::Release, memory, committed) || !VirtualFree(memory, 0, MEM_RELEASE))
+    {
+        sol_rt_fail(7);
+    }
 }
+
+struct Prepared final
+{
+    std::unique_ptr<Span> Small;
+    void *Memory = nullptr;
+};
+
+Prepared Prepare(bool small, std::uint64_t bytes, std::uint64_t committed, std::uint64_t reserved)
+{
+    auto metadata = small ? std::make_unique<Span>() : nullptr;
+    if (!Allow(RegionOperation::Reserve, nullptr, reserved))
+    {
+        return {};
+    }
+    auto *memory = VirtualAlloc(nullptr, static_cast<std::size_t>(reserved), MEM_RESERVE, PAGE_READWRITE);
+    if (!memory)
+    {
+        return {};
+    }
+    if (!Allow(RegionOperation::Commit, memory, committed)
+        || !VirtualAlloc(memory, static_cast<std::size_t>(committed), MEM_COMMIT, PAGE_READWRITE))
+    {
+        FreeRegion(memory, 0);
+        return {};
+    }
+    Poison(memory, committed, true);
+    if (!small)
+    {
+        Poison(memory, bytes, false);
+    }
+    return {std::move(metadata), memory};
+}
+}
+
+#if defined(SOL_RT_TESTS)
+void SetRegionHook(RegionHook hook) noexcept
+{
+    Observer.store(hook, std::memory_order_release);
+}
+#endif
 
 SpanAllocator::SpanAllocator()
 {
@@ -66,7 +132,18 @@ SpanAllocator::SpanAllocator()
 
 SpanAllocator::~SpanAllocator()
 {
-    Reset();
+    // Destruction is exclusive: the owner has joined its collector and detached other mutators.
+    if (_large || _pending)
+    {
+        sol_rt_fail(7);
+    }
+    while (_all)
+    {
+        auto *span = _all;
+        _all = span->Next;
+        FreeRegion(span->Memory, SpanBytes);
+        delete span;
+    }
 }
 
 void SpanAllocator::UnlinkAvailable(Span *span) noexcept
@@ -106,7 +183,7 @@ void SpanAllocator::Publish(Span *span) noexcept
     span->AvailableEpoch = _epoch;
 }
 
-void SpanAllocator::Destroy(Span *span)
+void SpanAllocator::Destroy(Span *span, std::unique_lock<std::mutex> &guard)
 {
     if (span->Used)
     {
@@ -129,39 +206,112 @@ void SpanAllocator::Destroy(Span *span)
     {
         span->Next->Previous = span->Previous;
     }
-    Poison(span->Memory, SpanBytes, false);
-    if (!VirtualFree(span->Memory, 0, MEM_RELEASE))
-    {
-        sol_rt_fail(7);
-    }
+    --_spans;
+    // Detach before unlocking. Keep commitment charged until the OS release has completed.
+    guard.unlock();
+    FreeRegion(span->Memory, SpanBytes);
+    delete span;
+    guard.lock();
     _committed -= SpanBytes;
     _reserved -= SpanBytes;
-    --_spans;
-    delete span;
 }
 
-bool SpanAllocator::Budget(std::uint64_t bytes, std::uint64_t limit)
+bool SpanAllocator::Budget(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard)
 {
     if (bytes > limit)
     {
         return false;
     }
-    if (_committed <= limit - bytes)
+    const auto fits = [&] {
+        return _pending <= limit - bytes && _committed <= limit - bytes - _pending;
+    };
+    if (fits())
     {
         return true;
     }
     // At most one empty region per class; trimming never walks the heap or object graph.
-    for (auto *span : _empty)
+    for (std::size_t index = 0; index < _empty.size(); ++index)
     {
-        if (span)
+        if (auto *span = _empty[index])
         {
-            Destroy(span);
+            Destroy(span, guard);
+            if (fits())
+            {
+                return true;
+            }
         }
     }
-    return _committed <= limit - bytes;
+    return fits();
 }
 
-Block SpanAllocator::TryAllocate(std::uint64_t bytes, std::uint64_t limit)
+Block SpanAllocator::TryAllocate(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard)
+{
+    if (!guard.owns_lock())
+    {
+        sol_rt_fail(7);
+    }
+    if (auto reused = TryReuse(bytes); reused.Object)
+    {
+        return reused;
+    }
+    const bool small = bytes <= SizeClasses.back();
+    const auto committed = small ? SpanBytes : Rounded(bytes, _pageBytes);
+    const auto reserved = small ? SpanBytes : Rounded(bytes, _granularity);
+    if (!committed || !reserved || !Budget(committed, limit, guard))
+    {
+        return TryReuse(bytes);
+    }
+    // Trimming can unlock and allow a sweep/refill to make an existing slot available.
+    if (auto reused = TryReuse(bytes); reused.Object)
+    {
+        return reused;
+    }
+    _pending += committed;
+    guard.unlock();
+    Prepared prepared;
+    try
+    {
+        prepared = Prepare(small, bytes, committed, reserved);
+    }
+    catch (...)
+    {
+        guard.lock();
+        _pending -= committed;
+        throw;
+    }
+    guard.lock();
+    _pending -= committed;
+    if (!prepared.Memory)
+    {
+        return {};
+    }
+    _committed += committed;
+    _reserved += reserved;
+    if (!small)
+    {
+        _capacity += committed;
+        ++_large;
+        return {static_cast<Header *>(prepared.Memory), nullptr, committed, reserved, 0};
+    }
+    const auto index = static_cast<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
+                                                - SizeClasses.begin());
+    auto *span = prepared.Small.release();
+    span->Memory = prepared.Memory;
+    span->Class = static_cast<std::uint32_t>(index);
+    span->Count = static_cast<std::uint32_t>(SpanBytes / SizeClasses[index]);
+    span->Epoch = _epoch;
+    span->Next = _all;
+    if (_all)
+    {
+        _all->Previous = span;
+    }
+    _all = span;
+    ++_spans;
+    Publish(span);
+    return TryReuse(bytes);
+}
+
+Block SpanAllocator::TryReuse(std::uint64_t bytes)
 {
     if (bytes < sizeof(Header) || (bytes & 15))
     {
@@ -169,62 +319,14 @@ Block SpanAllocator::TryAllocate(std::uint64_t bytes, std::uint64_t limit)
     }
     if (bytes > SizeClasses.back())
     {
-        const auto committed = Rounded(bytes, _pageBytes), reserved = Rounded(bytes, _granularity);
-        if (!committed || !reserved || !Budget(committed, limit))
-        {
-            return {};
-        }
-        auto *memory = VirtualAlloc(nullptr, static_cast<std::size_t>(reserved), MEM_RESERVE, PAGE_READWRITE);
-        if (!memory)
-        {
-            return {};
-        }
-        if (!VirtualAlloc(memory, static_cast<std::size_t>(committed), MEM_COMMIT, PAGE_READWRITE))
-        {
-            if (!VirtualFree(memory, 0, MEM_RELEASE))
-            {
-                sol_rt_fail(7);
-            }
-            return {};
-        }
-        _committed += committed;
-        _reserved += reserved;
-        _capacity += committed;
-        ++_large;
-        Poison(memory, committed, true);
-        Poison(memory, bytes, false);
-        return {static_cast<Header *>(memory), nullptr, committed, reserved, 0};
+        return {};
     }
-    const auto index = static_cast<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes) -
-                                                SizeClasses.begin());
+    const auto index = static_cast<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
+                                                - SizeClasses.begin());
     auto *span = _available[index];
     if (!span)
     {
-        if (!Budget(SpanBytes, limit))
-        {
-            return {};
-        }
-        auto owned = std::make_unique<Span>();
-        owned->Memory = VirtualAlloc(nullptr, SpanBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        if (!owned->Memory)
-        {
-            return {};
-        }
-        owned->Class = static_cast<std::uint32_t>(index);
-        owned->Count = static_cast<std::uint32_t>(SpanBytes / SizeClasses[index]);
-        owned->Epoch = _epoch;
-        span = owned.release();
-        span->Next = _all;
-        if (_all)
-        {
-            _all->Previous = span;
-        }
-        _all = span;
-        _committed += SpanBytes;
-        _reserved += SpanBytes;
-        ++_spans;
-        Poison(span->Memory, SpanBytes, true);
-        Publish(span);
+        return {};
     }
     if (span->Epoch != _epoch)
     {
@@ -261,7 +363,7 @@ Block SpanAllocator::TryAllocate(std::uint64_t bytes, std::uint64_t limit)
         {
             UnlinkAvailable(span);
         }
-        auto *memory = static_cast<char *>(span->Memory) + slot * SizeClasses[index];
+        auto *memory = static_cast<char *>(span->Memory) + static_cast<std::size_t>(slot) * SizeClasses[index];
         Poison(memory, bytes, false);
         return {reinterpret_cast<Header *>(memory), span, SizeClasses[index], 0, slot};
     }
@@ -299,13 +401,13 @@ void SpanAllocator::FreeSlot(const Block &block)
     _capacity -= block.Capacity;
 }
 
-void SpanAllocator::Recycle(Span *span)
+void SpanAllocator::Recycle(Span *span, std::unique_lock<std::mutex> &guard)
 {
     if (!span->Used)
     {
         if (_empty[span->Class] && _empty[span->Class] != span)
         {
-            Destroy(span);
+            Destroy(span, guard);
             return;
         }
         _empty[span->Class] = span;
@@ -313,36 +415,34 @@ void SpanAllocator::Recycle(Span *span)
     Publish(span);
 }
 
-void SpanAllocator::Release(const Block &block)
+void SpanAllocator::Release(const Block &block, std::unique_lock<std::mutex> &guard)
 {
     if (!block.Owner)
     {
-        Poison(block.Object, block.Capacity, false);
-        if (!VirtualFree(block.Object, 0, MEM_RELEASE))
-        {
-            sol_rt_fail(7);
-        }
-        _committed -= block.Capacity;
-        _reserved -= block.Reserved;
         _capacity -= block.Capacity;
         --_large;
+        guard.unlock();
+        FreeRegion(block.Object, block.Capacity);
+        guard.lock();
+        _committed -= block.Capacity;
+        _reserved -= block.Reserved;
         return;
     }
     FreeSlot(block);
     if (block.Owner->Epoch == _epoch)
     {
-        Recycle(block.Owner);
+        Recycle(block.Owner, guard);
     }
 }
 
-void SpanAllocator::Sweep(const Block &block, bool dead)
+void SpanAllocator::Sweep(const Block &block, bool dead, std::unique_lock<std::mutex> &guard)
 {
     auto *span = block.Owner;
     if (!span)
     {
         if (dead)
         {
-            Release(block);
+            Release(block, guard);
         }
         return;
     }
@@ -371,7 +471,7 @@ void SpanAllocator::Sweep(const Block &block, bool dead)
     if (!span->Remaining)
     {
         span->Epoch = _epoch;
-        Recycle(span);
+        Recycle(span, guard);
     }
 }
 
@@ -380,15 +480,15 @@ AllocatorStats SpanAllocator::Stats() const noexcept
     return {_committed, _reserved, _capacity, _spans, _large, _slots, _reused};
 }
 
-void SpanAllocator::Reset()
+void SpanAllocator::Reset(std::unique_lock<std::mutex> &guard)
 {
     // Shutdown has already released all registered objects, including dedicated large regions.
     while (_all)
     {
         _all->Used = 0;
-        Destroy(_all);
+        Destroy(_all, guard);
     }
-    if (_large)
+    if (_large || _pending)
     {
         sol_rt_fail(7);
     }

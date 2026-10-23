@@ -14,10 +14,12 @@ using namespace OpenDot::Sol::Runtime::Heap;
 
 namespace
 {
-constexpr std::uint64_t Limit = 16 * 1024 * 1024;
+constexpr std::uint64_t Limit = 16ULL * 1024 * 1024;
 
 int Classes()
 {
+    std::mutex mutex;
+    std::unique_lock guard(mutex);
     SpanAllocator allocator;
     for (auto size : SizeClasses)
     {
@@ -26,7 +28,7 @@ int Classes()
         const auto count = static_cast<unsigned>(SpanBytes / size + 3);
         for (unsigned index = 0; index < count; ++index)
         {
-            const auto block = allocator.TryAllocate(size, Limit);
+            const auto block = allocator.TryAllocate(size, Limit, guard);
             if (!block.Object || !block.Owner || block.Capacity != size || !addresses.insert(block.Object).second
                 || reinterpret_cast<std::uintptr_t>(block.Object) % 16)
             {
@@ -42,7 +44,7 @@ int Classes()
             {
                 return 102;
             }
-            allocator.Release(block);
+            allocator.Release(block, guard);
         }
     }
     auto stats = allocator.Stats();
@@ -55,14 +57,14 @@ int Classes()
     allocator.BeginCycle();
     for (auto size : SizeClasses)
     {
-        auto block = allocator.TryAllocate(size, Limit);
+        auto block = allocator.TryAllocate(size, Limit, guard);
         if (!block.Object || allocator.Stats().SpanCount != SizeClasses.size())
         {
             return 104;
         }
-        allocator.Release(block);
+        allocator.Release(block, guard);
     }
-    allocator.Reset();
+    allocator.Reset(guard);
     if (allocator.Stats().CommittedBytes || allocator.Stats().ReservedBytes)
     {
         return 105;
@@ -72,6 +74,8 @@ int Classes()
 
 int BoundariesAndReuse()
 {
+    std::mutex mutex;
+    std::unique_lock guard(mutex);
     SpanAllocator allocator;
     for (auto size : SizeClasses)
     {
@@ -81,18 +85,18 @@ int BoundariesAndReuse()
         }
         const auto bytes = static_cast<std::uint64_t>(size - 16);
         const auto expected = *std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes);
-        auto block = allocator.TryAllocate(bytes, Limit);
+        auto block = allocator.TryAllocate(bytes, Limit, guard);
         if (!block.Object || block.Capacity != expected)
         {
             return 110;
         }
-        allocator.Release(block);
+        allocator.Release(block, guard);
     }
-    allocator.Reset();
+    allocator.Reset(guard);
     std::vector<Block> blocks;
     for (unsigned index = 0; index < 4096; ++index)
     {
-        blocks.push_back(allocator.TryAllocate(64, Limit));
+        blocks.push_back(allocator.TryAllocate(64, Limit, guard));
     }
     if (allocator.Stats().SpanCount != 4 || allocator.Stats().SmallObjectCount != 4096)
     {
@@ -102,11 +106,11 @@ int BoundariesAndReuse()
     for (unsigned index = 0; index < blocks.size(); index += 2)
     {
         freed.insert(blocks[index].Object);
-        allocator.Release(blocks[index]);
+        allocator.Release(blocks[index], guard);
     }
     for (unsigned index = 0; index < blocks.size(); index += 2)
     {
-        blocks[index] = allocator.TryAllocate(64, Limit);
+        blocks[index] = allocator.TryAllocate(64, Limit, guard);
         if (!freed.erase(blocks[index].Object))
         {
             return 112;
@@ -118,7 +122,7 @@ int BoundariesAndReuse()
     }
     for (const auto &block : blocks)
     {
-        allocator.Release(block);
+        allocator.Release(block, guard);
     }
     if (allocator.Stats().SpanCount != 1 || allocator.Stats().SmallObjectCount)
     {
@@ -129,28 +133,30 @@ int BoundariesAndReuse()
 
 int Epochs()
 {
+    std::mutex mutex;
+    std::unique_lock guard(mutex);
     SpanAllocator allocator;
     std::vector<Block> old;
     for (unsigned index = 0; index < 4; ++index)
     {
-        old.push_back(allocator.TryAllocate(64, Limit));
+        old.push_back(allocator.TryAllocate(64, Limit, guard));
     }
     allocator.BeginCycle();
-    const auto fresh = allocator.TryAllocate(64, Limit);
+    const auto fresh = allocator.TryAllocate(64, Limit, guard);
     if (fresh.Owner == old[0].Owner)
     {
         return 120;
     }
-    allocator.Sweep(old[0], true);
-    allocator.Sweep(old[1], false);
-    const auto racing = allocator.TryAllocate(64, Limit);
+    allocator.Sweep(old[0], true, guard);
+    allocator.Sweep(old[1], false, guard);
+    const auto racing = allocator.TryAllocate(64, Limit, guard);
     if (racing.Owner == old[0].Owner)
     {
         return 121;
     }
-    allocator.Sweep(old[2], true);
-    allocator.Sweep(old[3], true);
-    const auto reused = allocator.TryAllocate(64, Limit);
+    allocator.Sweep(old[2], true, guard);
+    allocator.Sweep(old[3], true, guard);
+    const auto reused = allocator.TryAllocate(64, Limit, guard);
     if (reused.Owner != old[0].Owner)
     {
         return 122;
@@ -158,7 +164,7 @@ int Epochs()
     allocator.BeginCycle();
     for (const auto &block : {old[1], fresh, racing, reused})
     {
-        allocator.Sweep(block, true);
+        allocator.Sweep(block, true, guard);
     }
     if (allocator.Stats().SmallObjectCount || allocator.Stats().SpanCount != 1)
     {
@@ -169,22 +175,24 @@ int Epochs()
 
 int LargeAndBudget()
 {
+    std::mutex mutex;
+    std::unique_lock guard(mutex);
     SpanAllocator allocator;
-    auto tiny = allocator.TryAllocate(16, Limit);
-    allocator.Release(tiny);
+    auto tiny = allocator.TryAllocate(16, Limit, guard);
+    allocator.Release(tiny, guard);
     // A dedicated region can reclaim the bounded empty-span reserve to fit its commit budget.
-    auto large = allocator.TryAllocate(65536, 65536);
+    auto large = allocator.TryAllocate(65536, 65536, guard);
     if (!large.Object || large.Owner || large.Capacity != 65536 || large.Reserved != 65536
         || allocator.Stats().SpanCount || allocator.Stats().LargeObjectCount != 1)
     {
         return 130;
     }
-    if (allocator.TryAllocate(16, 65536).Object)
+    if (allocator.TryAllocate(16, 65536, guard).Object)
     {
         return 131;
     }
-    allocator.Release(large);
-    large = allocator.TryAllocate(32784, Limit);
+    allocator.Release(large, guard);
+    large = allocator.TryAllocate(32784, Limit, guard);
     SYSTEM_INFO system{};
     GetSystemInfo(&system);
     const auto expectedCommit = (32784ULL + system.dwPageSize - 1) & ~static_cast<std::uint64_t>(system.dwPageSize - 1);
@@ -195,12 +203,12 @@ int LargeAndBudget()
     {
         return 132;
     }
-    allocator.Release(large);
+    allocator.Release(large, guard);
     if (allocator.Stats().CommittedBytes || allocator.Stats().ReservedBytes || allocator.Stats().LargeObjectCount)
     {
         return 133;
     }
-    if (allocator.TryAllocate(16, SpanBytes - 1).Object || allocator.TryAllocate(32784, 32784).Object)
+    if (allocator.TryAllocate(16, SpanBytes - 1, guard).Object || allocator.TryAllocate(32784, 32784, guard).Object)
     {
         return 134;
     }

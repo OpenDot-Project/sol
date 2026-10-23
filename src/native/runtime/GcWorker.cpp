@@ -138,13 +138,13 @@ void Run()
                 }
                 state.Index.erase(allocation.Object);
                 state.Bytes -= allocation.Bytes;
-                state.Allocator.Sweep(allocation.Storage, true);
+                state.Allocator.Sweep(allocation.Storage, true, guard);
                 entry = state.Objects.erase(entry);
             }
             else
             {
                 state.Live += allocation.Bytes;
-                state.Allocator.Sweep(allocation.Storage, false);
+                state.Allocator.Sweep(allocation.Storage, false, guard);
                 ++entry;
             }
             if (finalEntry)

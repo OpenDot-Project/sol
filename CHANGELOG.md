@@ -8,6 +8,10 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Yellow Tea region preparation and release outside the heap mutex, with pending commit permits,
+  conservative retirement accounting and native-safe refill. Deterministic ASan harness probes cover
+  reserve/commit failure, epoch changes during preparation and collector progress during a paused refill.
+
 - Experimental Yellow Tea span storage with 44 size classes, reusable slots, epoch-sealed sweep
   publication, dedicated Windows large regions and committed/reserved accounting. Heap limits now
   cover physical managed commitment; native ASan checks exercise slot reuse and poisoned slack.
