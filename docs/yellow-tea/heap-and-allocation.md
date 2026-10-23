@@ -3,9 +3,9 @@
 # Heap and allocation
 
 This page defines the initial heap design. Source development implements the span storage and
-size-class layer; the [current implementation](current-implementation.md) distinguishes it from
-planned TLS caches and span mark/gray work. Layout numbers do not promise compatibility with a
-published native Sol release; the current descriptors remain provisional ABI 0.
+size-class layer and bounded thread slot cache. The [current implementation](current-implementation.md)
+distinguishes those from planned span mark/gray work. Layout numbers do not promise compatibility
+with a published native Sol release; the current descriptors remain provisional ABI 0.
 
 ## Allocation units
 
@@ -39,7 +39,8 @@ the limit while Windows has not yet returned. Span metadata and reserve/commit o
 prepared outside the mutex with the allocating mutator native-safe and its roots published.
 
 Publication reacquires the mutex, replaces the pending permit with region accounting, assigns the
-current allocation epoch, links the span and takes its first slot. A preparation epoch is not reused
+current allocation epoch and links the span. Runtime small refills publish empty storage and reserve
+their first slot only after managed reentry. A preparation epoch is not reused
 as a publication epoch. A failed reserve rolls back the permit; a failed commit first releases the
 incomplete reservation outside the mutex. Previously swept slots may become available while
 trimming cached spans, so the allocator rechecks them before committing another growth permit.
@@ -51,7 +52,8 @@ Sweeper list cursors remain protected except across these detached-region operat
 append allocation records, and the original sweep boundary still determines cycle completion.
 
 This protocol removes OS region operations from the heap mutex. Slot metadata and object registry
-operations remain serialized; it does not implement the planned thread-local allocation cache.
+operations remain serialized. The current bounded thread cache takes hits under thread ownership,
+while its batch refill still updates shared slot metadata under the mutex.
 
 ## Object and array layouts
 
@@ -102,6 +104,15 @@ double-buffered mark parity must not clear the next epoch's bits while finishing
 Thread-local caches allocate from swept slots under thread ownership. Shared allocator lists are used
 for refill and growth. Refill may incur [bounded assistance](pacing-and-diagnostics.md); application
 allocation latency includes that work.
+
+The implemented cache holds one aligned request size and at most eight slots taken from a single
+span. Consuming one immediately leaves at most seven unused entries, with capacity below 64 KiB per
+thread. A different request size flushes the previous batch. The start handshake flushes all unused
+entries before epoch sealing, including caches belonging to native-safe threads. Detach and shutdown
+flush as well. No OS operation runs in that flush; the batch's already registered object keeps its
+span nonempty until sweeping. Cache reservation counts against physical capacity and commitment.
+Polls, black allocation registration and index publication remain serialized. This storage fast path
+does not establish allocation latency, barrier locality or root snapshot improvements.
 
 Before publication, reference slots are zeroed and the descriptor is installed. The compiler's
 initialization verifier then establishes source-level validity. Zeroed storage alone is not a valid

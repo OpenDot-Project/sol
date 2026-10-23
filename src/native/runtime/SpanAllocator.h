@@ -32,7 +32,7 @@ using RegionHook = bool (*)(RegionOperation, void *, std::uint64_t) noexcept;
 void SetRegionHook(RegionHook hook) noexcept;
 #endif
 
-/// All operations require the owning heap mutex. Growth/release temporarily unlock the supplied guard.
+/// Shared metadata operations require the owning heap mutex. Growth/release temporarily unlock the guard.
 /// Refill callers must be native-safe; sweep callers must have removed all references before release.
 class SpanAllocator final
 {
@@ -43,6 +43,16 @@ public:
     SpanAllocator &operator=(const SpanAllocator &) = delete;
     Block TryReuse(std::uint64_t bytes);
     Block TryAllocate(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard);
+    bool PrepareSmall(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard);
+    std::uint32_t TakeBatch(std::uint64_t bytes, Block *blocks, std::uint32_t capacity);
+    void ReturnUnused(const Block &block);
+
+    /// A ManagedRunning mutator may also read this: epoch advance waits for every mutator to park.
+    std::uint64_t Epoch() const noexcept
+    {
+        return _epoch;
+    }
+
     void BeginCycle() noexcept;
     void Sweep(const Block &block, bool dead, std::unique_lock<std::mutex> &guard);
     void Release(const Block &block, std::unique_lock<std::mutex> &guard);
@@ -69,5 +79,7 @@ private:
     void Destroy(Span *span, std::unique_lock<std::mutex> &guard);
     void Recycle(Span *span, std::unique_lock<std::mutex> &guard);
     void FreeSlot(const Block &block);
+    Block TakeSlot(Span *span, std::uint64_t bytes);
+    Block PrepareRegion(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard);
 };
 }

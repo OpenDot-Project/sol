@@ -246,25 +246,52 @@ bool SpanAllocator::Budget(std::uint64_t bytes, std::uint64_t limit, std::unique
 
 Block SpanAllocator::TryAllocate(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard)
 {
+    if (auto reused = TryReuse(bytes); reused.Object)
+    {
+        return reused;
+    }
+    const auto large = PrepareRegion(bytes, limit, guard);
+    return large.Object ? large : TryReuse(bytes);
+}
+
+bool SpanAllocator::PrepareSmall(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard)
+{
+    if (bytes < sizeof(Header) || (bytes & 15) || bytes > SizeClasses.back())
+    {
+        sol_rt_fail(7);
+    }
+    // PrepareRegion publishes empty storage only. No unregistered slot crosses a native transition.
+    (void)PrepareRegion(bytes, limit, guard);
+    const auto index = static_cast<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
+                                                - SizeClasses.begin());
+    return _available[index] != nullptr;
+}
+
+Block SpanAllocator::PrepareRegion(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard)
+{
     if (!guard.owns_lock())
     {
         sol_rt_fail(7);
     }
-    if (auto reused = TryReuse(bytes); reused.Object)
-    {
-        return reused;
-    }
     const bool small = bytes <= SizeClasses.back();
+    const auto index = small
+                           ? static_cast<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
+                                                      - SizeClasses.begin())
+                           : 0;
+    if (small && _available[index])
+    {
+        return {};
+    }
     const auto committed = small ? SpanBytes : Rounded(bytes, _pageBytes);
     const auto reserved = small ? SpanBytes : Rounded(bytes, _granularity);
     if (!committed || !reserved || !Budget(committed, limit, guard))
     {
-        return TryReuse(bytes);
+        return {};
     }
     // Trimming can unlock and allow a sweep/refill to make an existing slot available.
-    if (auto reused = TryReuse(bytes); reused.Object)
+    if (small && _available[index])
     {
-        return reused;
+        return {};
     }
     _pending += committed;
     guard.unlock();
@@ -293,8 +320,6 @@ Block SpanAllocator::TryAllocate(std::uint64_t bytes, std::uint64_t limit, std::
         ++_large;
         return {static_cast<Header *>(prepared.Memory), nullptr, committed, reserved, 0};
     }
-    const auto index = static_cast<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
-                                                - SizeClasses.begin());
     auto *span = prepared.Small.release();
     span->Memory = prepared.Memory;
     span->Class = static_cast<std::uint32_t>(index);
@@ -307,8 +332,8 @@ Block SpanAllocator::TryAllocate(std::uint64_t bytes, std::uint64_t limit, std::
     }
     _all = span;
     ++_spans;
-    Publish(span);
-    return TryReuse(bytes);
+    Recycle(span, guard);
+    return {};
 }
 
 Block SpanAllocator::TryReuse(std::uint64_t bytes)
@@ -328,6 +353,12 @@ Block SpanAllocator::TryReuse(std::uint64_t bytes)
     {
         return {};
     }
+    return TakeSlot(span, bytes);
+}
+
+Block SpanAllocator::TakeSlot(Span *span, std::uint64_t bytes)
+{
+    const auto index = span->Class;
     if (span->Epoch != _epoch)
     {
         sol_rt_fail(7);
@@ -368,6 +399,41 @@ Block SpanAllocator::TryReuse(std::uint64_t bytes)
         return {reinterpret_cast<Header *>(memory), span, SizeClasses[index], 0, slot};
     }
     sol_rt_fail(7);
+}
+
+std::uint32_t SpanAllocator::TakeBatch(std::uint64_t bytes, Block *blocks, std::uint32_t capacity)
+{
+    if (!blocks || !capacity)
+    {
+        sol_rt_fail(7);
+    }
+    const auto first = TryReuse(bytes);
+    if (!first.Object)
+    {
+        return 0;
+    }
+    blocks[0] = first;
+    std::uint32_t count = 1;
+    while (count < capacity && first.Owner->Used < first.Owner->Count)
+    {
+        blocks[count++] = TakeSlot(first.Owner, bytes);
+    }
+    return count;
+}
+
+void SpanAllocator::ReturnUnused(const Block &block)
+{
+    if (!block.Owner || block.Owner->Epoch != _epoch)
+    {
+        sol_rt_fail(7);
+    }
+    FreeSlot(block);
+    // A batch is consumed once before leaving managed mode; its registered object still owns a slot.
+    if (!block.Owner->Used)
+    {
+        sol_rt_fail(7);
+    }
+    Publish(block.Owner);
 }
 
 void SpanAllocator::BeginCycle() noexcept

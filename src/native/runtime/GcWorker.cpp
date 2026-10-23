@@ -82,6 +82,10 @@ void Run()
         {
             break;
         }
+        for (const auto &thread : state.Threads)
+        {
+            thread->AllocationCache.Flush(state.Allocator);
+        }
         state.Allocator.BeginCycle();
         Roots(state);
         state.Current = Phase::Mark;

@@ -8,6 +8,9 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ### Added
 
+- Bounded thread-owned small-allocation slot batches, epoch/detach/shutdown cache return and
+  native cache diagnostics. Small refills prepare empty spans before managed slot publication.
+
 - Active strong-handle root enumeration and allocation-identity validation for weak targets, avoiding
   scans of closed handle history in handshakes and of all weak handles per reclaimed object.
   Native inventory counters and ASan fixtures cover address reuse, concurrent close and identity exhaustion.

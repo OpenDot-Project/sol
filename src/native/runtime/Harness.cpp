@@ -12,9 +12,15 @@ int RunSpanTests();
 int RunSpanPoisonTest(bool freed);
 int RunRegionTests();
 int RunHandleTests();
+int RunThreadAllocationTests();
+int RunThreadAllocationPoisonTest();
 
 int wmain(int argc, wchar_t **argv)
 {
+    if (argc == 2 && std::wcscmp(argv[1], L"cache-use-after-return") == 0)
+    {
+        return RunThreadAllocationPoisonTest();
+    }
     if (argc == 2 && std::wcscmp(argv[1], L"slot-use-after-free") == 0)
     {
         return RunSpanPoisonTest(true);
@@ -88,5 +94,10 @@ int wmain(int argc, wchar_t **argv)
         return regions;
     }
     const int handles = RunHandleTests();
-    return handles ? handles : RunGcTests();
+    if (handles)
+    {
+        return handles;
+    }
+    const int caches = RunThreadAllocationTests();
+    return caches ? caches : RunGcTests();
 }
