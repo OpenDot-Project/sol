@@ -10,6 +10,7 @@ int RunGcTests();
 int RunGcModelTests();
 int RunSpanTests();
 int RunSpanPoisonTest(bool freed);
+int RunRegionTests();
 
 int wmain(int argc, wchar_t **argv)
 {
@@ -76,5 +77,10 @@ int wmain(int argc, wchar_t **argv)
         return model;
     }
     const int spans = RunSpanTests();
-    return spans ? spans : RunGcTests();
+    if (spans)
+    {
+        return spans;
+    }
+    const int regions = RunRegionTests();
+    return regions ? regions : RunGcTests();
 }

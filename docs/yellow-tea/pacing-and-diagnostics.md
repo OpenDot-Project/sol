@@ -40,6 +40,10 @@ library allocations, code pages, thread stacks, or reserved virtual address spac
 In current source development, the limit includes whole committed spans, retained empty spans and
 dedicated large-object pages. A bounded empty-span cache is trimmed before new commitment would
 exceed the limit. This can reject growth even when aligned live object bytes alone would fit.
+Pending refills reserve their prospective commitment before calling Windows outside the heap mutex.
+Retiring regions remain charged until their OS release completes. Together these charges bound
+competing operations even when preparation or release is delayed. A pending permit can temporarily
+reduce available budget without corresponding published objects; it is not reported as live bytes.
 
 Diagnostics should identify the invalid setting without dumping the process environment. There is
 no need to expose unrelated environment values or application contents in configuration errors.

@@ -1,11 +1,8 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
-#include "NativeScope.h"
 #include <algorithm>
 #include <cstdlib>
-#include <cstring>
-#include <limits>
 
 namespace OpenDot::Sol::Runtime::Heap
 {
@@ -28,9 +25,10 @@ State::~State()
     {
         Worker.join();
     }
+    std::unique_lock guard(Mutex);
     for (auto &entry : Objects)
     {
-        Allocator.Release(entry->Storage);
+        Allocator.Release(entry->Storage, guard);
     }
 }
 
@@ -267,87 +265,6 @@ void sol_gc_leave_export(int transition)
     }
 }
 
-Header *sol_gc_alloc(const TypeDescriptor *type, std::uint64_t totalBytes)
-{
-    RequireManaged();
-    sol_gc_poll();
-    if (!type || type->Alignment != 16 || totalBytes < type->Size || totalBytes < sizeof(Header)
-        || totalBytes > (std::numeric_limits<std::size_t>::max)() - 15)
-    {
-        sol_rt_fail(7);
-    }
-    const auto bytes = (totalBytes + 15) & ~std::uint64_t{15};
-    auto &state = Get();
-    Block storage;
-    {
-        std::unique_lock guard(state.Mutex);
-        if (state.Bytes >= state.Threshold && state.Bytes - state.Threshold >= 8 * 1024 * 1024)
-        {
-            // Apply allocation backpressure while the concurrent worker catches up. Other mutators
-            // can continue; this thread waits native-safe with its already published roots.
-            guard.unlock();
-            sol_gc_collect();
-            guard.lock();
-        }
-        try
-        {
-            storage = state.Allocator.TryAllocate(bytes, state.Limit);
-        }
-        catch (...)
-        {
-            sol_rt_fail(6);
-        }
-        if (!storage.Object)
-        {
-            guard.unlock();
-            sol_gc_collect();
-            guard.lock();
-            try
-            {
-                storage = state.Allocator.TryAllocate(bytes, state.Limit);
-            }
-            catch (...)
-            {
-                sol_rt_fail(6);
-            }
-            if (!storage.Object)
-            {
-                sol_rt_fail(6);
-            }
-        }
-        state.Bytes += bytes;
-    }
-    Header *object = storage.Object;
-    {
-        // Reserved but unpublished memory is not part of the traced graph yet.
-        const NativeScope transition(bytes >= 65536);
-        std::memset(object, 0, static_cast<std::size_t>(bytes));
-    }
-    object->Type = type;
-    const std::lock_guard guard(state.Mutex);
-    try
-    {
-        auto entry = std::make_unique<Allocation>();
-        entry->Storage = storage;
-        entry->Object = object;
-        entry->Bytes = bytes;
-        entry->Mark = state.Epoch; // Black allocation; every initialized reference uses the store barrier.
-        state.Objects.push_back(std::move(entry));
-        state.Index.emplace(object, state.Objects.back().get());
-    }
-    catch (...)
-    {
-        sol_rt_fail(6);
-    }
-    state.Allocated += bytes;
-    if (state.Bytes >= state.Threshold)
-    {
-        state.Requested = (std::max)(state.Requested, state.Epoch + 1);
-        state.Changed.notify_all();
-    }
-    return object;
-}
-
 void sol_gc_store_ref(Header **destination, Header *value)
 {
     RequireManaged();
@@ -495,12 +412,12 @@ void ShutdownHeap()
     {
         state.Worker.join();
     }
-    const std::lock_guard guard(state.Mutex);
+    std::unique_lock guard(state.Mutex);
     for (auto &entry : state.Objects)
     {
-        state.Allocator.Release(entry->Storage);
+        state.Allocator.Release(entry->Storage, guard);
     }
-    state.Allocator.Reset();
+    state.Allocator.Reset(guard);
     state.Objects.clear();
     state.Index.clear();
     state.Handles.clear();

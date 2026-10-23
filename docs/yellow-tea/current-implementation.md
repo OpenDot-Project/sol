@@ -25,6 +25,16 @@ collector callbacks do not. Process separation is not an OS security sandbox.
   Old spans become available only after every previous object record in that span has been swept.
   New spans and previously empty spans can serve black allocations during concurrent collection.
   At most one empty span per class is retained; commit pressure trims that bounded reserve.
+- A refill first charges a pending commit permit while holding the heap mutex, then prepares its
+  metadata and Windows reservation/commit with that mutex released. Allocating mutators publish
+  their roots and enter native-safe mode for this slow path. Publication reacquires the mutex and
+  stamps the span with the allocator's current epoch; preparation may cross collection cycles.
+  Cached-slot allocation remains under the heap mutex without a native transition.
+  Failed reserve/commit returns its permit and releases an incomplete reservation before retry.
+- Reclaiming a large region or an excess empty span detaches it before releasing the mutex for
+  `VirtualFree`. Its commitment remains charged until release completes and the mutex is acquired
+  again. Competing refills cannot spend memory that the OS is still releasing. Cached-span trimming
+  revisits shared list entries only after reacquiring the mutex; it retains no iterator across a release.
 - Object prefix: 16 bytes. String prefix: 24 bytes with valid immutable UTF-8, embedded NUL support,
   and atomic Unicode scalar-count caching. Array prefix: 32 bytes with count, stride, and element type.
 - Immutable descriptors identify base types and exact reference offsets. Scalar-looking addresses
@@ -45,8 +55,9 @@ collector callbacks do not. Process separation is not an OS security sandbox.
   targets resolve as null, and dead weak slots are cleared before reclaiming their targets. Closed
   handle identities remain tombstones until shutdown; a generation-based reusable table is pending.
 - `SOL_GC_HEAP_LIMIT` validates bytes or `KiB`/`MiB`/`GiB`, with a 16 MiB minimum. Budget reservations
-  serialize competing allocators and count committed managed regions, including class slack and
-  retained empty spans. Native collector metadata, uncommitted reservation and process RSS are
+  serialize budget decisions and count pending commit permits as well as published/retiring managed
+  regions, including class slack and retained empty spans. Native collector metadata, uncommitted
+  address-space reservation and process RSS are
   excluded. Exhaustion attempts a concurrent cycle before controlled failure.
   Allocators more than 8 MiB above the current collection threshold wait for a concurrent cycle
   with their roots published, preventing sustained allocation from indefinitely outrunning sweep.
@@ -63,12 +74,16 @@ collector callbacks do not. Process separation is not an OS security sandbox.
 The allocator and allocation index still share the heap mutex. Thread-local allocation caches,
 span mark/gray bitmaps, allocator assists and the event ring are not implemented. Marking still uses
 per-object records and intrusive gray work. Lock contention, tombstone overhead, large root inventories
-and sweep/weak cleanup costs require measurement. Virtual-memory refill/release still holds the heap
-mutex; moving slow region operations outside that lock is pending. This is not the completed fast path.
+and sweep/weak cleanup costs require measurement. Region reserve/commit/release and refill metadata
+preparation run outside the heap mutex. Object-record/index registration still uses that mutex and can
+allocate native metadata. This is not the completed fast path or a measured latency guarantee.
 
 The native-only `sol_gc_allocator_stats` snapshot reports committed/reserved bytes, live slot/page
 capacity, span/large/small allocation counts and reused slots. Its counters exclude native metadata;
-reuse is cumulative until runtime shutdown. The existing `GcStats` layout stays unchanged, and
+reuse is cumulative until runtime shutdown. Region counters cover published and retiring storage;
+pending permits protect the budget but are not included in that unchanged snapshot. During an OS
+operation the snapshot is not an atomic measurement of Windows commitment. Counts of active spans
+and objects can already fall while retiring storage remains charged. The existing `GcStats` layout stays unchanged, and
 `GcStats.HeapBytes` remains aligned object bytes rather than physical committed capacity. These
 internal snapshots are not a new implemented Sol standard-library API or a stable ABI 1 promise.
 
@@ -89,6 +104,10 @@ epochs, empty-span retention, actual Windows region accounting, budget trimming,
 shutdown. Two intentionally invalid child runs must produce ASan use-after-poison diagnostics for
 class slack and a reclaimed cached slot. Poisoning starts after the aligned request, not after a
 String's logical byte length; logical bounds remain the runtime operations' responsibility.
+Harness-only hooks pause real reserve/commit/release paths and inject reserve or commit failure.
+Tests check small and large pending permits, three epoch advances before refill publication,
+incomplete-reservation cleanup, small/large retirement accounting, and three complete collection
+cycles while a mutator is paused inside refill. The hooks are absent from production binaries.
 The bounded barrier model explores two mutators and a marker and detects an intentionally missing
 barrier. It is a model of those transitions, not a proof of all native code or schedules.
 

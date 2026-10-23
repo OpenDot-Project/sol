@@ -31,6 +31,28 @@ layout queries and must be included in fragmentation measurements.
 Span metadata lives outside user objects. Before a new span can serve allocations, its work-publication
 metadata must exist; failure to provision it fails allocation before any object is published.
 
+## Region preparation and retirement
+
+The implemented growth protocol charges page-rounded commitment against the heap budget before
+dropping the heap mutex. That pending permit prevents concurrent slow refills from oversubscribing
+the limit while Windows has not yet returned. Span metadata and reserve/commit operations are
+prepared outside the mutex with the allocating mutator native-safe and its roots published.
+
+Publication reacquires the mutex, replaces the pending permit with region accounting, assigns the
+current allocation epoch, links the span and takes its first slot. A preparation epoch is not reused
+as a publication epoch. A failed reserve rolls back the permit; a failed commit first releases the
+incomplete reservation outside the mutex. Previously swept slots may become available while
+trimming cached spans, so the allocator rechecks them before committing another growth permit.
+
+Reclamation first removes region ownership from shared allocator lists. Windows release and span
+metadata disposal then run outside the mutex. Accounting is reduced only after release completes
+and the mutex is reacquired. Until then, retiring commitment still limits competing growth.
+Sweeper list cursors remain protected except across these detached-region operations; mutators may
+append allocation records, and the original sweep boundary still determines cycle completion.
+
+This protocol removes OS region operations from the heap mutex. Slot metadata and object registry
+operations remain serialized; it does not implement the planned thread-local allocation cache.
+
 ## Object and array layouts
 
 | Object header field | Bytes | Purpose |

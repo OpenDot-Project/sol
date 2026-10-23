@@ -3,6 +3,7 @@
 #pragma once
 #include "Gc.h"
 #include <array>
+#include <mutex>
 
 namespace OpenDot::Sol::Runtime::Heap
 {
@@ -24,7 +25,15 @@ struct Block final
     std::uint32_t Slot = 0;
 };
 
-/// All operations require the owning heap mutex. No managed pointers live in free-list payloads.
+enum class RegionOperation { Reserve, Commit, Release };
+#if defined(SOL_RT_TESTS)
+using RegionHook = bool (*)(RegionOperation, void *, std::uint64_t) noexcept;
+/// Harness-only observation/failure injection; callbacks execute outside the heap mutex.
+void SetRegionHook(RegionHook hook) noexcept;
+#endif
+
+/// All operations require the owning heap mutex. Growth/release temporarily unlock the supplied guard.
+/// Refill callers must be native-safe; sweep callers must have removed all references before release.
 class SpanAllocator final
 {
 public:
@@ -32,12 +41,18 @@ public:
     ~SpanAllocator();
     SpanAllocator(const SpanAllocator &) = delete;
     SpanAllocator &operator=(const SpanAllocator &) = delete;
-    Block TryAllocate(std::uint64_t bytes, std::uint64_t limit);
+    Block TryReuse(std::uint64_t bytes);
+    Block TryAllocate(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard);
     void BeginCycle() noexcept;
-    void Sweep(const Block &block, bool dead);
-    void Release(const Block &block);
-    void Reset();
+    void Sweep(const Block &block, bool dead, std::unique_lock<std::mutex> &guard);
+    void Release(const Block &block, std::unique_lock<std::mutex> &guard);
+    void Reset(std::unique_lock<std::mutex> &guard);
     AllocatorStats Stats() const noexcept;
+
+    std::uint64_t PendingBytes() const noexcept
+    {
+        return _pending;
+    }
 
 private:
     Span *_all = nullptr;
@@ -45,13 +60,14 @@ private:
     std::array<Span *, SizeClasses.size()> _empty{};
     std::uint64_t _epoch = 1;
     std::uint64_t _committed = 0, _reserved = 0, _capacity = 0;
+    std::uint64_t _pending = 0;
     std::uint64_t _spans = 0, _large = 0, _slots = 0, _reused = 0;
     std::uint64_t _pageBytes = 0, _granularity = 0;
-    bool Budget(std::uint64_t bytes, std::uint64_t limit);
+    bool Budget(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard);
     void Publish(Span *span) noexcept;
     void UnlinkAvailable(Span *span) noexcept;
-    void Destroy(Span *span);
-    void Recycle(Span *span);
+    void Destroy(Span *span, std::unique_lock<std::mutex> &guard);
+    void Recycle(Span *span, std::unique_lock<std::mutex> &guard);
     void FreeSlot(const Block &block);
 };
 }
