@@ -15,6 +15,7 @@
     <Project Path="src/managed/OpenDot.Sol.Cli/OpenDot.Sol.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/OpenDot.Sol.Fuzz/OpenDot.Sol.Fuzz.csproj" />
     <Project Path="tests/OpenDot.Sol.Tests/OpenDot.Sol.Tests.csproj" />
   </Folder>
 </Solution>

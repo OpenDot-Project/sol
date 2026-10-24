@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "target": "frontend-utf8-v1",
+  "count": 20000,
+  "max_input_bytes": 8192,
+  "generator_sha256": "f53afa293f7192f833559aed5b89f406329069202e64fd38f605d0daac481058",
+  "families": [
+    "arithmetic",
+    "control-flow",
+    "declarations",
+    "generic-types",
+    "lambdas",
+    "arguments",
+    "modules",
+    "properties",
+    "numeric-boundaries",
+    "string-escapes",
+    "trivia",
+    "truncation",
+    "token-mutation",
+    "delimiter-mutation",
+    "unterminated",
+    "invalid-utf8",
+    "arbitrary-bytes",
+    "nesting",
+    "operators",
+    "unicode-newlines"
+  ],
+  "shards": [
+    {
+      "file": "shard-00.jsonl",
+      "count": 500,
+      "family": "arithmetic",
+      "sha256": "b1d47d80a25edac71e68ccdae93a99ba3289fdf4c658c8d71c98b522c0c14063"
+    },
+    {
+      "file": "shard-01.jsonl",
+      "count": 500,
+      "family": "arithmetic",
+      "sha256": "dd9252d38cd3f67d7681bc3140ae030cf2eed569b5ab177374472ea8e12c6ae7"
+    },
+    {
+      "file": "shard-02.jsonl",
+      "count": 500,
+      "family": "control-flow",
+      "sha256": "bae2af051796ae4cf6be76409a4d2a1591bcf8dd712cf20f15d46f0cb803ba5d"
+    },
+    {
+      "file": "shard-03.jsonl",
+      "count": 500,
+      "family": "control-flow",
+      "sha256": "a600ca08c75ffa2a5ad8d6785e3e6642aee3a732ffb39fb947837bb8095fd895"
+    },
+    {
+      "file": "shard-04.jsonl",
+      "count": 500,
+      "family": "declarations",
+      "sha256": "083a18f6c35b5a2a40c2e71b73283438a98d5ae041a9a9ade3248b25c8774f7c"
+    },
+    {
+      "file": "shard-05.jsonl",
+      "count": 500,
+      "family": "declarations",
+      "sha256": "8517490030ff597b9e48f0f149d515fe8b48e7b189e056b88f21e34167abc973"
+    },
+    {
+      "file": "shard-06.jsonl",
+      "count": 500,
+      "family": "generic-types",
+      "sha256": "324ad305bc92207b97c73bf66caf9efe9119bd6b9226ac9ab47bca4c5aa8bb41"
+    },
+    {
+      "file": "shard-07.jsonl",
+      "count": 500,
+      "family": "generic-types",
+      "sha256": "acc6d67d983956159b3e18f347dddda3717d75dc1570f670ef2a0096e79ed1c3"
+    },
+    {
+      "file": "shard-08.jsonl",
+      "count": 500,
+      "family": "lambdas",
+      "sha256": "b321d7aab97ea06a0da9d02cbbb8ae0c489165ad1ce20a05f7e2a464646c0644"
+    },
+    {
+      "file": "shard-09.jsonl",
+      "count": 500,
+      "family": "lambdas",
+      "sha256": "9b55dfc4c977095d14463a98544b77a33353a6f52171eda2942cb0cd3f503d23"
+    },
+    {
+      "file": "shard-10.jsonl",
+      "count": 500,
+      "family": "arguments",
+      "sha256": "b00a7ce596375557d2e561ff8e83b1b46662062b54895ea17e1f2333fb7b0f7d"
+    },
+    {
+      "file": "shard-11.jsonl",
+      "count": 500,
+      "family": "arguments",
+      "sha256": "ed2346df56e5a5dcd4a43e5121130d2f416d183a3e7ef88492acfce2e3a7fead"
+    },
+    {
+      "file": "shard-12.jsonl",
+      "count": 500,
+      "family": "modules",
+      "sha256": "446d1b75a1f128200b81d13aeee8fd140db5123d22970835764e8553ad4f2f40"
+    },
+    {
+      "file": "shard-13.jsonl",
+      "count": 500,
+      "family": "modules",
+      "sha256": "3bc5f179cfb3a7862b6eed84d30a93aebab1836f0dd100b1abd2f333821822f6"
+    },
+    {
+      "file": "shard-14.jsonl",
+      "count": 500,
+      "family": "properties",
+      "sha256": "d84bda3c146b61b43ddfe0b6d361a340737c8d71f89d7212d4b632a5908618b7"
+    },
+    {
+      "file": "shard-15.jsonl",
+      "count": 500,
+      "family": "properties",
+      "sha256": "4b5b28df19afe3fd79c13008a42cd612353413111e1bacfbc68af06861add8ac"
+    },
+    {
+      "file": "shard-16.jsonl",
+      "count": 500,
+      "family": "numeric-boundaries",
+      "sha256": "777a812950e7e52c68e6e1b41225051d9a6e5fea2db78f12edbff9c2a2911399"
+    },
+    {
+      "file": "shard-17.jsonl",
+      "count": 500,
+      "family": "numeric-boundaries",
+      "sha256": "70db7a72185aec72330bd7cbb0af0e971343e49cfb71122130523d2f1a5480f7"
+    },
+    {
+      "file": "shard-18.jsonl",
+      "count": 500,
+      "family": "string-escapes",
+      "sha256": "e34021679c6b4ec8963e4eed5212fcae77557326dc494e8e4c35a1c5725d8183"
+    },
+    {
+      "file": "shard-19.jsonl",
+      "count": 500,
+      "family": "string-escapes",
+      "sha256": "88fddc105ac34f5ff855968bd515a45b784173371e965c04e954d840767fdfce"
+    },
+    {
+      "file": "shard-20.jsonl",
+      "count": 500,
+      "family": "trivia",
+      "sha256": "7c757bf508fdd928e58b74d6a6a47fadb8b0d22eb14a5b044e9c748dd6c40afd"
+    },
+    {
+      "file": "shard-21.jsonl",
+      "count": 500,
+      "family": "trivia",
+      "sha256": "05d492ffd806143b6319c8fcfa7d9077da09d1bb52f744044fb8aee1d7e7e2f6"
+    },
+    {
+      "file": "shard-22.jsonl",
+      "count": 500,
+      "family": "truncation",
+      "sha256": "82f224733399ec4e9a07a22dcedf53b22aef28af3f406762e6d1abfbb17b9bc0"
+    },
+    {
+      "file": "shard-23.jsonl",
+      "count": 500,
+      "family": "truncation",
+      "sha256": "da38539ef25bbae29ff7a8ba2243e7d2dc13879ec17fb2592f83a8446f29bdd5"
+    },
+    {
+      "file": "shard-24.jsonl",
+      "count": 500,
+      "family": "token-mutation",
+      "sha256": "0edf7b4c5a6b797beb823fbfdaf67dfb45ef57ac31aca6b029807f812ad78608"
+    },
+    {
+      "file": "shard-25.jsonl",
+      "count": 500,
+      "family": "token-mutation",
+      "sha256": "664fdea722efe25faa9687f90f95c879e33e6e93daefa1e342f1e17a97143a60"
+    },
+    {
+      "file": "shard-26.jsonl",
+      "count": 500,
+      "family": "delimiter-mutation",
+      "sha256": "2ebb527ea71ae7c1887b966e145e37f1c59e286f7199c08e3253d0c76f41c3c8"
+    },
+    {
+      "file": "shard-27.jsonl",
+      "count": 500,
+      "family": "delimiter-mutation",
+      "sha256": "49a6d7918c959a6db785d85759442482ca58975e205109126ef81ece5dd9d00b"
+    },
+    {
+      "file": "shard-28.jsonl",
+      "count": 500,
+      "family": "unterminated",
+      "sha256": "4c02860b50838e2afdffa9d4a8e2387a822442442346ed033d31f27a9db897a8"
+    },
+    {
+      "file": "shard-29.jsonl",
+      "count": 500,
+      "family": "unterminated",
+      "sha256": "7bf3728c4043b4f3894a6a3b6e8486ea9d0aa28a8a34af8ca5614a51e8525be2"
+    },
+    {
+      "file": "shard-30.jsonl",
+      "count": 500,
+      "family": "invalid-utf8",
+      "sha256": "1eb85ecf0e41c81ffce78780861e0665335471447f5d0df0133f43f997f3a55b"
+    },
+    {
+      "file": "shard-31.jsonl",
+      "count": 500,
+      "family": "invalid-utf8",
+      "sha256": "e3097604f2df9bb38b86ae24d08728e3751fb2090efd60a4e10c16bda8f8619c"
+    },
+    {
+      "file": "shard-32.jsonl",
+      "count": 500,
+      "family": "arbitrary-bytes",
+      "sha256": "c811ae19c342e0f3bd11f13516b3e0ecffdf9bc0d169521219ec5e4742a4442f"
+    },
+    {
+      "file": "shard-33.jsonl",
+      "count": 500,
+      "family": "arbitrary-bytes",
+      "sha256": "6e9b63cdf25b0efd7a6384f2c247b0c26c5df6011e998e3f746b55990ac59636"
+    },
+    {
+      "file": "shard-34.jsonl",
+      "count": 500,
+      "family": "nesting",
+      "sha256": "12d2ddf23604bad1fcc3c2cc559094102dfd4e6189887c0ab63f6dfd7777d1a2"
+    },
+    {
+      "file": "shard-35.jsonl",
+      "count": 500,
+      "family": "nesting",
+      "sha256": "96d93a8e8a0786b319f533d32640b4d238d1ff9dde3d430a54bb82c8d9c7c8f0"
+    },
+    {
+      "file": "shard-36.jsonl",
+      "count": 500,
+      "family": "operators",
+      "sha256": "13b0c385bb1fee46e489091ec968cd122fd8857a665603d2efd02274067d74e7"
+    },
+    {
+      "file": "shard-37.jsonl",
+      "count": 500,
+      "family": "operators",
+      "sha256": "497787d3bfccacd5eea7539b7edf70f5824cab680426b307b42b22f6ffcc488a"
+    },
+    {
+      "file": "shard-38.jsonl",
+      "count": 500,
+      "family": "unicode-newlines",
+      "sha256": "45d8583b51852bb02c089d81b281fe84622bd6d87f605db32d0599aa678f9318"
+    },
+    {
+      "file": "shard-39.jsonl",
+      "count": 500,
+      "family": "unicode-newlines",
+      "sha256": "bee02dadc1622500bf4c411c32088d7e4b8d2666eba2ad5af8f80766a251bac4"
+    }
+  ]
+}

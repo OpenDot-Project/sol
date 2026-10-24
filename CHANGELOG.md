@@ -12,6 +12,10 @@ The published Sol 0.0.1 assets remain immutable.
 
 ### Added
 
+- Reproducible 100,000-input fuzz seed corpora across frontend, AST/declaration analysis,
+  runtime, native LLVM backend and GC, with isolated managed/native workers, integrity
+  checks, independent oracles, ASan runtime/GC replay and Windows CI validation.
+
 - Resident span mark/gray bitmaps and a coalescing ready-region queue, resumable descriptor scans,
   bounded allocation assists, Idle/Sweep barrier fast paths, native diagnostic counters/histograms
   and an opt-in bounded event ring. Native model, descriptor, concurrency and profiling fixtures

@@ -35,9 +35,13 @@ jobs:
       - run: ./eng/install-llvm.ps1
       - run: dotnet restore Sol.slnx --locked-mode
       - run: ./eng/build-backend.ps1
+      - name: Replay runtime, backend and GC fuzz corpora
+        run: ./eng/test-fuzz.ps1 -Target native
       - run: dotnet tool restore
       - name: Inspect native and C++/CLI sources
         run: ./eng/native-tools.ps1 -Mode Inspect
+      - name: Inspect native fuzz sources
+        run: ./eng/native-tools.ps1 -Mode Inspect -Fuzz
       - run: ./eng/test-native.ps1
       - run: ./eng/test-backends.ps1
       - run: ./eng/test-runtime.ps1
@@ -64,6 +68,13 @@ jobs:
             out/native/runtime/asan-harness/
             out/jetbrains/native.sarif.json
           if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-fuzz-reports
+          path: out/fuzz/replay/
+          if-no-files-found: warn
           retention-days: 7
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

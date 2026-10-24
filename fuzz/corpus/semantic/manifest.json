@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "target": "semantic-modules-v1",
+  "count": 20000,
+  "max_input_bytes": 8192,
+  "generator_sha256": "63e840a0bdc6f429d73efe58a52fa583837e320b695cba1022f8be58b10ebabf",
+  "families": [
+    "binding-scopes",
+    "default-arguments",
+    "named-arguments",
+    "varargs",
+    "ref-out",
+    "nullables",
+    "generic-types",
+    "partial-types",
+    "module-cycles",
+    "import-aliases",
+    "duplicate-symbols",
+    "overloads",
+    "inheritance",
+    "lambda-shapes",
+    "exception-types",
+    "properties",
+    "destructuring",
+    "enum-patterns",
+    "malformed-declarations",
+    "missing-imports"
+  ],
+  "shards": [
+    {
+      "file": "shard-00.jsonl",
+      "count": 500,
+      "family": "binding-scopes",
+      "sha256": "33b71853b550e9b1683d86ddcacc16c78da3dbdbaf6c5d92a7c1d62442760e15"
+    },
+    {
+      "file": "shard-01.jsonl",
+      "count": 500,
+      "family": "binding-scopes",
+      "sha256": "4fbd3e9387833c997c0d96919fbe82e709caea4d0c4fb6f2ecaf95a86b4ce1b6"
+    },
+    {
+      "file": "shard-02.jsonl",
+      "count": 500,
+      "family": "default-arguments",
+      "sha256": "6c24efa3b5d8005b139075a1236daf1202470bec13e8eb88a633c3c6f4d39658"
+    },
+    {
+      "file": "shard-03.jsonl",
+      "count": 500,
+      "family": "default-arguments",
+      "sha256": "bb8a08834c4f937ec96cc9e8b573b4eeed29356a30a5cc7b46a5f1e198a08ff6"
+    },
+    {
+      "file": "shard-04.jsonl",
+      "count": 500,
+      "family": "named-arguments",
+      "sha256": "ba302f3e4a812b7afeb5b3e0fc2ef5c91ee23eb2aacc55d3468a00d48db78349"
+    },
+    {
+      "file": "shard-05.jsonl",
+      "count": 500,
+      "family": "named-arguments",
+      "sha256": "067006ce66c65000ec69b6bc88025d744c6b168c18971a69339f2840b9a2c353"
+    },
+    {
+      "file": "shard-06.jsonl",
+      "count": 500,
+      "family": "varargs",
+      "sha256": "3dd772684997b08776761eb34a77c7d7fb497c10c9fc28f623f219793d808cce"
+    },
+    {
+      "file": "shard-07.jsonl",
+      "count": 500,
+      "family": "varargs",
+      "sha256": "f56e49df16b4fbc4e9e714405ce57b9392566c20578cde0b5001ef1eca7171cd"
+    },
+    {
+      "file": "shard-08.jsonl",
+      "count": 500,
+      "family": "ref-out",
+      "sha256": "e36676cc782bfc0affc6c91da8e03cca66475b2321d00a50237ceeba3e0ee8b4"
+    },
+    {
+      "file": "shard-09.jsonl",
+      "count": 500,
+      "family": "ref-out",
+      "sha256": "999671524c354bfcdc25bc5f769fbdbf7925587fccd1b9c3456edaf800095b4c"
+    },
+    {
+      "file": "shard-10.jsonl",
+      "count": 500,
+      "family": "nullables",
+      "sha256": "41949720fab5cde1d95fa1d0ee5e40d72eea2c7e0c9e846d406070c86ed3c2c8"
+    },
+    {
+      "file": "shard-11.jsonl",
+      "count": 500,
+      "family": "nullables",
+      "sha256": "25585fabf6d44de3a9d8c8cc4f0a3d8693916617e9fc799f7a36509843bdb2bf"
+    },
+    {
+      "file": "shard-12.jsonl",
+      "count": 500,
+      "family": "generic-types",
+      "sha256": "147656ca41dea78c050ab50ac3c0247f9b7eff02ed603f869b9e59331f233340"
+    },
+    {
+      "file": "shard-13.jsonl",
+      "count": 500,
+      "family": "generic-types",
+      "sha256": "ac83f31b4f59c7ac7380de8960290969d07d2f7724303b2fa0e48f6fd15ab51c"
+    },
+    {
+      "file": "shard-14.jsonl",
+      "count": 500,
+      "family": "partial-types",
+      "sha256": "7ddf8224fed32463d90a097132c65c386e6d8fc146c4272fb7dfa30ec1a338ac"
+    },
+    {
+      "file": "shard-15.jsonl",
+      "count": 500,
+      "family": "partial-types",
+      "sha256": "e3fa34f32b6783ff16ca7e40873ac4c0310b86bbaac8aeaa0c5ef390a6e84419"
+    },
+    {
+      "file": "shard-16.jsonl",
+      "count": 500,
+      "family": "module-cycles",
+      "sha256": "cc3fe5c7c19fcd0401de6c98e70c5348d846c53f7bf9c3d751e976eaa9a5dd18"
+    },
+    {
+      "file": "shard-17.jsonl",
+      "count": 500,
+      "family": "module-cycles",
+      "sha256": "b192f961470b9afd7df0cd65a6e84156aa8a18b28fd095c6757f5161dc42f67a"
+    },
+    {
+      "file": "shard-18.jsonl",
+      "count": 500,
+      "family": "import-aliases",
+      "sha256": "d694e4d9f81bafa4fb250a0d1dca9fff051e19806ec354f0187408a11ef1c88e"
+    },
+    {
+      "file": "shard-19.jsonl",
+      "count": 500,
+      "family": "import-aliases",
+      "sha256": "ffb5808ce66471836ef6b819f1a4c8301c84367fce31ccb3912879956bd2effa"
+    },
+    {
+      "file": "shard-20.jsonl",
+      "count": 500,
+      "family": "duplicate-symbols",
+      "sha256": "cb2b00d9d949819c3a6f826a577f7b5d7b9a774c9f16dea8ab263bce7498b407"
+    },
+    {
+      "file": "shard-21.jsonl",
+      "count": 500,
+      "family": "duplicate-symbols",
+      "sha256": "97eab07e85501949d126037eede4cf1e20926ee880dfa408cd598bdec510bf75"
+    },
+    {
+      "file": "shard-22.jsonl",
+      "count": 500,
+      "family": "overloads",
+      "sha256": "c273fad7547c15b04b1edf1110530f8777eb767506bb13cb8cde2765c081734b"
+    },
+    {
+      "file": "shard-23.jsonl",
+      "count": 500,
+      "family": "overloads",
+      "sha256": "d5ce92536c889f59edd1baa7c429b577725ac6b6e4b6459d122b49e5d3c5dcf0"
+    },
+    {
+      "file": "shard-24.jsonl",
+      "count": 500,
+      "family": "inheritance",
+      "sha256": "a9c6a6c02c3594e03b6dcab2b78892d7818cdd3fa515283a0bde6dce741e4e08"
+    },
+    {
+      "file": "shard-25.jsonl",
+      "count": 500,
+      "family": "inheritance",
+      "sha256": "b59144e7011f6d4e8edb78afd1d2c951083b507401a028394405a4dfa4e90934"
+    },
+    {
+      "file": "shard-26.jsonl",
+      "count": 500,
+      "family": "lambda-shapes",
+      "sha256": "fab6dbb8a33639627bf27b382c80dee740fed14fa12597b4ae11cbd2d9dbc94b"
+    },
+    {
+      "file": "shard-27.jsonl",
+      "count": 500,
+      "family": "lambda-shapes",
+      "sha256": "c551a71b287cbb908bafc447f1a78a27be95bcf0f835e7e1e88606896440b6fd"
+    },
+    {
+      "file": "shard-28.jsonl",
+      "count": 500,
+      "family": "exception-types",
+      "sha256": "5f6335e79f835df95e6fa697912c08abafe1e8a40b18fdeb82161d5b1a0eb68f"
+    },
+    {
+      "file": "shard-29.jsonl",
+      "count": 500,
+      "family": "exception-types",
+      "sha256": "65742f2d846cd64651081eacd1aef752ca3ef7af29c18840246f5e946fe26107"
+    },
+    {
+      "file": "shard-30.jsonl",
+      "count": 500,
+      "family": "properties",
+      "sha256": "1787e050e6dff8b2d7dd8700591d2e4b6bd3333fd15a64b2815cc256cdf5a758"
+    },
+    {
+      "file": "shard-31.jsonl",
+      "count": 500,
+      "family": "properties",
+      "sha256": "364b725ad4c179c263554641d0c71d579602a305d51006efba2ce9762dbb6f45"
+    },
+    {
+      "file": "shard-32.jsonl",
+      "count": 500,
+      "family": "destructuring",
+      "sha256": "07a0fdddd29041c91375f3e61e0f5c5ca9300396d473b1366f593b4934f11baf"
+    },
+    {
+      "file": "shard-33.jsonl",
+      "count": 500,
+      "family": "destructuring",
+      "sha256": "70830122b2f557531b237f56d9101e96c6ae9170cc14ea539127d0f56b46889a"
+    },
+    {
+      "file": "shard-34.jsonl",
+      "count": 500,
+      "family": "enum-patterns",
+      "sha256": "8fa7eeeb7d36fd8e167b81cd9a50099dd922e43bb3bbd4f5d004cf6e5fc70e62"
+    },
+    {
+      "file": "shard-35.jsonl",
+      "count": 500,
+      "family": "enum-patterns",
+      "sha256": "e17c3b62fabecb19391baee347ba9a31df509e05e54df8c42e52d09f3c0f004f"
+    },
+    {
+      "file": "shard-36.jsonl",
+      "count": 500,
+      "family": "malformed-declarations",
+      "sha256": "8ecbb1cd9d6cb939c2ecb293a2c9c1c3ef45e18f0b4a976551a1899432ac2517"
+    },
+    {
+      "file": "shard-37.jsonl",
+      "count": 500,
+      "family": "malformed-declarations",
+      "sha256": "14b942e83847a7e3599f0ba0cef42b6b3873305399785edec480511db59bfc01"
+    },
+    {
+      "file": "shard-38.jsonl",
+      "count": 500,
+      "family": "missing-imports",
+      "sha256": "5efad93606b255673c853a2d6ff556bcb6a4eb52a4d14300f8c291456917bca8"
+    },
+    {
+      "file": "shard-39.jsonl",
+      "count": 500,
+      "family": "missing-imports",
+      "sha256": "ba232988869b0be5e939cea3c422e028ac45237e4db30aa14ab6b53a15fe9e2b"
+    }
+  ]
+}
