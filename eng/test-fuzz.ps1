@@ -7,8 +7,7 @@ param(
     [ValidateRange(-1,39)][int]$Shard = -1,
     [ValidatePattern('\Acase-[0-9]{5}\z')][string]$CaseId,
     [ValidateRange(1,300)][int]$WorkerTimeoutSeconds = 60,
-    [ValidateRange(128,2048)][int]$MemoryLimitMB = 512,
-    [string]$BackendDirectory = 'out/native/backend'
+    [ValidateRange(128,2048)][int]$MemoryLimitMB = 512
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -23,7 +22,8 @@ if ($LASTEXITCODE) { throw 'Fuzz worker locked restore failed.' }
 & $dotnet build $project --no-restore -c $Configuration /m:1 /nodeReuse:false -p:UseSharedCompilation=false
 if ($LASTEXITCODE) { throw 'Managed fuzz worker build failed.' }
 $worker = Join-Path $root "tests/OpenDot.Sol.Fuzz/bin/$Configuration/net10.0-windows/OpenDot.Sol.Fuzz.dll"
-$limits = @{ TimeoutSeconds = $WorkerTimeoutSeconds; MemoryLimitMB = $MemoryLimitMB; OutputDirectory = $output }
+$limits = @{ TimeoutSeconds = $WorkerTimeoutSeconds; MemoryLimitMB = $MemoryLimitMB; OutputDirectory = $output
+    WorkingDirectory = $root }
 Invoke-IsolatedFuzzWorker $dotnet @($worker, 'self-test') 'self-test' @limits
 Invoke-IsolatedFuzzWorker $dotnet @($worker, 'verify-all', (Join-Path $root 'fuzz/corpus'), (Join-Path $output 'inventory.json')) 'inventory' @limits
 $inventory = Get-Content (Join-Path $output 'inventory.json') -Raw | ConvertFrom-Json
@@ -35,7 +35,7 @@ $targets = switch ($Target) {
     default { @($Target) }
 }
 $native = Join-Path $root 'out/native/runtime/fuzz-harness/Sol-NativeFuzz.exe'
-$backend = [IO.Path]::GetFullPath((Join-Path $root "$BackendDirectory/OpenDot.Sol.LlvmNative.dll"))
+$backend = [IO.Path]::GetFullPath((Join-Path $root 'out/native/backend/OpenDot.Sol.LlvmNative.dll'))
 if ('backend' -in $targets -and -not (Test-Path -LiteralPath $backend)) { throw 'Build the LLVM 23.1.3 backend before native backend fuzz replay.' }
 $needsNative = @($targets | Where-Object { $_ -in @('runtime','backend','gc') }).Count -gt 0
 if ($needsNative) {
@@ -66,6 +66,7 @@ foreach ($name in $targets) {
         $stem = 'shard-{0:D2}' -f $index
         $report = Join-Path $directory "$stem.json"
         $journal = Join-Path $directory "$stem.journal.log"
+        $first = if ($CaseId) { [int]$CaseId.Substring(5) } else { $index * 500 }
         $expected = if ($CaseId) { 1 } else { 500 }
         if ($name -in @('frontend','semantic')) {
             $arguments = @($worker, 'replay', $corpus, "$index", $report, $journal)
@@ -80,9 +81,20 @@ foreach ($name in $targets) {
             $packed = Get-Content $packReport -Raw | ConvertFrom-Json
             if ($packed.count -ne $expected -or $packed.status -cne 'packed' -or $packed.corpus_sha256 -cne $verified.corpus_sha256 -or
                 $packed.pack_sha256 -cne (Get-FileHash $pack -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Native trace pack mismatch.' }
-            $arguments = @($pack, $report, $journal)
-            if ($name -eq 'backend') { $arguments += $backend }
-            Invoke-IsolatedFuzzWorker $native $arguments "$name-$stem" @limits
+            $arguments = @('--replay', $name, "$index")
+            $nativeLimits = $limits.Clone()
+            $nativeLimits.InputBytes = [IO.File]::ReadAllBytes($pack)
+            Invoke-IsolatedFuzzWorker $native $arguments "$name-$stem" @nativeLimits
+            $nativeOutput = [IO.File]::ReadAllText((Join-Path $output "$name-$stem.stdout.log"))
+            $nativeLines = @([regex]::Split($nativeOutput, '\r?\n') | Where-Object { $_ -ne '' })
+            if ($nativeLines.Count -ne ($expected + 1)) { throw 'Native fuzz output omitted case journal/report lines.' }
+            $journalLines = $nativeLines[0..($expected - 1)]
+            for ($caseIndex = 0; $caseIndex -lt $journalLines.Count; $caseIndex++) {
+                $expectedId = 'case-{0:D5}' -f ($first + $caseIndex)
+                if ($journalLines[$caseIndex] -notmatch "^$expectedId [0-9a-f]{64}$") { throw 'Native fuzz journal identity is invalid.' }
+            }
+            [IO.File]::WriteAllText($journal, (($journalLines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText($report, ($nativeLines[-1] + "`n"), [Text.UTF8Encoding]::new($false))
         }
         $result = Get-Content $report -Raw | ConvertFrom-Json
         if ($result.status -cne 'passed' -or $result.count -ne $expected) { throw 'Incomplete fuzz replay report.' }
@@ -90,7 +102,6 @@ foreach ($name in $targets) {
             if ($result.corpus_sha256 -cne $verified.corpus_sha256 -or $result.shard -ne $index) { throw 'Wrong managed replay identity.' }
         } else {
             $code = @{ runtime = 1; backend = 2; gc = 3 }[$name]
-            $first = if ($CaseId) { [int]$CaseId.Substring(5) } else { $index * 500 }
             if ($result.target -ne $code -or $result.first -ne $first) { throw 'Wrong native replay identity.' }
         }
         $total += $result.count

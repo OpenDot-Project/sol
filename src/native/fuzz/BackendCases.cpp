@@ -8,6 +8,7 @@
 // strcmp is part of this translation unit's direct contract with the C ABI table.
 // NOLINTNEXTLINE(CppUnusedIncludeDirective)
 #include <cstring>
+#include <filesystem>
 #include <initializer_list>
 #include <string>
 #include <tuple>
@@ -94,10 +95,13 @@ struct Buffer final
 };
 }
 
-void LoadBackend(const wchar_t *path)
+void LoadBackend()
 {
     Require(Library == nullptr, "LLVM fuzz backend already loaded.");
-    Library = LoadLibraryExW(path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    const auto path = std::filesystem::absolute(L"out/native/backend/OpenDot.Sol.LlvmNative.dll");
+    Library = LoadLibraryExW(path.c_str(), nullptr,
+                             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+                             LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     Require(Library != nullptr, "Cannot load the qualified LLVM native DLL.");
     Api.Create = Function<decltype(Api.Create)>("SolLlvmCreate");
     Api.Destroy = Function<decltype(Api.Destroy)>("SolLlvmDestroy");

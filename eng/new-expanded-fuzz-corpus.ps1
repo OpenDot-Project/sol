@@ -105,7 +105,7 @@ try {
         $targetName = if ($target -eq 'semantic') { 'semantic-modules-v1' } else { "$target-trace-v1" }
         $manifest = [ordered]@{ schema_version = 1; target = $targetName; count = 20000; max_input_bytes = 8192
             generator_sha256 = $generatorHash; families = $targets[$target]; shards = $shards }
-        [IO.File]::WriteAllText((Join-Path $directory 'manifest.json'), ($manifest | ConvertTo-Json -Depth 8) + "`n", $utf8)
+        [IO.File]::WriteAllText((Join-Path $directory 'manifest.json'), ($manifest | ConvertTo-Json -Depth 8 -Compress) + "`n", $utf8)
         if ($Check) {
             $old = Join-Path $expected $target
             $files = @(Get-ChildItem $directory -File | Sort-Object Name)

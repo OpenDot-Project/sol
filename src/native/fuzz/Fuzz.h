@@ -71,7 +71,7 @@ public:
 
 void RuntimeCase(const Input &input, Roots &roots);
 void GcCase(const Input &input, Roots &roots);
-void LoadBackend(const wchar_t *path);
+void LoadBackend();
 void UnloadBackend() noexcept;
 void BackendCase(const Input &input);
 }

@@ -105,7 +105,7 @@ try {
     $manifest = [ordered]@{ schema_version = 1; target = 'frontend-utf8-v1'; count = 20000; max_input_bytes = 8192
         generator_sha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($generator))).ToLowerInvariant()
         families = $families; shards = $shards }
-    [IO.File]::WriteAllText((Join-Path $output 'manifest.json'), ($manifest | ConvertTo-Json -Depth 8) + "`n", $utf8)
+    [IO.File]::WriteAllText((Join-Path $output 'manifest.json'), ($manifest | ConvertTo-Json -Depth 8 -Compress) + "`n", $utf8)
     if ($Check) {
         $actualNames = @(Get-ChildItem $expected -File | Sort-Object Name | ForEach-Object Name)
         $newNames = @(Get-ChildItem $output -File | Sort-Object Name | ForEach-Object Name)
