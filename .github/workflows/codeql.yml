@@ -57,6 +57,8 @@ jobs:
         run: |
           ./eng/build-launcher.ps1
           ./eng/build-backend.ps1
+          ./eng/build-native-fuzz.ps1
+          ./eng/build-coverage-fuzz.ps1 -Target all
       - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           category: /language:${{ matrix.language }}

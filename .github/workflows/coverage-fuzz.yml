@@ -1,0 +1,65 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+name: Coverage-guided fuzz campaigns
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      campaign:
+        description: Fuzz campaign budget
+        required: true
+        type: choice
+        options:
+          - smoke
+          - nightly
+        default: smoke
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+concurrency:
+  group: coverage-fuzz-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  campaign:
+    name: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.campaign == 'nightly')) && 'nightly' || 'smoke' }} coverage-guided campaigns
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      TESTINGPLATFORM_TELEMETRY_OPTOUT: '1'
+      FUZZ_CAMPAIGN: ${{ github.event_name == 'schedule' && 'nightly' || (github.event_name == 'workflow_dispatch' && inputs.campaign || 'smoke') }}
+      FUZZ_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Acquire pinned LLVM 23.1.3
+        run: ./eng/install-llvm.ps1
+      - name: Restore locked dependencies
+        run: dotnet restore Sol.slnx --locked-mode
+      - name: Build the qualified LLVM backend for ORC fuzzing
+        run: ./eng/build-backend.ps1
+      - name: Run deterministic-budget coverage-guided campaigns
+        run: ./eng/run-fuzz-campaign.ps1 -Campaign $env:FUZZ_CAMPAIGN -RunId $env:FUZZ_RUN_ID
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: coverage-fuzz-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/fuzz/campaigns/${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
+          retention-days: 14

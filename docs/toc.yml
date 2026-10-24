@@ -66,6 +66,10 @@
   href: development.md
 - name: Native implementation tooling
   href: native-tooling.md
+- name: Fuzz corpus inventory
+  href: fuzz-corpora.md
+- name: Coverage-guided fuzz campaigns
+  href: fuzz-campaigns.md
 - name: Status and roadmap
   href: status.md
 - name: Sol 0.0.2 release preparation
