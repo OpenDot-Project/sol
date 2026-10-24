@@ -80,5 +80,29 @@ on `windows-2025`, preserving only the allowed fuzz report directory. Its corpus
 self-test also rejects corrupt metadata before replay. Compiler outputs are never executed
 by this frontend harness, and the worker receives no publication credentials.
 
+## Coverage-guided frontend campaigns
+
+`coverage-fuzz.yml` also runs a libFuzzer campaign over raw Sol source bytes. The managed target
+uses SharpFuzz 2.3.0 to instrument the CST lexer/parser assemblies; the harness and .NET runtime
+are not counted as target coverage. Each input passes the same byte-preservation, EOF, CST-span,
+diagnostic-bound, deterministic-repeat, and token/trivia oracle used by corpus replay. Invalid
+UTF-8 and syntax diagnostics are valid outcomes. An invariant failure or unexpected exception
+is a finding.
+
+The PR smoke campaign uses 400 seeds selected evenly from the 20 grammar/trivia/invalid-byte
+families and runs each selected target for 20 seconds. The daily campaign starts from 2,000
+seeds (100 per family) and runs each target for 300 seconds. Both enforce an 8 KiB maximum
+input, a 10-second per-input timeout, and a 1 GiB process-tree working-set ceiling; the LLVM
+engine receives the matching RSS limit as well. Runs use the Sol token dictionary and value
+profiling. These budgets are per target, not a claim about distinct code paths.
+
+The daily schedule is 02:00 UTC on the single `windows-2025` runner. A crash, timeout, OOM, zero
+executions, missing instrumented counters, or zero final libFuzzer features fails the campaign.
+The workflow uploads the campaign corpus, logs,
+summary, and minimized reproducer files under one run-specific artifact for 14 days. New inputs
+stay in the campaign artifact until a minimized, deterministic regression is reviewed; the
+workflow never commits or pushes corpus files. See the [campaign inventory](fuzz-campaigns.md)
+for commands and runtime/backend/GC targets.
+
 This is one target in the [100,000-input corpus inventory](fuzz-corpora.md). All five corpora
 are checked for cross-target byte uniqueness before a selected target is replayed.

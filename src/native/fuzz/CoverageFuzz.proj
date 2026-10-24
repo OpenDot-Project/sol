@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
+<Project DefaultTargets="Build">
+  <PropertyGroup>
+    <RepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\'))</RepoRoot>
+    <NativeRoot>$(RepoRoot)src\native</NativeRoot>
+    <RuntimeRoot>$(NativeRoot)\runtime</RuntimeRoot>
+    <FuzzRoot>$(NativeRoot)\fuzz</FuzzRoot>
+    <OutputRoot>$(RepoRoot)out\native\coverage-fuzz\$(FuzzTarget)</OutputRoot>
+    <OutputExecutable>$(OutputRoot)\Sol-Fuzz-$(FuzzTarget).exe</OutputExecutable>
+    <ClangCl>$(LLVM_ROOT)\bin\clang-cl.exe</ClangCl>
+    <TargetId Condition="'$(FuzzTarget)' == 'runtime'">1</TargetId>
+    <TargetId Condition="'$(FuzzTarget)' == 'backend'">2</TargetId>
+    <TargetId Condition="'$(FuzzTarget)' == 'gc'">3</TargetId>
+    <CommonFlags>/nologo /std:c++20 /O1 /EHsc /GR /MT /W4 /WX /Brepro /D_ITERATOR_DEBUG_LEVEL=0 /D_DISABLE_STRING_ANNOTATION /D_DISABLE_VECTOR_ANNOTATION /DSOL_RT_BUILD /DSOL_RT_STATIC /DNOMINMAX /DWIN32_LEAN_AND_MEAN -fsanitize=fuzzer,address</CommonFlags>
+    <IncludeFlags>/I&quot;$(RuntimeRoot)&quot; /I&quot;$(FuzzRoot)&quot; /I&quot;$(NativeRoot)\llvm-native&quot;</IncludeFlags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <RuntimeSource Include="$(RuntimeRoot)\MarkWork.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\GcDiagnostics.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\GcDiagnosticNames.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\GcPacing.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\GcTracing.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\SolRT.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\Gc.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\GcAllocation.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\GcHandles.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\ThreadAllocation.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\GcWorker.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\GcConfig.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\Core.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\Arrays.cpp" />
+    <RuntimeSource Include="$(RuntimeRoot)\SpanAllocator.cpp" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(FuzzTarget)' == 'runtime'">
+    <FuzzSource Include="@(RuntimeSource)" />
+    <FuzzSource Include="$(FuzzRoot)\RuntimeCases.cpp" />
+    <FuzzSource Include="$(FuzzRoot)\CoverageMain.cpp" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(FuzzTarget)' == 'backend'">
+    <FuzzSource Include="$(FuzzRoot)\BackendCases.cpp" />
+    <FuzzSource Include="$(FuzzRoot)\CoverageMain.cpp" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(FuzzTarget)' == 'gc'">
+    <FuzzSource Include="@(RuntimeSource)" />
+    <FuzzSource Include="$(FuzzRoot)\GcCases.cpp" />
+    <FuzzSource Include="$(FuzzRoot)\CoverageMain.cpp" />
+  </ItemGroup>
+
+  <Target Name="Build">
+    <Error Condition="'$(FuzzTarget)' != 'runtime' and '$(FuzzTarget)' != 'backend' and '$(FuzzTarget)' != 'gc'"
+           Text="FuzzTarget must be runtime, backend, or gc." />
+    <Error Condition="'$(LLVM_ROOT)' == '' or !Exists('$(ClangCl)' )" Text="LLVM_ROOT must name the pinned LLVM installation." />
+    <MakeDir Directories="$(OutputRoot)" />
+    <Exec Command="&quot;$(ClangCl)&quot; $(CommonFlags) $(IncludeFlags) /DSOL_FUZZ_TARGET=$(TargetId) @(FuzzSource->'&quot;%(FullPath)&quot;', ' ') /Fe:&quot;$(OutputExecutable)&quot; /link bcrypt.lib" />
+  </Target>
+</Project>

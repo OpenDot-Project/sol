@@ -18,6 +18,13 @@ internal static class Program
         try
         {
             if (args.Length == 1 && args[0] == "self-test") { CorpusSelfTests.Run(); return 0; }
+            if (args.Length == 1 && args[0] == "coverage-frontend") { CoverageTarget.Run("frontend"); return 0; }
+            if (args.Length == 1 && args[0] == "coverage-semantic") { CoverageTarget.Run("semantic"); return 0; }
+            if (args.Length == 4 && args[0] == "seed")
+            {
+                SeedCorpus.Create(args[1], args[2], int.Parse(args[3], CultureInfo.InvariantCulture));
+                return 0;
+            }
             if (args.Length == 3 && args[0] == "verify") { Verify(new Corpus(args[1]), args[2]); return 0; }
             if (args.Length == 3 && args[0] == "verify-all") { VerifyAll(args[1], args[2]); return 0; }
             if (args.Length is 5 or 6 && args[0] == "pack")
@@ -31,7 +38,7 @@ internal static class Program
                     args.Length == 6 ? args[5] : null);
                 return 0;
             }
-            Console.Error.WriteLine("Usage: self-test | verify/verify-all <corpus> <report> | replay <corpus> <shard> <report> <journal> [case-id] | pack <corpus> <shard> <pack> <report> [case-id]");
+            Console.Error.WriteLine("Usage: self-test | coverage-frontend | coverage-semantic | seed <corpus> <output-dir> <limit> | verify/verify-all <corpus> <report> | replay <corpus> <shard> <report> <journal> [case-id] | pack <corpus> <shard> <pack> <report> [case-id]");
             return 2;
         }
         catch (Exception error)

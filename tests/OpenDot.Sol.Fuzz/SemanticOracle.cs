@@ -16,6 +16,36 @@ namespace OpenDot.Sol.Fuzz;
 
 internal static class SemanticOracle
 {
+    internal static bool CheckSourceBytes(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length > 8192) { return false; }
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var token = deadline.Token;
+        var syntax = SyntaxTree.Parse(SourceText.FromBytes(bytes.ToArray(), "coverage.sol"), 64, 64, token);
+        var snapshot = AstSnapshot.Create(PsiSnapshot.Create(syntax, token), token);
+        AstVerifier.Verify(snapshot, token);
+        string normalized = AstJson.Serialize(snapshot, token);
+        var repeated = AstSnapshot.Create(PsiSnapshot.Create(syntax, token), token);
+        Corpus.Require(normalized == AstJson.Serialize(repeated, token), "AST normalization is not deterministic.");
+        foreach (var node in snapshot.Nodes)
+        {
+            snapshot.ValidateOwnership(node);
+            syntax.Source.Validate(node.Origin.Span);
+        }
+        var options = new AnalysisOptions { RequireCore = false, DiagnosticLimit = 64 };
+        var session = AnalysisSession.Create([snapshot], options, token);
+        var repeatedSession = AnalysisSession.Create([snapshot], options, token);
+        Corpus.Require(AnalysisJson.Serialize(session, token) == AnalysisJson.Serialize(repeatedSession, token),
+            "Declaration analysis is not deterministic.");
+        foreach (var diagnostic in session.Diagnostics)
+        {
+            Corpus.Require(ReferenceEquals(snapshot.Psi.Source, diagnostic.Source), "Foreign semantic diagnostic snapshot.");
+            diagnostic.Source.Validate(diagnostic.Span);
+        }
+        Corpus.Require(session.Diagnostics.Length <= 64, "Semantic diagnostic budget exceeded.");
+        return syntax.HasErrors || session.HasErrors;
+    }
+
     internal static bool Check(CorpusCase item)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));

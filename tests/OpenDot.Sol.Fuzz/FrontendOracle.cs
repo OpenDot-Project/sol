@@ -13,18 +13,24 @@ namespace OpenDot.Sol.Fuzz;
 internal static class FrontendOracle
 {
     internal static bool Check(CorpusCase item)
+        => Check(item.Bytes, item.Id + ".sol", item.Expectation);
+
+    internal static bool CheckBytes(ReadOnlySpan<byte> bytes)
+        => Check(bytes.ToArray(), "coverage.sol", null);
+
+    private static bool Check(byte[] bytes, string path, string? expectation)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        var source = SourceText.FromBytes(item.Bytes, item.Id + ".sol");
+        var source = SourceText.FromBytes(bytes, path);
         var lex = Lexer.Lex(source, errorLimit: 64, cancellationToken: deadline.Token);
         ValidateTokens(lex);
         var first = SyntaxTree.Parse(source, errorLimit: 64, maxDepth: 64, cancellationToken: deadline.Token);
-        var second = SyntaxTree.Parse(SourceText.FromBytes(item.Bytes, source.Path), errorLimit: 64, maxDepth: 64,
+        var second = SyntaxTree.Parse(SourceText.FromBytes(bytes, source.Path), errorLimit: 64, maxDepth: 64,
             cancellationToken: deadline.Token);
         Corpus.Require(Fingerprint(first) == Fingerprint(second), "Frontend output is not deterministic.");
         Corpus.Require(TokenFingerprint(lex.Tokens) == TokenFingerprint(first.Tokens), "Parser lost lexical tokens/trivia.");
-        if (item.Expectation == "parse") { Corpus.Require(!first.HasErrors, "Valid grammar seed was rejected."); }
-        if (item.Expectation == "reject") { Corpus.Require(first.HasErrors, "Malformed UTF-8 seed was accepted."); }
+        if (expectation == "parse") { Corpus.Require(!first.HasErrors, "Valid grammar seed was rejected."); }
+        if (expectation == "reject") { Corpus.Require(first.HasErrors, "Malformed UTF-8 seed was accepted."); }
         return first.HasErrors;
     }
 

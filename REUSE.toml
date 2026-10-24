@@ -14,6 +14,8 @@ path = [
     "global.json",
     "fuzz/corpus/*/*.jsonl",
     "fuzz/corpus/*/manifest.json",
+    "fuzz/campaigns.json",
+    "fuzz/dictionaries/sol.dict",
     "tests/OpenDot.Sol.Fuzz/packages.lock.json",
     "src/managed/OpenDot.Sol.Analysis/packages.lock.json",
     "src/managed/OpenDot.Sol.Ast/packages.lock.json",

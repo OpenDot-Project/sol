@@ -7,20 +7,26 @@ Each target has 20 families of 1,000 inputs, stored in 40 JSONL shards of 500 re
 managed verifier checks source SHA-256 digests and global uniqueness across all five targets.
 Generated inputs, verified inputs and completed replay counts are separate evidence.
 
-| Target | Inputs | Executed checks |
+| Target | Deterministic seeds | Oracle and execution |
 |---|---:|---|
-| Frontend | 20,000 | Byte-preserving lexing, CST spans, bounded diagnostics, repeated parse equality and selected accept/reject contracts. |
-| AST/declaration analysis | 20,000 | Multi-file PSI/AST construction, AST verifier, stable inspection, declaration-analysis determinism, module graph order independence and diagnostic ownership. |
-| Runtime | 20,000 | String byte/rune models, concat/slice/search/order/hash, reference arrays, exception causes/suppression and carrier rooting. |
-| LLVM backend | 20,000 | Typed native API operations, LLVM verification, bitcode/COFF output and ORC execution against independent arithmetic/branch results; selected handle/terminator rejection checks. |
-| Yellow Tea GC | 20,000 | Allocated graph topologies, explicit roots, weak/strong handles, cycles, root changes and collector results against independent reachability. |
+| Frontend | 20,000 | Managed byte-preserving lexing, CST spans, bounded diagnostics, repeated parse equality, and accept/reject contracts; coverage-guided CST campaign. |
+| AST/declaration analysis | 20,000 | Multi-file PSI/AST construction, AST verifier, stable inspection, declaration determinism, module graph order independence, and diagnostic ownership; coverage-guided single-source PSI/AST/declaration campaign. |
+| Runtime | 20,000 | String byte/rune models, concat/slice/search/order/hash, reference arrays, exception causes/suppression, and carrier rooting; coverage-guided native runtime campaign. |
+| LLVM backend | 20,000 | Typed native API operations, LLVM verification, bitcode/COFF output, ORC execution against independent arithmetic/branch results, and selected invalid-operation checks; coverage-guided native LLVM API campaign. |
+| Yellow Tea GC | 20,000 | Allocated graph topologies, explicit roots, weak/strong handles, cycles, root changes, and collector results against independent reachability; coverage-guided native GC campaign. |
 
-These are deterministic generated seed corpora with bounded isolated replay. They are not
-coverage-guided campaigns, 100,000 distinct code paths, full language conformance, or proof
-that every runtime/backend/GC behavior has been fuzzed. Declaration analysis does not cover
-all expression type checking, FIR flow/escape analysis or all lowering paths. The backend
-corpus does not fuzz the complete LLD linker, every artifact container or arbitrary external
-libraries. GC graph replay is single-mutator and is not a concurrency/race detector.
+The checked-in 100,000 inputs are deterministic seed corpora. They are distinct input bytes,
+not 100,000 coverage-guided executions or distinct code paths. The separate campaign workflow
+mutates selected seeds using libFuzzer and checks them with the same target oracles. Managed
+coverage comes from SharpFuzz-instrumented Sol assemblies. Native runtime and GC source files
+and their harnesses are compiled by LLVM 23.1.3 `clang-cl` with libFuzzer and AddressSanitizer;
+the loaded LLVM backend DLL, upstream LLVM libraries, and generated ORC machine code are not
+ASan-instrumented. No fuzz duration proves conformance or absence of defects.
+
+Declaration analysis does not cover all expression type checking, FIR flow/escape analysis,
+or all lowering paths. The backend corpus does not fuzz the complete LLD linker, every artifact
+container, or arbitrary external libraries. GC graph replay is single-mutator and is not a
+concurrency/race detector. The coverage-guided GC target shares this single-mutator limitation.
 
 ## Representation and integrity
 
@@ -74,7 +80,8 @@ and dirty-tree state, worker/backend digests and configured limits. Failures, mi
 wrong counts, timeouts and unexpected sanitizer errors fail the run. An input count never
 substitutes for triage and a minimized regression when a failure is found.
 
-Windows CI replays 40,000 managed inputs in the dedicated fuzz workflow and 60,000 native
-inputs in the native validation workflow. Native fuzz sources also receive CppCoreCheck,
-InspectCode and traced CodeQL compilation. Fuzz reports are uploaded through explicit
-output paths; private notes and local tool caches are not artifacts.
+Windows CI replays 40,000 managed inputs in the dedicated deterministic fuzz workflow and
+60,000 native inputs in native validation. `coverage-fuzz.yml` runs bounded coverage-guided
+smoke campaigns on PRs and a longer daily campaign. Native fuzz sources receive CppCoreCheck,
+InspectCode and traced CodeQL compilation. Only the explicit run directory under
+`out/fuzz/campaigns/<run-id>/` is uploaded; private notes and local tool caches are not artifacts.
