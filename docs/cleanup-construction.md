@@ -71,8 +71,10 @@ An incomplete or deferred proof cannot be promoted to a successful verification 
 The syntax is a statement:
 
 ```sol
-defer {
-    release(resource)
+module docs.cleanup
+
+func releaseResource(resource: Resource): () {
+    defer { release(resource) }
 }
 ```
 
@@ -84,6 +86,8 @@ Registration occurs only after execution reaches the declaration. For the branch
 flag creates no registration:
 
 ```sol
+module docs.cleanup
+
 func conditional(flag: bool): () {
     if flag {
         defer { record(10) }
@@ -102,6 +106,8 @@ Expressions inside the body run when cleanup runs. To capture a value at registr
 create an explicit local snapshot before the declaration:
 
 ```sol
+module docs.cleanup
+
 func snapshotAtRegistration(value: int): () {
     val saved = value
     defer { record(saved) }
@@ -125,6 +131,8 @@ Actions in one scope run in reverse registration order. Nested scopes drain from
 Consider:
 
 ```sol
+module docs.cleanup
+
 func nested(flag: bool): () {
     defer { record(1) }
     if flag {
@@ -189,6 +197,8 @@ was no earlier failure, the return is cancelled and cleanup's first failure beco
 Cleanup cannot choose a different return value or return out of its body.
 
 ```sol
+module docs.cleanup
+
 func returnAfterCleanup(): int {
     defer { record(1) }
     return computeResult()
@@ -236,6 +246,8 @@ is retained in the order it occurred. A cleanup body cannot directly throw an es
 it calls an ordinary operation that may raise. For example:
 
 ```sol
+module docs.cleanup
+
 class PrimaryFailure: Exception {}
 class CleanupFailure: Exception {}
 class EarlierCleanupFailure: Exception {}
@@ -280,6 +292,8 @@ the caller-visible primary. A cleanup exception during unwind remains statically
 though it is suppressed dynamically.
 
 ```sol
+module docs.cleanup
+
 func releaseNetwork(): () throws NetworkFailure {}
 
 func useAndRelease(): () throws NetworkFailure {
@@ -504,10 +518,14 @@ The language does not collect all actions and run them together at the function 
 For this shape:
 
 ```sol
-for var index: int = 0; index < limit; index += update(index) {
-    defer { closeIteration(index) }
-    if shouldSkip(index) { continue }
-    process(index)
+module docs.cleanup
+
+func processItems(limit: int): () {
+    for var index: int = 0; index < limit; index += update(index) {
+        defer { closeIteration(index) }
+        if shouldSkip(index) { continue }
+        process(index)
+    }
 }
 ```
 

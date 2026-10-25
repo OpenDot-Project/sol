@@ -302,15 +302,15 @@ func registrationBeforeNestedScope(flag: bool): () {
     record(272)
 }
 
-// A defer in an expression-producing branch still belongs to the branch scope.
+// A defer in a branch remains owned by that branch's lexical scope.
 func tryBranchRegistration(flag: bool): int {
-    val result = if flag {
+    if flag {
         defer { record(280) }
-        281
+        record(281)
     } else {
-        282
+        record(282)
     }
-    result
+    283
 }
 
 // Action registration does not execute or cache the value of this call.

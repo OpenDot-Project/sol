@@ -130,11 +130,10 @@ public sealed class BodyFlowTests
     { Error(Analyze("ref struct View {}\nclass Holder { var value: View }"), "SOL2260"); }
 
     [Fact]
-    public void UnimplementedCleanupProofIsVisibleInResult()
+    public void EmptyCleanupIsACompleteNoOp()
     {
         var result = Analyze("func f() { defer {} }");
-        Assert.False(result.IsComplete);
-        Assert.NotEmpty(result.UnverifiedNodes);
-        Assert.Contains(result.UnverifiedNodes, n => n.Origin.Text.StartsWith("defer", StringComparison.Ordinal));
+        Assert.True(result.IsComplete);
+        Assert.Empty(result.UnverifiedNodes);
     }
 }
