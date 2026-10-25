@@ -99,11 +99,15 @@ parameters, with exact storage type. `out var name` can receive a selected param
 call, but uses of that new local still need later inference/flow analysis. Property access is not
 substituted with a temporary writable location. Definite assignment and lifetime remain unchecked.
 
-Generic inference structurally matches argument types against parameter types. Invariant containers
-and nullable wrappers retain their structure. Missing information, conflicting inferred types,
-expected-return inference, and generic function-effect inference remain deferred. Explicit type
-arguments bypass inference but still pass constraint checks. A selected signature's nested nominal
-applications are checked after substitution.
+Generic inference uses argument lower bounds, exact ref/out evidence, and an expected call result when
+the enclosing body supplies one. Structural matching preserves invariant generic applications and
+nullable normalization. Constructed base projections can infer a parameter from an implementing or
+derived argument. Multiple bounds require one unique most-specific candidate; numeric widening is
+not introduced. Constraints are checked after inference for both method-owned and constructed-owner
+parameters. Explicit type arguments bypass evidence collection for those parameters but still pass
+constraint and conversion checks. Generic function-effect inference, complete lambda/array literal
+evidence, and monomorphized body rechecking remain deferred. See
+[generic inference](generic-inference.md) for bounds, limits, and examples.
 
 Argument typing currently covers written lexical types, simple literal-initialized locals, typed
 properties, grouping, tuples, and nested bound direct calls. Numeric literals prefer default
@@ -143,5 +147,8 @@ selected symbols. It omits source paths and distinguishes files of the same modu
 loader, stable cache schema, executable artifact, or FIR. Completed call tables support concurrent
 readers; further explicit workspace queries may intern additional types.
 
-Full receiver/accessibility resolution, contextual expression and return inference, user conversions,
-checked effects, smart casts, definite assignment, ref escape, and verified FIR remain future stages.
+Receiver member analysis is available through `BodyAnalysis`, including constructed generic bases,
+inherited overload groups, and method inference. The direct `CallAnalysis` API still cannot consume
+an enclosing expected-result type. Complete protected receiver checks, cross-distribution access,
+all user conversions, checked-effect coverage, smart casts, definite assignment, ref escape, and
+verified FIR remain future stages. See [member resolution](member-resolution.md).

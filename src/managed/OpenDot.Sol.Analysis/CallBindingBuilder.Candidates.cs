@@ -23,6 +23,7 @@ internal sealed partial class CallBindingBuilder
         var typeParameters = Sources.Types.GetTypeParameters(function);
         var substitution = new Dictionary<ResolvedType, ResolvedType>();
         var argumentTypes = new List<ArgumentValue>();
+        var inferenceConstraints = ImmutableArray.CreateBuilder<GenericInferenceConstraint>();
         var writtenTypes = parameters.Select(p => p.Type is null ? null : Sources.Types.GetType(p.Type)).ToArray();
         CallCandidate Fail(string reason, bool deferred = false) => new(symbol,
             deferred ? CallCandidateStatus.Deferred : CallCandidateStatus.Rejected, reason, [], [], null, [],
@@ -45,14 +46,20 @@ internal sealed partial class CallBindingBuilder
             var parameter = parameters[mapping.ParameterIndex];
             var value = argument.Mode == AstArgumentMode.OutVariable ? new ArgumentValue(null, true, null)
                 : Value(argument.Value, depth);
-            if (value.Type is null && argument.Mode != AstArgumentMode.OutVariable)
+            if (value.Type is null && !value.IsArrayLiteral && argument.Mode != AstArgumentMode.OutVariable)
             {
                 return Fail("Argument expression typing is not available.", true);
             }
             if (mapping.IsSpread || mapping.IsArrayArgument)
             {
-                if (value.Type?.Kind != ResolvedTypeKind.Array) { return Fail("A spread or named vararg argument requires a managed array."); }
-                value = value with { Type = value.Type.Arguments[0], Literal = null };
+                if (value.Type?.Kind == ResolvedTypeKind.Array)
+                {
+                    value = value with { Type = value.Type.Arguments[0], Literal = null };
+                }
+                else if (!value.IsArrayLiteral)
+                {
+                    return Fail("A spread or named vararg argument requires a managed array.");
+                }
             }
             argumentTypes.Add(value);
             if (parameter.PassingMode is AstPassingMode.Ref or AstPassingMode.Out && !value.Writable)
@@ -61,13 +68,47 @@ internal sealed partial class CallBindingBuilder
             }
             var template = writtenTypes[mapping.ParameterIndex];
             if (template is null || template.IsError || value.Type?.IsError == true) { return Fail("The written parameter or argument type is invalid.", true); }
-            if (explicitTypes.IsDefault && value.Type is not null
-                && !Infer(template, value.Type, typeParameters, substitution, 0))
+            if (explicitTypes.IsDefault && value.Type is not null)
             {
-                return Fail("Generic inference requires a common or expected type.", true);
+                var relation = parameter.PassingMode is AstPassingMode.Ref or AstPassingMode.Out
+                    || mapping.IsArrayArgument || mapping.IsSpread
+                    ? GenericInferenceRelation.Exact : GenericInferenceRelation.Input;
+                inferenceConstraints.Add(new(template, value.Type, relation,
+                    "argument " + mapping.ArgumentIndex));
+            }
+            else if (explicitTypes.IsDefault && value.IsArrayLiteral)
+            {
+                if (template.Kind is ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)
+                {
+                    if (!AddArrayElementEvidence(inferenceConstraints, template, value,
+                            "argument " + mapping.ArgumentIndex, out var arrayError))
+                    { return Fail(arrayError ?? "Array literal elements do not match the generic array shape.", true); }
+                }
+                else if (mapping.IsArrayArgument || mapping.IsSpread)
+                {
+                    if (!AddArrayElementEvidence(inferenceConstraints, Types.GetArray(template), value,
+                            "argument " + mapping.ArgumentIndex, out var arrayError))
+                    { return Fail(arrayError ?? "The generic array literal has no unique element evidence.", true); }
+                }
+                else
+                {
+                    return Fail("The array literal has no unique common type for this generic parameter.", true);
+                }
             }
         }
-        if (typeParameters.Any(p => !substitution.ContainsKey(p))) { return Fail("Generic inference needs an expected type or explicit type arguments.", true); }
+        if (explicitTypes.IsDefault && !typeParameters.IsEmpty)
+        {
+            var inferred = GenericInference.Solve(typeParameters, substitution, inferenceConstraints);
+            if (inferred.Status != GenericInferenceStatus.Solved)
+            {
+                bool deferred = inferred.Status is GenericInferenceStatus.MissingEvidence or GenericInferenceStatus.ResourceLimit;
+                return Fail(InferenceFailureReason(inferred), deferred);
+            }
+            substitution.Clear();
+            foreach (var pair in inferred.Substitution) { substitution.Add(pair.Key, pair.Value); }
+        }
+        if (typeParameters.Any(p => !substitution.ContainsKey(p)))
+        { return Fail("Generic inference needs an expected type or explicit type arguments.", true); }
         var typeArguments = typeParameters.Select(p => substitution[p]).ToImmutableArray();
         var constraint = Types.CheckConstraints(function, typeArguments, _cancellation);
         if (constraint.Status != ConstraintStatus.Satisfied)
@@ -90,6 +131,20 @@ internal sealed partial class CallBindingBuilder
             {
                 if (!ReferenceEquals(argument.Type, target)) { return Fail("Ref/out storage type must match exactly."); }
                 ranks.Add(0);
+                continue;
+            }
+            if (argument.IsArrayLiteral)
+            {
+                var arrayTarget = mapping.IsArrayArgument || mapping.IsSpread ? Types.GetArray(target) : target;
+                if ((mapping.IsArrayArgument || mapping.IsSpread)
+                    && argument.Type is not null && !ReferenceEquals(argument.Type, target))
+                { return Fail("A named or spread vararg array must match the invariant element type."); }
+                if (!TryArrayLiteralConversion(argument, arrayTarget, out int arrayRank, out bool deferred))
+                {
+                    return Fail(deferred ? "Array literal element typing is incomplete."
+                        : "Array literal elements do not convert to the selected array element type.", deferred);
+                }
+                ranks.Add(arrayRank);
                 continue;
             }
             var literalTarget = target.IsNullable ? target.Arguments[0] : target;
@@ -155,42 +210,115 @@ internal sealed partial class CallBindingBuilder
         };
     }
 
-    private bool Infer(ResolvedType template, ResolvedType actual, ImmutableArray<ResolvedType> parameters,
-        Dictionary<ResolvedType, ResolvedType> substitution, int depth)
+    private bool AddArrayElementEvidence(
+        ImmutableArray<GenericInferenceConstraint>.Builder constraints,
+        ResolvedType template,
+        ArgumentValue literal,
+        string origin,
+        out string? error)
     {
-        _cancellation.ThrowIfCancellationRequested();
-        if (depth > 128) { return false; }
-        if (parameters.Contains(template))
+        error = null;
+        if (!literal.IsArrayLiteral || template.Kind is not (ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray))
         {
-            if (substitution.TryGetValue(template, out var previous)) { return ReferenceEquals(previous, actual); }
-            substitution.Add(template, actual);
-            return true;
+            error = "Array literal evidence requires a matching array formal.";
+            return false;
         }
-        bool containsParameter = template.Arguments.Concat(template.Effects).Any(t => ContainsParameter(t, parameters));
-        if (!containsParameter) { return true; }
-        if (template.IsNullable && !actual.IsNullable) { return Infer(template.Arguments[0], actual, parameters, substitution, depth + 1); }
-        if (template.Kind != actual.Kind || template.Declaration != actual.Declaration || template.Name != actual.Name
-            || template.Arguments.Length != actual.Arguments.Length || !template.ParameterModes.SequenceEqual(actual.ParameterModes)) { return false; }
-        for (int index = 0; index < template.Arguments.Length; index++)
+        if (template.Kind == ResolvedTypeKind.FixedArray
+            && (!int.TryParse(template.Name, out int length) || length != literal.ArrayElements.Length))
         {
-            if (!Infer(template.Arguments[index], actual.Arguments[index], parameters, substitution, depth + 1)) { return false; }
+            error = "Fixed array length differs from the literal element count.";
+            return false;
         }
-        // Effect-set inference needs constraint solving, not a positional zip of unordered effects.
-        return !template.Effects.Any(t => ContainsParameter(t, parameters));
-    }
 
-    private bool ContainsParameter(ResolvedType type, ImmutableArray<ResolvedType> parameters)
-    {
-        var pending = new Stack<ResolvedType>();
-        var visited = new HashSet<int>();
-        pending.Push(type);
-        while (pending.TryPop(out var current))
+        var elementTemplate = template.Arguments[0];
+        for (int index = 0; index < literal.ArrayElements.Length; index++)
         {
             _cancellation.ThrowIfCancellationRequested();
-            if (!visited.Add(current.Id)) { continue; }
-            if (parameters.Contains(current)) { return true; }
-            foreach (var child in current.Arguments.Concat(current.Effects)) { pending.Push(child); }
+            var element = literal.ArrayElements[index];
+            string elementOrigin = origin + " element " + index;
+            if (element.Type is { } actual)
+            {
+                constraints.Add(new(elementTemplate, actual, GenericInferenceRelation.Input, elementOrigin));
+                continue;
+            }
+            if (element.IsArrayLiteral
+                && elementTemplate.Kind is ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)
+            {
+                if (!AddArrayElementEvidence(constraints, elementTemplate, element, elementOrigin, out error))
+                { return false; }
+                continue;
+            }
+            error = "An array element has no standalone type or nested expected-array shape.";
+            return false;
         }
-        return false;
+        return true;
     }
+
+    private bool TryArrayLiteralConversion(ArgumentValue literal, ResolvedType target,
+        out int rank, out bool deferred)
+    {
+        rank = 0;
+        deferred = false;
+        if (!literal.IsArrayLiteral || target.Kind is not (ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray))
+        { return false; }
+        if (target.Kind == ResolvedTypeKind.FixedArray
+            && (!int.TryParse(target.Name, out int length) || length != literal.ArrayElements.Length))
+        { return false; }
+
+        var elementTarget = target.Arguments[0];
+        foreach (var element in literal.ArrayElements)
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (element.IsArrayLiteral
+                && elementTarget.Kind is ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)
+            {
+                if (!TryArrayLiteralConversion(element, elementTarget, out int nestedRank, out deferred))
+                { return false; }
+                rank = Math.Max(rank, nestedRank);
+                continue;
+            }
+            if (element.Type is null)
+            {
+                deferred = true;
+                return false;
+            }
+            if (element.Literal is { } literalText
+                && !LiteralFits(literalText, elementTarget))
+            { return false; }
+
+            var conversion = Types.ClassifyConversion(element.Type, elementTarget, _cancellation);
+            if (conversion == IntrinsicConversion.None)
+            {
+                if (element.Literal is null || !LiteralFits(element.Literal, elementTarget)) { return false; }
+                rank = Math.Max(rank, 1);
+            }
+            else
+            {
+                rank = Math.Max(rank, (int)conversion);
+            }
+        }
+        return true;
+    }
+
+    private static string InferenceFailureReason(GenericInferenceResult inference)
+    {
+        var reason = inference.Reason ?? "Generic inference did not produce a unique substitution.";
+        var conflicting = inference.ConflictingParameters.ToHashSet();
+        var relevant = inference.Evidence.Where(fact => conflicting.Count == 0
+            || conflicting.Contains(fact.Parameter))
+            .Select(fact => fact.Origin)
+            .Where(origin => !string.IsNullOrWhiteSpace(origin))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(origin => origin, StringComparer.Ordinal)
+            .ToArray();
+        if (relevant.Length == 0) { return reason; }
+
+        const int maximumOrigins = 8;
+        var displayed = relevant.Take(maximumOrigins);
+        var suffix = relevant.Length > maximumOrigins
+            ? $" (+{relevant.Length - maximumOrigins} more)"
+            : string.Empty;
+        return $"{reason} Evidence came from {string.Join(", ", displayed)}{suffix}.";
+    }
+
 }

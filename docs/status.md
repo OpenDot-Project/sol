@@ -44,7 +44,9 @@ The [source binding SDK](source-binding.md) now resolves written type identities
 checks explicit bases and inheritance cycles, and indexes lexical scopes and capture candidates.
 The optional [generic and call analysis](generic-calls.md) now substitutes owned type parameters,
 checks specialized nominal constraints, maps direct module-function arguments, and selects supported
-overloads. Unsupported receiver, lambda, inference, and conversion paths remain explicitly deferred.
+overloads. Its shared generic solver now collects input/exact/expected bounds, invariant nested
+evidence, and constructed nominal base projections. Unsupported candidate paths remain explicitly
+deferred.
 The [argument contract](arguments.md) now covers ordered mixed calls, middle varargs, array-valued
 named varargs, default origins/inheritance, and outside-lambda destinations. The commented
 [source specification](source-specification.md) also explains planned language/runtime behavior;
@@ -52,9 +54,13 @@ its syntax/AST gate does not certify complete semantic implementation or native 
 
 The optional [body analysis](body-analysis.md) adds receiver/member lookup, contextual expression and
 lambda checking, constructor/override checks, structured definite assignment and smart casts, checked
-effects, and conservative storage/capture checks. Its unverified source locations remain queryable;
-full inherited overload/conversion/lambda solving, exceptional flow, and borrow-origin proof are still
-incomplete. It does not produce verified FIR or native output.
+effects, and conservative storage/capture checks. Receiver lookup substitutes constructed bases,
+merges inherited callable groups, removes same-signature base recovery candidates after override,
+and supports constrained type-parameter lookup. Generic member calls use candidate-local argument,
+ref/out, expected-result, and base-projection evidence before checking owner/method constraints.
+Unverified source locations remain queryable. Full protected receiver checks, interface-default
+resolution, contextual lambda/array evidence, exceptional flow, and borrow-origin proof remain
+incomplete. This API does not produce verified FIR or native output.
 
 The [Yellow Tea implementation inventory](yellow-tea/current-implementation.md) records experimental
 concurrent mark/sweep, generated roots/barriers, handles, and native validation fixtures. The design
@@ -73,8 +79,8 @@ remain gated. The [standard library inventory](standard-library.md) lists implem
 ### Remaining stages
 
 1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.
-2. Extend binding with full visibility, generic body validation, receiver-dependent references,
-   generated members, and complete overload/expression typing.
+2. Complete receiver visibility/default conflict rules, generic body specialization, generated
+   members, and complete overload/expression typing on top of the new constructed-member resolver.
 3. Expand the verified FIR subset with full nullability, checked exception/cleanup CFG, borrowing,
    closures, generic specialization, and general object layouts.
 4. Qualify complete Windows/ORC exception handling, library consumption and extended native ABI.

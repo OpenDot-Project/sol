@@ -40,13 +40,22 @@ qualifiers retain explicit import and shadowing behavior.
 
 Call mapping reuses the named/default/vararg contract: source-order mapping, named arrays, middle
 varargs, explicit ref/out modes, and final-parameter trailing lambdas. Generic inference uses known
-argument and expected return types; it is not an unrestricted solver. Numeric literal applicability
-and intrinsic/user-conversion ranks participate in selection. User conversions are single-step.
+argument bounds, exact ref/out evidence, expected result types, invariant nested applications, and
+constructed base projections. The solver requires a unique most-specific bound and checks method
+and constructed-owner constraints after inference. It does not specialize and recheck an entire
+generic body for every monomorphized instance. See [generic inference](generic-inference.md).
+Numeric literal applicability and intrinsic/user-conversion ranks participate in selection. User
+conversions are single-step.
 
 Private and protected access, private setters/getters, explicit override, non-overridable members,
 visibility reduction, incompatible returns, and widened checked effect budgets receive diagnostics.
-Current inherited lookup is intentionally bounded; full inherited overload merging, interface-default
-conflict resolution, and generated data members remain work to complete.
+Inherited callable groups merge across substituted base paths; duplicate constructed paths collapse,
+and a more-derived same-signature declaration replaces the base recovery candidate. Inheritance
+lookup is bounded to 128 levels and 8192 constructed receiver identities. The merge is not yet a
+complete interface-default conflict protocol, and generated data members remain incomplete.
+Protected receiver restrictions, cross-binary distribution metadata for `internal`, complete
+property/indexer inheritance, and every accessor/delegation visibility case still need verification.
+See [receiver and member resolution](member-resolution.md).
 
 ## Expression and lambda checking
 

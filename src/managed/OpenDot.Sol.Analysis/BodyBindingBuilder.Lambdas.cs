@@ -21,7 +21,8 @@ internal sealed partial class BodyBindingBuilder
         return count == 0;
     }
 
-    private Value Lambda(AstLambda lambda, State outer, Context parent, ResolvedType? expected)
+    private Value Lambda(AstLambda lambda, State outer, Context parent, ResolvedType? expected,
+        ImmutableArray<ResolvedType> inferenceParameters = default)
     {
         if (expected is not null && (expected.Kind != ResolvedTypeKind.Function || !LambdaShape(lambda, expected)))
         { Report("SOL2220", "Lambda parameters do not match the expected function type.", lambda); return new(null); }
@@ -39,7 +40,9 @@ internal sealed partial class BodyBindingBuilder
             var passing = parameter.Children.FirstOrDefault(n => n.SyntaxKind == NodeKind.PassingMode)?.Origin.Text;
             var mode = passing == "ref" ? AstPassingMode.Ref : passing == "out" ? AstPassingMode.Out : AstPassingMode.Value;
             if (type is null) { Report("SOL2220", "An uncontextualized lambda parameter needs an explicit type.", parameter); return new(null); }
-            if (expected is not null && (type != expected.Arguments[index] || mode != expected.ParameterModes[index]))
+            if (expected is not null && (mode != expected.ParameterModes[index]
+                || !ContainsInferenceParameter(expected.Arguments[index], inferenceParameters)
+                    && type != expected.Arguments[index]))
             { Report("SOL2220", "Lambda parameter type or mode differs from the expected signature.", parameter); }
             types.Add(type); modes.Add(mode);
             var name = parameter.Children.FirstOrDefault(n => n.SyntaxKind == NodeKind.Name)?.Origin.Text;
@@ -62,7 +65,11 @@ internal sealed partial class BodyBindingBuilder
             }
         }
         var exits = new List<State>();
-        var resultType = expected?.Arguments[^1];
+        bool inferResult = expected is not null
+            && ContainsInferenceParameter(expected.Arguments[^1], inferenceParameters);
+        bool inferEffects = expected is not null
+            && expected.Effects.Any(effect => ContainsInferenceParameter(effect, inferenceParameters));
+        var resultType = inferResult ? null : expected?.Arguments[^1];
         var context = new Context(null, resultType, lambda, expected, Exits: exits);
         var result = Statements(lambda.Statements, state, context, true);
         resultType ??= result.Type;
@@ -77,9 +84,10 @@ internal sealed partial class BodyBindingBuilder
             }
         }
         var effects = state.Effects.Where(IsChecked).ToArray();
-        if (expected is not null && effects.Any(e => !expected.Effects.Any(b => Converts(e, b))))
+        if (expected is not null && !inferEffects && effects.Any(e => !expected.Effects.Any(b => Converts(e, b))))
         { Report("SOL2253", "Lambda checked effects exceed the expected function contract.", lambda); }
         if (resultType is null) { Defer(lambda); return new(null); }
-        return new(Types.GetFunction(types, resultType, modes, expected?.Effects ?? effects.ToImmutableArray()));
+        return new(Types.GetFunction(types, resultType, modes,
+            inferEffects ? effects.ToImmutableArray() : expected?.Effects ?? effects.ToImmutableArray()));
     }
 }
