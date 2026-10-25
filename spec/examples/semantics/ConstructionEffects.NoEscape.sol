@@ -274,7 +274,7 @@ class CollectionThisEscape(collection: ObjectCollection) {
 }
 
 // Reflection over the type descriptor does not itself publish the owner instance.
-func inspectType(type: SolProperty<String>): () {}
+func inspectType(descriptor: SolProperty<String>): () {}
 
 class MetadataOnlyInspection {
     val ready: String
