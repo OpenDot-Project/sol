@@ -18,8 +18,12 @@
   href: source-binding.md
 - name: Generic specialization and calls
   href: generic-calls.md
+- name: Generic inference
+  href: generic-inference.md
 - name: Argument and default contracts
   href: arguments.md
+- name: Receiver and member resolution
+  href: member-resolution.md
 - name: Body types and flow analysis
   href: body-analysis.md
 - name: Verified FIR and native AOT

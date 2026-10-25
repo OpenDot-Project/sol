@@ -27,6 +27,27 @@ Do not link this entire corpus as one application: several examples intentionall
 | [Objects.sol](Objects.sol) | Classes, objects, companions, constructors, accessors, data/sealed |
 | [Structs.sol](Structs.sol) | Value copying, defaultability, ref struct, ref/out locations |
 | [Generics.sol](Generics.sol) | Invariance, bounds, anti-constraints, specialization limits |
+| [GenericInference.sol](GenericInference.sol) | Input, exact and expected-result evidence, invariant matching and projections |
+| [GenericInference.Bounds.sol](GenericInference.Bounds.sol) | Lower/upper aggregation, constructed joins and conflict cases |
+| [GenericInference.CommonTypes.sol](GenericInference.CommonTypes.sol) | Unique common candidate, invariant nesting, nullability, literals and ref-like limits |
+| [GenericInference.Context.sol](GenericInference.Context.sol) | Named/default/vararg, lambda, array and effect evidence |
+| [GenericInference.Cycles.sol](GenericInference.Cycles.sol) | Recursive equations, F-bounds, cycle identities, finite substitution and cancellation |
+| [GenericInference.Flow.sol](GenericInference.Flow.sol) | Smart-cast evidence, mutation invalidation and flow snapshots per overload |
+| [GenericInference.Literals.sol](GenericInference.Literals.sol) | Exact literal data, array/fixed-array and contextual lambda evidence |
+| [GenericInference.Lambdas.sol](GenericInference.Lambdas.sol) | Candidate-isolated lambda context, modes, results and effects |
+| [GenericInference.Effects.sol](GenericInference.Effects.sol) | Unordered checked-effect substitution and pending set inference |
+| [GenericInference.Overloads.sol](GenericInference.Overloads.sol) | Candidate-local evidence, applicability, ranking and deferral |
+| [GenericInference.Validation.sol](GenericInference.Validation.sol) | Constraints, ownership, budgets, diagnostics and FIR boundary |
+| [MemberResolution.sol](MemberResolution.sol) | Receiver categories, constructed bases, overload groups and lookup limits |
+| [MemberResolution.Overloads.sol](MemberResolution.Overloads.sol) | Inherited overload merge, override replacement and ambiguity |
+| [MemberResolution.Visibility.sol](MemberResolution.Visibility.sol) | Accessor/receiver visibility and nullable member access |
+| [MemberResolution.Paths.sol](MemberResolution.Paths.sol) | Constructed paths, substitutions, diamonds and deterministic traversal |
+| [MemberResolution.CallableKinds.sol](MemberResolution.CallableKinds.sol) | Property, indexer, constructor, operator, delegation and safe call rules |
+| [MemberResolution.Dispatch.sol](MemberResolution.Dispatch.sol) | Static contract, virtual/interface dispatch and lowering boundary |
+| [MemberResolution.NullableFlow.sol](MemberResolution.NullableFlow.sol) | Stable narrowing, safe-call evaluation, result lifting and nullable storage |
+| [MemberResolution.PartialIdentity.sol](MemberResolution.PartialIdentity.sol) | Cross-file type identity, member merge, initialization and deterministic diagnostics |
+| [MemberResolution.Storage.sol](MemberResolution.Storage.sol) | Member locations, ref/out storage, ref-like escape and borrow facts |
+| [MemberResolution.Diagnostics.sol](MemberResolution.Diagnostics.sol) | Missing/access/nullable/ambiguity/resource diagnostic ownership |
 | [Modules.sol](Modules.sol) | Logical identities, aliases, selective/public imports, partials |
 | [Exceptions.sol](Exceptions.sol) | Checked/unchecked hierarchy, throws, catch, cleanup |
 | [ControlFlow.sol](ControlFlow.sol) | Four loop forms, switch patterns, try results, tail results |
@@ -44,12 +65,13 @@ Do not link this entire corpus as one application: several examples intentionall
 
 - The development frontend parses the illustrated syntax into lossless CST, PSI and structural AST.
 - Declaration, written-type and lexical analyses cover explicit source sets, imports, partials and
-  portions of generic/type/default metadata. Direct module-function calls have a supported binding
-  subset. Argument mapping preserves ordered mixed named/positional calls, middle varargs, array-valued
-  named varargs, defaults and trailing-lambda destinations.
-- Lambda typing, complete receiver/override/accessibility validation, contextual expression/return
-  inference, generic body validation, checked effects, smart casts, definite assignment, ref escape,
-  constant evaluation and generated data/delegation members remain incomplete.
+  portions of generic/type/default metadata. Direct module-function calls and a bounded body-analysis
+  subset bind arguments, receiver members, inherited overload groups, generic input/exact/expected
+  bounds, constructed base projections, and nominal constraints.
+- Complete protected receiver and cross-distribution access validation, interface-default conflict
+  resolution, candidate-local inference for every lambda/array form, generic effect inference,
+  monomorphized body checking, checked effect coverage, smart casts, definite assignment, ref escape,
+  constant evaluation, and generated data/delegation members remain incomplete.
 - Default-expression origins and evaluation order are represented by the analysis API. Actual
   evaluation, virtual calls, native exceptions, standard library behavior and garbage collection
   require later verified FIR, LLVM and runtime implementation. No example currently produces a native
@@ -59,5 +81,6 @@ The corpus is syntax-checked separately from semantic tests. Syntax validation d
 `std.core`, resolve library APIs, prove the rule comments, or execute the examples. Planned rules
 remain documented even when their semantic tests or implementation do not exist.
 
-See [argument contracts](../docs/arguments.md), [generic call analysis](../docs/generic-calls.md), and
-the [implementation status](../docs/status.md) for the supported API boundaries.
+See [argument contracts](../docs/arguments.md), [generic call analysis](../docs/generic-calls.md),
+[generic inference](../docs/generic-inference.md), [member resolution](../docs/member-resolution.md),
+and the [implementation status](../docs/status.md) for the supported API boundaries.

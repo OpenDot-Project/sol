@@ -65,6 +65,8 @@ Every source declares its logical module explicitly. The module name does not ha
 - [Declaration analysis](docs/analysis.md): explicit modules, source imports, and partial composition.
 - [Types and lexical scopes](docs/source-binding.md): written type binding and source name lookup.
 - [Generic specialization and calls](docs/generic-calls.md): substitution, constraints, and direct-function overload analysis.
+- [Generic inference](docs/generic-inference.md): input/exact/expected bounds, invariant matching, and base projections.
+- [Receiver and member resolution](docs/member-resolution.md): constructed member lookup, inherited overload groups, and access limits.
 - [Argument contracts](docs/arguments.md): named/default/vararg rules and evaluation order.
 - [Source specification](spec/README.md): commented `.sol` contracts and [usage examples](spec/examples/README.md), including planned semantics.
 - [Architecture](docs/architecture.md): existing projects, ownership, and future compiler stages.

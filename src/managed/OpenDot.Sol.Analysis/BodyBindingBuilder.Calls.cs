@@ -187,7 +187,15 @@ internal sealed partial class BodyBindingBuilder
         }
         var inferParameters = target.Constructed is not null && explicitTypes.IsDefault
             ? Sources.Types.GetTypeParameters(target.Constructed.Declaration!.Parts[0]) : parameters;
-        foreach (var parameter in inferParameters) { if (substitution.GetValueOrDefault(parameter) == parameter) { substitution.Remove(parameter); } }
+        foreach (var parameter in inferParameters)
+        {
+            if (substitution.TryGetValue(parameter, out var current) && ReferenceEquals(current, parameter))
+            {
+                substitution.Remove(parameter);
+            }
+        }
+        inferParameters = inferParameters.Where(parameter => !substitution.ContainsKey(parameter)).ToImmutableArray();
+        var inference = ImmutableArray.CreateBuilder<GenericInferenceConstraint>();
         foreach (var entry in mapping.Arguments)
         {
             var actual = values[entry.ArgumentIndex]?.Type;
@@ -197,14 +205,29 @@ internal sealed partial class BodyBindingBuilder
                 if (actual.Kind != ResolvedTypeKind.Array) { return null; }
                 actual = actual.Arguments[0];
             }
-            if (!InferBody(Written(callable.Parameters[entry.ParameterIndex].Type!), actual, inferParameters, substitution)) { return null; }
+            var relation = callable.Parameters[entry.ParameterIndex].PassingMode is AstPassingMode.Ref or AstPassingMode.Out
+                ? GenericInferenceRelation.Exact : GenericInferenceRelation.Input;
+            inference.Add(new(Written(callable.Parameters[entry.ParameterIndex].Type!), actual, relation,
+                "argument " + entry.ArgumentIndex));
         }
         if (expected is not null && callable.ReturnType is not null)
-        { InferBody(Written(callable.ReturnType), expected, inferParameters, substitution); }
-        if (inferParameters.Any(p => !substitution.ContainsKey(p))) { Defer(call); return null; }
-        var constraintOwner = target.Constructed?.Declaration?.Parts[0] ?? callable;
-        var constraintParameters = Sources.Types.GetTypeParameters(constraintOwner);
-        if (Types.CheckConstraints(constraintOwner, constraintParameters.Select(p => substitution.GetValueOrDefault(p, p)).ToArray(), _cancellation).Status != ConstraintStatus.Satisfied) { return null; }
+        { inference.Add(new(Written(callable.ReturnType), expected, GenericInferenceRelation.Expected, "expected result")); }
+        if (!inferParameters.IsEmpty)
+        {
+            var genericInference = GenericInference.Solve(inferParameters, substitution, inference);
+            if (genericInference.Status == GenericInferenceStatus.MissingEvidence)
+            {
+                Defer(call);
+                return null;
+            }
+            if (genericInference.Status != GenericInferenceStatus.Solved) { return null; }
+            substitution.Clear();
+            foreach (var pair in genericInference.Substitution) { substitution.Add(pair.Key, pair.Value); }
+        }
+
+        if (!ConstraintsSatisfied(callable, substitution, call)) { return null; }
+        if (target.Constructed?.Declaration is { } constructedDefinition
+            && !ConstraintsSatisfied(constructedDefinition.Parts[0], substitution, call)) { return null; }
         var types = callable.Parameters.Select(p => Types.Substitute(Written(p.Type!), substitution, _cancellation)).ToImmutableArray();
         var ranks = ImmutableArray.CreateBuilder<int>();
         foreach (var entry in mapping.Arguments)
@@ -251,18 +274,20 @@ internal sealed partial class BodyBindingBuilder
         return new(target, mapping, types, result, effects, ranks.ToImmutable(), inferParameters.Length != 0);
     }
 
-    private bool InferBody(ResolvedType template, ResolvedType actual, ImmutableArray<ResolvedType> parameters,
-        Dictionary<ResolvedType, ResolvedType> substitution, int depth = 0)
+    private bool ConstraintsSatisfied(AstDeclaration definition,
+        IReadOnlyDictionary<ResolvedType, ResolvedType> substitution, AstCall call)
     {
-        if (depth > 128) { return false; }
-        if (parameters.Contains(template))
+        var parameters = Sources.Types.GetTypeParameters(definition);
+        if (parameters.IsEmpty) { return true; }
+        var arguments = parameters.Select(parameter => substitution.GetValueOrDefault(parameter, parameter)).ToArray();
+        var check = Types.CheckConstraints(definition, arguments, _cancellation);
+        if (check.Status == ConstraintStatus.Unsatisfied) { return false; }
+        if (check.Status == ConstraintStatus.Indeterminate)
         {
-            if (substitution.TryGetValue(template, out var previous)) { return previous == actual; }
-            substitution.Add(template, actual); return true;
+            Defer(call);
+            return false;
         }
-        if (template.IsNullable && !actual.IsNullable) { return InferBody(template.Arguments[0], actual, parameters, substitution, depth + 1); }
-        if (template.Kind != actual.Kind || template.Declaration != actual.Declaration || template.Arguments.Length != actual.Arguments.Length) { return true; }
-        return template.Arguments.Zip(actual.Arguments).All(p => InferBody(p.First, p.Second, parameters, substitution, depth + 1));
+        return true;
     }
 
     private static bool Better(Applicable left, Applicable right)

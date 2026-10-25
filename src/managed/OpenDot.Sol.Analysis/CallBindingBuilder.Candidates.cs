@@ -23,6 +23,7 @@ internal sealed partial class CallBindingBuilder
         var typeParameters = Sources.Types.GetTypeParameters(function);
         var substitution = new Dictionary<ResolvedType, ResolvedType>();
         var argumentTypes = new List<ArgumentValue>();
+        var inferenceConstraints = ImmutableArray.CreateBuilder<GenericInferenceConstraint>();
         var writtenTypes = parameters.Select(p => p.Type is null ? null : Sources.Types.GetType(p.Type)).ToArray();
         CallCandidate Fail(string reason, bool deferred = false) => new(symbol,
             deferred ? CallCandidateStatus.Deferred : CallCandidateStatus.Rejected, reason, [], [], null, [],
@@ -61,13 +62,27 @@ internal sealed partial class CallBindingBuilder
             }
             var template = writtenTypes[mapping.ParameterIndex];
             if (template is null || template.IsError || value.Type?.IsError == true) { return Fail("The written parameter or argument type is invalid.", true); }
-            if (explicitTypes.IsDefault && value.Type is not null
-                && !Infer(template, value.Type, typeParameters, substitution, 0))
+            if (explicitTypes.IsDefault && value.Type is not null)
             {
-                return Fail("Generic inference requires a common or expected type.", true);
+                var relation = parameter.PassingMode is AstPassingMode.Ref or AstPassingMode.Out
+                    ? GenericInferenceRelation.Exact : GenericInferenceRelation.Input;
+                inferenceConstraints.Add(new(template, value.Type, relation,
+                    "argument " + mapping.ArgumentIndex));
             }
         }
-        if (typeParameters.Any(p => !substitution.ContainsKey(p))) { return Fail("Generic inference needs an expected type or explicit type arguments.", true); }
+        if (explicitTypes.IsDefault && !typeParameters.IsEmpty)
+        {
+            var inferred = GenericInference.Solve(typeParameters, substitution, inferenceConstraints);
+            if (inferred.Status != GenericInferenceStatus.Solved)
+            {
+                bool deferred = inferred.Status is GenericInferenceStatus.MissingEvidence or GenericInferenceStatus.ResourceLimit;
+                return Fail(InferenceFailureReason(inferred), deferred);
+            }
+            substitution.Clear();
+            foreach (var pair in inferred.Substitution) { substitution.Add(pair.Key, pair.Value); }
+        }
+        if (typeParameters.Any(p => !substitution.ContainsKey(p)))
+        { return Fail("Generic inference needs an expected type or explicit type arguments.", true); }
         var typeArguments = typeParameters.Select(p => substitution[p]).ToImmutableArray();
         var constraint = Types.CheckConstraints(function, typeArguments, _cancellation);
         if (constraint.Status != ConstraintStatus.Satisfied)
@@ -155,42 +170,25 @@ internal sealed partial class CallBindingBuilder
         };
     }
 
-    private bool Infer(ResolvedType template, ResolvedType actual, ImmutableArray<ResolvedType> parameters,
-        Dictionary<ResolvedType, ResolvedType> substitution, int depth)
+    private static string InferenceFailureReason(GenericInferenceResult inference)
     {
-        _cancellation.ThrowIfCancellationRequested();
-        if (depth > 128) { return false; }
-        if (parameters.Contains(template))
-        {
-            if (substitution.TryGetValue(template, out var previous)) { return ReferenceEquals(previous, actual); }
-            substitution.Add(template, actual);
-            return true;
-        }
-        bool containsParameter = template.Arguments.Concat(template.Effects).Any(t => ContainsParameter(t, parameters));
-        if (!containsParameter) { return true; }
-        if (template.IsNullable && !actual.IsNullable) { return Infer(template.Arguments[0], actual, parameters, substitution, depth + 1); }
-        if (template.Kind != actual.Kind || template.Declaration != actual.Declaration || template.Name != actual.Name
-            || template.Arguments.Length != actual.Arguments.Length || !template.ParameterModes.SequenceEqual(actual.ParameterModes)) { return false; }
-        for (int index = 0; index < template.Arguments.Length; index++)
-        {
-            if (!Infer(template.Arguments[index], actual.Arguments[index], parameters, substitution, depth + 1)) { return false; }
-        }
-        // Effect-set inference needs constraint solving, not a positional zip of unordered effects.
-        return !template.Effects.Any(t => ContainsParameter(t, parameters));
+        var reason = inference.Reason ?? "Generic inference did not produce a unique substitution.";
+        var conflicting = inference.ConflictingParameters.ToHashSet();
+        var relevant = inference.Evidence.Where(fact => conflicting.Count == 0
+            || conflicting.Contains(fact.Parameter))
+            .Select(fact => fact.Origin)
+            .Where(origin => !string.IsNullOrWhiteSpace(origin))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(origin => origin, StringComparer.Ordinal)
+            .ToArray();
+        if (relevant.Length == 0) { return reason; }
+
+        const int maximumOrigins = 8;
+        var displayed = relevant.Take(maximumOrigins);
+        var suffix = relevant.Length > maximumOrigins
+            ? $" (+{relevant.Length - maximumOrigins} more)"
+            : string.Empty;
+        return $"{reason} Evidence came from {string.Join(", ", displayed)}{suffix}.";
     }
 
-    private bool ContainsParameter(ResolvedType type, ImmutableArray<ResolvedType> parameters)
-    {
-        var pending = new Stack<ResolvedType>();
-        var visited = new HashSet<int>();
-        pending.Push(type);
-        while (pending.TryPop(out var current))
-        {
-            _cancellation.ThrowIfCancellationRequested();
-            if (!visited.Add(current.Id)) { continue; }
-            if (parameters.Contains(current)) { return true; }
-            foreach (var child in current.Arguments.Concat(current.Effects)) { pending.Push(child); }
-        }
-        return false;
-    }
 }

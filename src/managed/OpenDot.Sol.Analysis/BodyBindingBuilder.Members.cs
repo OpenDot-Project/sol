@@ -34,40 +34,14 @@ internal sealed partial class BodyBindingBuilder
     private IEnumerable<MemberBinding> FindMembers(ResolvedType receiver, string name, AstNode location)
     {
         if (string.IsNullOrWhiteSpace(name)) { Defer(location); return []; }
-        var pending = new Queue<(ResolvedType Type, int Depth)>();
-        var visited = new HashSet<ResolvedType>();
-        var found = new List<MemberBinding>();
-        pending.Enqueue((receiver, 0));
-        int bestDepth = int.MaxValue;
-        while (pending.TryDequeue(out var entry))
+        var result = MemberResolver.Resolve(receiver, name, location);
+        if (result.Status == MemberLookupStatus.LimitExceeded)
         {
-            _cancellation.ThrowIfCancellationRequested();
-            if (entry.Depth > 128) { Report("SOL2290", "Member inheritance search exceeds the depth budget.", location); Defer(location); break; }
-            if (entry.Depth > bestDepth || !visited.Add(entry.Type)) { continue; }
-            if (entry.Type.Kind == ResolvedTypeKind.Parameter && entry.Type.Parameter is { } identity)
-            {
-                var parameter = identity.Owner switch
-                {
-                    AstCallable c => c.TypeParameters.ElementAtOrDefault(identity.Ordinal),
-                    AstTypeDeclaration t => t.TypeParameters.ElementAtOrDefault(identity.Ordinal),
-                    _ => null,
-                };
-                if (parameter?.Constraint is not null) { pending.Enqueue((Written(parameter.Constraint), entry.Depth + 1)); }
-                foreach (var clause in identity.Owner.Children.Where(n => n.SyntaxKind == NodeKind.WhereClause).SelectMany(n => n.Children))
-                {
-                    if (clause.Children.Any(n => n.SyntaxKind == NodeKind.Name && n.Origin.Text == parameter?.Name))
-                    { foreach (var type in clause.Children.OfType<AstType>()) { pending.Enqueue((Written(type), entry.Depth + 1)); } }
-                }
-            }
-            var members = entry.Type.Declaration?.FindMembers(name).ToArray() ?? [];
-            if (members.Length != 0)
-            {
-                bestDepth = entry.Depth;
-                found.AddRange(members.Select(s => new MemberBinding(s, entry.Type)));
-            }
-            foreach (var parent in Types.GetDirectBases(entry.Type, _cancellation)) { pending.Enqueue((parent, entry.Depth + 1)); }
+            Report("SOL2290", result.Reason ?? "Member inheritance search exceeded its budget.", location);
+            Defer(location);
+            return [];
         }
-        return found.Distinct();
+        return result.Candidates.Select(candidate => new MemberBinding(candidate.Symbol, candidate.DeclaringType));
     }
 
     private bool Accessible(DeclarationSymbol symbol, AstNode location)

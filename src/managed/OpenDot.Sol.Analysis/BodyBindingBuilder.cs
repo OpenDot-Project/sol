@@ -56,6 +56,8 @@ internal sealed partial class BodyBindingBuilder
         ResolvedType? LambdaType = null, int LoopDepth = 0, bool Cleanup = false,
         List<State>? Exits = null, List<State>? Breaks = null);
     private readonly CancellationToken _cancellation;
+    private readonly MemberLookupResolver _memberResolver;
+    private readonly GenericInferenceSolver _genericInference;
     private readonly Dictionary<LocalSymbol, ResolvedType> _localTypes = [];
     private readonly HashSet<AstCallable> _active = [];
     private readonly HashSet<(AstNode, string)> _reported = [];
@@ -68,6 +70,8 @@ internal sealed partial class BodyBindingBuilder
     internal readonly Dictionary<AstCall, BodyCallBinding> Calls = new(ReferenceEqualityComparer.Instance);
     internal SourceAnalysis Sources { get; }
     internal TypeSpecialization Types { get; }
+    internal MemberLookupResolver MemberResolver => _memberResolver;
+    internal GenericInferenceSolver GenericInference => _genericInference;
     internal bool Deferred => _deferred.Count != 0;
     internal IEnumerable<AstNode> Unverified => _deferred;
     private ResolvedType Empty => Types.GetTuple([]);
@@ -76,6 +80,8 @@ internal sealed partial class BodyBindingBuilder
     internal BodyBindingBuilder(SourceAnalysis sources, CancellationToken cancellation)
     {
         Sources = sources; Types = new(sources.Types); _cancellation = cancellation;
+        _memberResolver = new(sources, Types, cancellation);
+        _genericInference = new(Types, cancellation);
         foreach (var file in sources.Declarations.Files)
         {
             foreach (var node in file.Nodes) { Files.Add(node, file); }

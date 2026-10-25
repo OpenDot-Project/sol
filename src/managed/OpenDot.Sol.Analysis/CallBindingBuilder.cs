@@ -14,6 +14,7 @@ namespace OpenDot.Sol.Analysis;
 internal sealed partial class CallBindingBuilder
 {
     private readonly CancellationToken _cancellation;
+    private readonly GenericInferenceSolver _genericInference;
     private readonly Dictionary<AstNode, AstSnapshot> _files = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<AstCall> _active = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<DeclarationSymbol> _moduleFunctions = [];
@@ -24,6 +25,7 @@ internal sealed partial class CallBindingBuilder
         Sources = sources;
         Types = new(sources.Types);
         _cancellation = cancellation;
+        _genericInference = new(Types, cancellation);
         foreach (var file in sources.Declarations.Files)
         {
             foreach (var node in file.Nodes) { _files.Add(node, file); }
@@ -37,6 +39,7 @@ internal sealed partial class CallBindingBuilder
 
     internal SourceAnalysis Sources { get; }
     internal TypeSpecialization Types { get; }
+    internal GenericInferenceSolver GenericInference => _genericInference;
     internal Dictionary<AstCall, CallBinding> Bindings { get; } = new(ReferenceEqualityComparer.Instance);
     internal List<Diagnostic> Diagnostics { get; } = [];
 
