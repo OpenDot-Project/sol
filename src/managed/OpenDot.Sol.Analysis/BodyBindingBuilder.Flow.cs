@@ -313,7 +313,8 @@ internal sealed partial class BodyBindingBuilder
         var beforeValue = CaptureCleanupFacts(state);
         var value = Expression(selection.Value, state, context);
         UpdateCleanupFacts(state, beforeValue, CaptureCleanupFacts(state));
-        if (ContainsCall(selection.Value)) { InvalidateMutableCleanupNarrowings(state); }
+        if (selection.Value is not null && ContainsCall(selection.Value))
+        { InvalidateMutableCleanupNarrowings(state); }
         var branches = new List<State>();
         foreach (var @case in selection.Cases)
         {
