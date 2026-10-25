@@ -101,7 +101,7 @@ func genericEffectSubstitutionKeepsConcreteType(error: ReadFailure): ! throws Re
     rethrow(error)
 }
 
-func rethrow<E: Throwable>(error: E): ! throws E { throw error }
+func <E: Throwable> rethrow(error: E): ! throws E { throw error }
 
 func catchOrderMustBeMostSpecificFirst(error: IoFailure): int {
     try {

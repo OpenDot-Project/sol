@@ -51,7 +51,7 @@ func recursive(depth: int): int throws FirstFailure {
     recursionBudgetIsVisible(depth)
 }
 
-func pendingOpenEffectPattern<E: Throwable>(action: () -> int throws E): int throws E {
+func <E: Throwable> pendingOpenEffectPattern(action: () -> int throws E): int throws E {
     action()
 }
 

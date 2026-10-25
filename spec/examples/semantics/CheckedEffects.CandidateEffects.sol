@@ -37,7 +37,7 @@ func noCandidateMeansNoPurityClaim(value: bool): int {
     choose(value)
 }
 
-func effectfulGeneric<E: Throwable>(action: () -> int throws E): int throws E {
+func <E: Throwable> effectfulGeneric(action: () -> int throws E): int throws E {
     action()
 }
 

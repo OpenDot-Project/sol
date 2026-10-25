@@ -63,7 +63,7 @@ func overrideEffectsDoNotFormAnOverload(reader: Reader): String throws DiskFailu
     reader.read()
 }
 
-func genericDispatch<E: DiskFailure>(reader: Reader, fallback: String): String throws E, DiskFailure {
+func <E: DiskFailure> genericDispatch(reader: Reader, fallback: String): String throws E, DiskFailure {
     if fallback.length == 0 {
         reader.read()
     }

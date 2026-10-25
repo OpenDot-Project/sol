@@ -7,11 +7,11 @@ class Failure: Exception {}
 class ReadFailure: Exception {}
 class WriteFailure: Exception {}
 
-func raise<E: Throwable>(error: E): ! throws E {
+func <E: Throwable> raise(error: E): ! throws E {
     throw error
 }
 
-func pass<E: Throwable>(value: E): E throws E {
+func <E: Throwable> pass(value: E): E throws E {
     raise(value)
 }
 
@@ -28,12 +28,12 @@ func missingConcreteBudget(): ! {
     raise(Failure())
 }
 
-func unconstrainedThrow<E>(value: E): ! throws E {
+func <E> unconstrainedThrow(value: E): ! throws E {
     // Expected: E is not known to satisfy Throwable.
     throw value
 }
 
-func genericCallback<E: Throwable>(action: () -> int throws E): int throws E {
+func <E: Throwable> genericCallback(action: () -> int throws E): int throws E {
     action()
 }
 
@@ -47,7 +47,7 @@ func genericCallbackWrongBudget(): int throws WriteFailure {
     genericCallback({ read() })
 }
 
-func genericOverrideBudget<E: Throwable>(action: () -> int throws E): int throws E {
+func <E: Throwable> genericOverrideBudget(action: () -> int throws E): int throws E {
     action()
 }
 
@@ -58,21 +58,21 @@ func multipleClosedEffects(
     first() + second()
 }
 
-func openAndClosedEffectSet<E: Throwable>(
+func <E: Throwable> openAndClosedEffectSet(
     generic: () -> int throws E,
     fixed: () -> int throws ReadFailure
 ): int throws E, ReadFailure {
     generic() + fixed()
 }
 
-func repeatedVariableOccurrences<E: Throwable>(
+func <E: Throwable> repeatedVariableOccurrences(
     first: () -> int throws E,
     second: () -> int throws E
 ): int throws E {
     first() + second()
 }
 
-func inconsistentEffectOrigins<E: Throwable>(
+func <E: Throwable> inconsistentEffectOrigins(
     first: () -> int throws E,
     second: () -> int throws ReadFailure
 ): int throws E {

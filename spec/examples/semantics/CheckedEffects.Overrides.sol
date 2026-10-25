@@ -64,7 +64,7 @@ class InvalidAsyncReader: AsyncReader {
     override func readAsync(): int throws WriteFailure { 0 }
 }
 
-func genericRethrow<E: Throwable>(error: E): ! throws E {
+func <E: Throwable> genericRethrow(error: E): ! throws E {
     throw error
 }
 
@@ -72,7 +72,7 @@ func instantiateGenericRethrow(error: FileFailure): ! throws FileFailure {
     genericRethrow(error)
 }
 
-func genericThrowsMustBeThrowable<E>(error: E): ! throws E {
+func <E> genericThrowsMustBeThrowable(error: E): ! throws E {
     // Expected constraint error: E is not known to be Throwable.
     throw error
 }
