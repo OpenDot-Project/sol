@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 // Planned behavior fixture: partial members merge, initialization side effects have one owner.
-module spec.construction.partial
+module spec.construction.parts
 
 class PartialFailure: Exception {}
 
