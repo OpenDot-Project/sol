@@ -76,6 +76,7 @@ Do not link this entire corpus as one application: several examples intentionall
 | [Modules.sol](Modules.sol) | Logical identities, aliases, selective/public imports, partials |
 | [Exceptions.sol](Exceptions.sol) | Checked/unchecked hierarchy, throws, catch, cleanup |
 | [ControlFlow.sol](ControlFlow.sol) | Four loop forms, switch patterns, try results, tail results |
+| [CleanupConstruction.sol](CleanupConstruction.sol) | Lexical defer activation/unwind and construction-time effects |
 | [Delegation.sol](Delegation.sol) | Property/interface delegation and descriptor identity |
 | [Operators.sol](Operators.sol) | Companion operators, pairing and location semantics |
 | [Annotations.sol](Annotations.sol) | Annotation schemas, constant arguments and builtin names |
@@ -151,6 +152,48 @@ current analyzer. Each file is an independent source module.
 | [CheckedEffects.SelectedDefaultsAndVarargs.sol](examples/semantics/CheckedEffects.SelectedDefaultsAndVarargs.sol) | Selected overload mapping with defaults/varargs |
 | [CheckedEffects.StandardIoChain.sol](examples/semantics/CheckedEffects.StandardIoChain.sol) | Chained standard I/O checked effects |
 | [CheckedEffects.UnhandledBoundary.sol](examples/semantics/CheckedEffects.UnhandledBoundary.sol) | Unhandled effects at the process boundary |
+
+## Cleanup-transfer fixtures
+
+These files isolate registration and cleanup transfer contracts from the broader flow suite. They
+cover activation after the declaration is reached, branch-correlated registrations, scope nesting,
+loop exits, return/throw composition, checked effects, native boundaries, and exceptional state
+snapshots. A comment that says `Deferred` describes an intentionally unsupported proof case; it is
+not a runtime result.
+
+| Fixture | Contract focus |
+|---|---|
+| [CleanupTransfer.CheckedEffects.sol](examples/semantics/CleanupTransfer.CheckedEffects.sol) | Cleanup effects on normal and exceptional exits |
+| [CleanupTransfer.ExitForms.sol](examples/semantics/CleanupTransfer.ExitForms.sol) | Fallthrough, return, throw, break, continue, and bottom |
+| [CleanupTransfer.Failures.sol](examples/semantics/CleanupTransfer.Failures.sol) | Primary and suppressed cleanup failures |
+| [CleanupTransfer.Loops.sol](examples/semantics/CleanupTransfer.Loops.sol) | Per-iteration scopes and loop transfer ownership |
+| [CleanupTransfer.NativeBoundary.sol](examples/semantics/CleanupTransfer.NativeBoundary.sol) | Process/runtime boundaries and unsupported native lowering |
+| [CleanupTransfer.Registration.sol](examples/semantics/CleanupTransfer.Registration.sol) | Reachability-sensitive registration timing |
+| [CleanupTransfer.ScopeNesting.sol](examples/semantics/CleanupTransfer.ScopeNesting.sol) | Nested scope ownership and LIFO order |
+| [CleanupTransfer.StateEdges.sol](examples/semantics/CleanupTransfer.StateEdges.sol) | Definite assignment, refinements, and exceptional snapshots |
+
+## Construction-effect fixtures
+
+Construction fixtures separate successful publication, field coverage, source-order effects,
+delegated-property protocols, generic effect substitution, partial initialization order, and
+unsupported escape/callback paths. They specify which behavior a complete implementation must
+support while distinguishing the current body's bounded subset.
+
+| Fixture | Contract focus |
+|---|---|
+| [ConstructionEffects.Accessors.sol](examples/semantics/ConstructionEffects.Accessors.sol) | Accessor effects and construction call sites |
+| [ConstructionEffects.ApiCompatibility.sol](examples/semantics/ConstructionEffects.ApiCompatibility.sol) | Constructor API compatibility and checked budgets |
+| [ConstructionEffects.Budgets.sol](examples/semantics/ConstructionEffects.Budgets.sol) | Subtype effect budgets and unhandled initializer effects |
+| [ConstructionEffects.Chaining.sol](examples/semantics/ConstructionEffects.Chaining.sol) | Explicit delegation and constructor-chain boundary |
+| [ConstructionEffects.Delegates.sol](examples/semantics/ConstructionEffects.Delegates.sol) | provideDelegate/getValue/setValue effect ownership |
+| [ConstructionEffects.ExceptionalEdges.sol](examples/semantics/ConstructionEffects.ExceptionalEdges.sol) | Allocation and initializer failure snapshots |
+| [ConstructionEffects.Fields.sol](examples/semantics/ConstructionEffects.Fields.sol) | Required stored-field initialization and publication |
+| [ConstructionEffects.GenericEffects.sol](examples/semantics/ConstructionEffects.GenericEffects.sol) | Generic checked-effect substitution |
+| [ConstructionEffects.InitializationState.sol](examples/semantics/ConstructionEffects.InitializationState.sol) | Constructor states and normal versus bottom completion |
+| [ConstructionEffects.NoEscape.sol](examples/semantics/ConstructionEffects.NoEscape.sol) | Callback and constructing-instance escape deferral |
+| [ConstructionEffects.Order.sol](examples/semantics/ConstructionEffects.Order.sol) | Declaration-order initializer evaluation |
+| [ConstructionEffects.Partial.sol](examples/semantics/ConstructionEffects.Partial.sol) | Single initialization part and unsupported multi-part effects |
+| [ConstructionEffects.ValueTypes.sol](examples/semantics/ConstructionEffects.ValueTypes.sol) | Class allocation edges versus struct/ref-struct construction |
 
 ## Implementation boundaries
 

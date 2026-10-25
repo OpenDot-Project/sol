@@ -245,8 +245,12 @@ incomplete, analysis must preserve that uncertainty as a proof gap.
 
 Finally executes on each outgoing path from the try: normal completion, return, throw, break,
 and continue. Its side effects and checked effects are applied before the pending transfer
-continues. It does not create a result value and cannot replace the transfer with its own
-return, break, continue, or throw.
+continues. It does not create a result value and cannot use return, break, or continue to alter
+the pending transfer. An explicit `throw` that escapes a cleanup body is rejected; a throw caught
+inside that body remains local. If a cleanup call fails on a normal exit, its failure cancels the
+pending return/value and escapes as primary; during an existing exception unwind it is suppressed
+under the original primary. See the [cleanup and construction contract](cleanup-construction.md)
+for ordering and the analyzer's current proof boundary.
 
 Defer registers a cleanup action for the lexical scope containing the declaration. Only active
 registrations execute. Multiple actions execute in last-in-first-out order. A nested scope
@@ -260,6 +264,11 @@ effect may be silently dropped.
 Cleanup ordering is deterministic. It does not depend on hash iteration, source path sorting,
 partial declaration order, or garbage-collector finalization. Resource exhaustion during
 suppressed-failure recording follows the runtime's explicit bounded fallback contract.
+
+The companion [cleanup and construction effects guide](cleanup-construction.md) details
+registration-point snapshots, initializer evaluation order, required-field publication, delegated
+property effects, and the cases the bounded body analyzer leaves Deferred. The normative source
+contracts and independent syntax examples are indexed in [`spec/README.md`](../spec/README.md).
 
 ## Function types, lambdas, and overrides
 
