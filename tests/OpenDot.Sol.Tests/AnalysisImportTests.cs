@@ -133,9 +133,92 @@ public sealed class AnalysisImportTests
             "module library\nprivate class Hidden {}\ninternal class Internal {}\nclass Visible {}");
         var app = session.Modules["app"].Files[0].Root;
         Assert.Equal(LookupKind.Missing, session.Lookup(app, "Hidden").Kind);
-        Assert.Equal(LookupKind.Missing, session.Lookup(app, "Internal").Kind);
+        Assert.Equal(LookupKind.Found, session.Lookup(app, "Internal").Kind);
+        Assert.Empty(session.GetExports("library", "Internal"));
         Assert.Equal(LookupKind.Found, session.Lookup(app, "Visible").Kind);
         Assert.Equal(LookupKind.Found, session.Lookup(session.Modules["library"].Files[0].Root, "Hidden").Kind);
+    }
+
+    [Fact]
+    public void InternalDeclarationsAreVisibleThroughDirectImportsOnly()
+    {
+        var session = AstTestSources.Session(
+            "module app\nimport api\nimport implementation",
+            "module api\npublic import implementation\ninternal class ApiDetail {}",
+            "module implementation\ninternal class Detail {}\nprivate class Hidden {}\nclass PublicType {}");
+        var app = session.Modules["app"].Files[0].Root;
+
+        Assert.False(session.HasErrors);
+        Assert.Equal(LookupKind.Found, session.Lookup(app, "Detail").Kind);
+        Assert.Equal(LookupKind.Found, session.Lookup(app, "ApiDetail").Kind);
+        Assert.Equal(LookupKind.Missing, session.Lookup(app, "Hidden").Kind);
+        Assert.Equal(LookupKind.Found, session.LookupQualified(app, "implementation", "Detail").Kind);
+        Assert.Equal(LookupKind.Found, session.LookupQualified(app, "api", "ApiDetail").Kind);
+        Assert.Equal(LookupKind.Missing, session.LookupQualified(app, "api", "Detail").Kind);
+        Assert.Empty(session.GetExports("api", "ApiDetail"));
+        Assert.Empty(session.GetExports("api", "Detail"));
+    }
+
+    [Fact]
+    public void InternalDeclarationsDoNotLeakThroughPublicImportQualifiers()
+    {
+        var session = AstTestSources.Session(
+            "module app\nimport api",
+            "module api\npublic import implementation\ninternal class ApiDetail {}",
+            "module implementation\ninternal class Detail {}\nclass PublicType {}");
+        var app = session.Modules["app"].Files[0].Root;
+
+        Assert.False(session.HasErrors);
+        Assert.Equal(LookupKind.Found, session.Lookup(app, "PublicType").Kind);
+        Assert.Equal(LookupKind.Missing, session.Lookup(app, "Detail").Kind);
+        Assert.Equal(LookupKind.Missing, session.LookupQualified(app, "implementation", "Detail").Kind);
+        Assert.Equal(LookupKind.Missing, session.LookupQualified(app, "api", "Detail").Kind);
+        Assert.Equal(LookupKind.Found, session.LookupQualified(app, "api", "ApiDetail").Kind);
+    }
+
+    [Fact]
+    public void InternalDeclarationsSupportAliasesAndSelectiveBindingsWithoutReExport()
+    {
+        var session = AstTestSources.Session(
+            "module app\nimport lib = library\nimport library : LocalDetail = Detail",
+            "module api\npublic import library",
+            "module library\ninternal class Detail {}\nclass PublicType {}");
+        var app = session.Modules["app"].Files[0].Root;
+
+        Assert.False(session.HasErrors);
+        Assert.Equal(LookupKind.Found, session.Lookup(app, "LocalDetail").Kind);
+        Assert.Equal(LookupKind.Missing, session.Lookup(app, "Detail").Kind);
+        Assert.Equal(LookupKind.Found, session.LookupQualified(app, "lib", "Detail").Kind);
+        Assert.Equal(LookupKind.Missing, session.LookupQualified(app, "api", "Detail").Kind);
+        Assert.Equal(LookupKind.Missing, session.Lookup(app, "Detail").Kind);
+        Assert.Empty(session.GetExports("api", "Detail"));
+    }
+
+    [Fact]
+    public void PublicSelectiveImportCannotReExportInternalDeclarations()
+    {
+        var session = AstTestSources.Session(
+            "module app\nimport api",
+            "module api\npublic import implementation : Detail",
+            "module implementation\ninternal class Detail {}");
+
+        Assert.Contains(session.Diagnostics, diagnostic => diagnostic.Code == "SOL2008");
+        Assert.Empty(session.GetExports("api", "Detail"));
+        Assert.Equal(LookupKind.Missing,
+            session.Lookup(session.Modules["app"].Files[0].Root, "Detail").Kind);
+    }
+
+    [Fact]
+    public void InternalCandidatesFromDifferentModulesRemainAmbiguous()
+    {
+        var session = AstTestSources.Session(
+            "module app\nimport left\nimport right",
+            "module left\ninternal class Item {}",
+            "module right\ninternal class Item {}");
+
+        var lookup = session.Lookup(session.Modules["app"].Files[0].Root, "Item");
+        Assert.Equal(LookupKind.Ambiguous, lookup.Kind);
+        Assert.Equal(new[] { "left.Item", "right.Item" }, lookup.Candidates.Select(candidate => candidate.QualifiedName));
     }
 
     [Fact]
