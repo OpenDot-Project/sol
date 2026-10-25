@@ -202,13 +202,12 @@ The access result belongs to an operation, not just to a property symbol. Consid
 property with independently restricted accessors:
 
 ```sol
-class Credentials {
-    public val userName: String
-        get
+module docs.member_resolution.operations
 
-    public var token: String
-        get
-        private set
+class Credentials {
+    public val userName: String { get }
+
+    public var token: String { get; private set }
 }
 ```
 

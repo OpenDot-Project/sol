@@ -10,39 +10,67 @@ class Dog: Animal { }
 class Pair<A, B>(val first: A, val second: B)
 
 func <T, R> map(value: T, block: (T) -> R): R = block(value)
-func <T, R> select(flag: bool, first: () -> R, second: () -> R): R = if (flag) first() else second()
+func <T, R> select(flag: bool, first: () -> R, second: () -> R): R {
+    if flag { return first() }
+    return second()
+}
+
+func chooseAnimal(flag: bool): Animal {
+    if flag { return Cat() }
+    return Dog()
+}
+
+func chooseNullable(flag: bool): String? {
+    if flag { return "value" }
+    return null
+}
+
+func choosePair(flag: bool): Pair<String, int> {
+    if flag { return Pair("a", 1) }
+    return Pair("b", 2)
+}
+
+func chooseAnimalReverse(flag: bool): Animal {
+    if flag { return Dog() }
+    return Cat()
+}
+
+func chooseAnimalOrFail(flag: bool): Animal {
+    if flag { return Cat() }
+    return failAnimal()
+}
 
 func resultFromExpectedType(): Animal {
-    return map(true, { flag -> if (flag) Cat() else Dog() })
+    return map(true, { flag -> chooseAnimal(flag) })
 }
 
 func nullableBranchResult(): String? {
-    return map(true, { flag -> if (flag) "value" else null })
+    return map(true, { flag -> chooseNullable(flag) })
 }
 
 func twoOpenTupleResults(): Pair<String, int> {
-    return map(true, { flag -> if (flag) Pair("a", 1) else Pair("b", 2) })
+    return map(true, { flag -> choosePair(flag) })
 }
 
 func branchOrderDoesNotSelectType(): Animal {
-    return map(false, { flag -> if (flag) Dog() else Cat() })
+    return map(false, { flag -> chooseAnimalReverse(flag) })
 }
 
 func incompatibleInvariantResults(): () {
-    // Expected diagnostic: Box<Cat> and Box<Dog> cannot be joined by changing invariant T.
-    val invalid = map(true, { flag -> if (flag) Box(Cat()) else Box(Dog()) })
+    // Expected diagnostic: Box<Cat> cannot become Box<Animal> by changing invariant T.
+    val invalid: Box<Animal> = map(true, { flag -> Box(Cat()) })
 }
 
 class Box<T>(val value: T)
 
 func bottomBranch(): Animal {
-    return map(true, { flag -> if (flag) Cat() else failAnimal() })
+    return map(true, { flag -> chooseAnimalOrFail(flag) })
 }
 
 func failAnimal(): ! { throw Exception("no animal") }
 
 func allPathsBottom(): ! {
-    return map(false, { flag -> if (flag) failAnimal() else failAnimal() })
+    return map(false, { flag -> failAnimal() })
 }
 
 func statementTailIsEmptyTuple(): () {
@@ -72,10 +100,10 @@ func positionalEchoWithTwoOpenVariables(): () {
     val unresolved = map(default<String>(), { $0 })
 }
 
-// Every reachable normal lambda exit participates in result joining. A throwing/bottom branch
-// contributes no normal value, while its checked effect is tracked separately. Branch order cannot
-// choose Cat or Dog when Animal is the unique common result. Invariant Box<T> result shapes cannot
-// use a common inner base to rewrite Box's generic argument.
+// The current syntax models if as a statement; if-expressions and branch-result inference are
+// outside this grammar's scope. These typed helpers keep the callback examples parseable while the
+// contracts below describe the future multi-exit result-join rule. Invariant Box<T> result shapes
+// cannot use a common inner base to rewrite Box's generic argument.
 //
 // The fixture also separates the immediate expected result type from arbitrary caller inference.
 // A local `String` result can close an otherwise open result parameter; an unrelated future use of

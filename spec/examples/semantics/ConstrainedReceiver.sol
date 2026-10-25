@@ -24,8 +24,8 @@ class MemoryStream<T>(val items: []T): Readable<[]T>, Rewindable, Named {
 func <T> inspect(value: T): String
     where T: Readable<[]String>, T: Rewindable, T: Named {
     value.rewind()
-    val data: []String = value.read()
-    return value.name() + data.length.toString()
+    val contents: []String = value.read()
+    return value.name() + contents.length.toString()
 }
 
 func use(): String {

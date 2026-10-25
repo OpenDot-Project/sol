@@ -244,6 +244,8 @@ next replay and its untyped parameter is contextually checked. It does not contr
 String fact merely because the context supplied String.
 
 ```sol
+module docs.generic.lambda_conflict
+
 func conflicting() = combine(
     { value: String -> value },
     { value: int -> value }
@@ -276,6 +278,8 @@ T. This differs from inferring the element of a formal `[]T`. If two unrelated i
 equally good element candidates, the standalone array type is ambiguous.
 
 ```sol
+module docs.generic.array_evidence
+
 func <T> consume(values: []T): T = values[0]
 func <T> pass(value: T): T = value
 

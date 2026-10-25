@@ -8,9 +8,10 @@ class WriteFailure(message: String): Exception(message)
 class UpdateFailure(message: String): Exception(message)
 
 open class BaseCell<T>(initial: T) {
-    protected var value: T
+    protected var value: T {
         get throws ReadFailure = readValue()
-        protected set(value) throws WriteFailure { writeValue(value) }
+        protected set throws WriteFailure { writeValue(value) }
+    }
 
     protected func readValue(): T throws ReadFailure = initial
     protected func writeValue(value: T): () throws WriteFailure { }
@@ -42,9 +43,10 @@ func writeOutside(cell: TextCell): () throws WriteFailure {
 }
 
 class PublicReadPrivateWrite {
-    public var name: String
+    public var name: String {
         get = "readable"
-        private set(value) { }
+        private set { }
+    }
 }
 
 func readPublic(account: PublicReadPrivateWrite): String = account.name
@@ -55,9 +57,10 @@ func cannotWritePrivate(account: PublicReadPrivateWrite): () {
 }
 
 class PublicWritePrivateRead {
-    public var state: String
+    public var state: String {
         private get = "hidden"
-        set(value) { }
+        set { }
+    }
 }
 
 func writePublic(account: PublicWritePrivateRead): () {

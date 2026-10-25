@@ -14,8 +14,10 @@ class CachedReader: Reader {
 
     override func read(name: String): String = "cached:" + name
 
-    override func read(enabled: bool, fallback: String): String =
-        if enabled { "on" } else { fallback }
+    override func read(enabled: bool, fallback: String): String {
+        if enabled { return "on" }
+        fallback
+    }
 }
 
 func readAll(reader: CachedReader): String {

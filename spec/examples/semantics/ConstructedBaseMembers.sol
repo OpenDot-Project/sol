@@ -24,13 +24,7 @@ open class FilteredStorage<U>(initial: []U): Storage<U>(initial) {
     private var visibleCount: int = initial.length
 
     open func visible(): []U {
-        val result: []U = []
-        var index: int = 0
-        while index < visibleCount {
-            result.add(current[index])
-            index += 1
-        }
-        return result
+        return current
     }
 
     open override func snapshot(): []U = this.visible()

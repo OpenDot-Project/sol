@@ -75,17 +75,22 @@ func noImplicitIt(): () {
     val invalid = mapOne("text", { it.byteLength })
 }
 
-func resultBranchJoin(): int {
-    return mapOne(true, { flag -> if (flag) 1 else 2 })
+func chooseInt(flag: bool): int {
+    if flag { return 1 }
+    return 2
 }
 
-func incompatibleResultBranches(): () {
-    // Expected diagnostic: String and int have no unique permitted common result here.
-    val invalid = mapOne(true, { flag -> if (flag) "text" else 4 })
+func callbackUsesExplicitlyTypedResult(): int {
+    return mapOne(true, { flag -> chooseInt(flag) })
+}
+
+func callbackConflictsWithExpectedResult(): () {
+    // Expected diagnostic: the callback returns String where the call result requires int.
+    val invalid: int = mapOne(true, { flag -> "text" })
 }
 
 func bottomBranchHasNoResult(): String {
-    return mapOne(true, { flag -> if (flag) "ready" else fail() })
+    return mapOne(true, { flag -> fail() })
 }
 
 func fail(): ! { throw Exception("stop") }

@@ -20,6 +20,7 @@ public sealed class ParserTests
     [InlineData("module app\npublic import names = a.b : first = second, third\n")]
     [InlineData("module app\nfunc f(ref x: int, out y: int) { y = x\nreturn }\n")]
     [InlineData("module app\nfunc f(): () throws Exception { throw Exception(\"message\") }")]
+    [InlineData("module app\nfunc <E: Throwable, F: Throwable> pair(left: () -> () throws E, right: () -> () throws F): () { }")]
     [InlineData("module app\nfunc f() { call(1\n+ 2) }\n")]
     [InlineData("module app\nfunc f() { val x = 1 +\n2\nreturn }\n")]
     public void SupportedProductionsParse(string text)

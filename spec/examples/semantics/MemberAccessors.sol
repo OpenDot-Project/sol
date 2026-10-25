@@ -8,13 +8,15 @@ class ReadFailure(message: String): Exception(message)
 class Account {
     private var storedName: String
 
-    public var displayName: String
+    public var displayName: String {
         get = storedName
-        private set(value) { storedName = value }
+        private set { storedName = value }
+    }
 
-    public var checkedName: String
+    public var checkedName: String {
         get throws ReadFailure = readName()
-        private set(value) { storedName = value }
+        private set { storedName = value }
+    }
 
     private func readName(): String throws ReadFailure = storedName
 
