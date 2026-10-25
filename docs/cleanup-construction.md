@@ -9,9 +9,8 @@ not establish that the current compiler, runtime, or native backend implements t
 The source contract is [CleanupConstruction.sol](../spec/CleanupConstruction.sol), read together
 with [ControlFlow.sol](../spec/ControlFlow.sol), [Exceptions.sol](../spec/Exceptions.sol),
 [Objects.sol](../spec/Objects.sol), and [Delegation.sol](../spec/Delegation.sol). The examples
-are independent parser inputs under
-[`spec/examples/semantics`](../spec/examples/semantics/). They illustrate required syntax and
-analysis outcomes; they are not evidence that the source program was executed.
+are independent parser inputs under `spec/examples/semantics/`. They illustrate required syntax
+and analysis outcomes; they are not evidence that the source program was executed.
 
 ## Status
 
