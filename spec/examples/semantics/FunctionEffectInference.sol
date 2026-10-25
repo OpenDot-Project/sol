@@ -23,7 +23,7 @@ func callbacks(): () throws ReadFailure {
     val second = applyChecked("input", wide)
 }
 
-func effectOnlyTypeParameter<E: Throwable>(callback: () -> String throws E): () throws E {
+func <E: Throwable> effectOnlyTypeParameter(callback: () -> String throws E): () throws E {
     callback()
 }
 

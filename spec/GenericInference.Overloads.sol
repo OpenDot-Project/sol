@@ -81,7 +81,7 @@ module source.spec.generic_inference.overloads
 //
 //     func parse(value: int): String
 //     func parse(value: long): String
-//     func parse<T: NumberLike>(value: T): String
+//     func <T: NumberLike> parse(value: T): String
 //
 //     val parsed = parse(1)
 //

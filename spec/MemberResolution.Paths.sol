@@ -148,11 +148,13 @@ module source.spec.member_resolution.paths
 // Resource, cancellation and ordering
 // ------------------------------------
 //
-// Each lookup uses a depth budget of 128 and an 8192 unique-constructed-type budget. Each type
-// identity is visited at most once at its minimum discovered depth. A cycle terminates by identity;
-// recursive type spelling does not recurse forever.
+// Each lookup uses a depth budget of 128 and an 8192 path-state visit budget. A declaration on a
+// constructed owner retains at most 128 distinct paths. An exact path is visited once; the same
+// constructed identity reached through a different path remains distinct until candidate merging.
+// A cycle terminates when the current path repeats an identity; recursive type spelling does not
+// recurse forever.
 //
-// On budget exhaustion, return a limit result with no candidate set claimed complete. Callers emit
+// On any path or per-candidate budget exhaustion, return a limit result with no candidate set claimed complete. Callers emit
 // a source diagnostic and retain the lookup site as unverified. They cannot consume the partial
 // subset collected before exhaustion as if it were all candidates.
 //

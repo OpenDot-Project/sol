@@ -11,7 +11,7 @@ class Shared<T>: Left<T>, Right<T> {
     override func value(): T = default<T>()
 }
 
-func read<T>(source: Root<T>): T = source.value()
+func <T> read(source: Root<T>): T = source.value()
 
 func repeatedPath(source: Shared<String>): String {
     return read(source)

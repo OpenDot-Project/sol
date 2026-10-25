@@ -238,11 +238,31 @@ internal sealed class GenericInferenceSolver
                     origin, parameters, buckets, fixedMap, depth + 1)) { return false; }
         }
 
-        // Function effect sets are canonical, unordered sets. A parameter in an effect cannot
-        // be paired by enumeration order, so inference leaves it without evidence and the caller
-        // reports an incomplete candidate instead of manufacturing a mapping.
-        if (template.Effects.Any(effect => ContainsInferenceParameter(effect, parameters))) { return false; }
-        return true;
+        return CollectEffectEvidence(template.Effects, actual.Effects, relation, origin,
+            parameters, buckets, fixedMap, depth + 1);
+    }
+
+    private bool CollectEffectEvidence(ImmutableArray<ResolvedType> templates,
+        ImmutableArray<ResolvedType> actuals, GenericInferenceRelation relation, string origin,
+        HashSet<ResolvedType> parameters, Dictionary<ResolvedType, Evidence> buckets,
+        IReadOnlyDictionary<ResolvedType, ResolvedType> fixedMap, int depth)
+    {
+        // Effect sets are unordered. Infer the single open effect pattern only when every fixed
+        // member has an exact counterpart and exactly one actual member remains. Otherwise leave
+        // effect-only parameters unresolved; a positional guess could bind the wrong exception.
+        var open = templates.Where(effect => ContainsInferenceParameter(effect, parameters)).ToArray();
+        if (open.Length != 1 || templates.Length != actuals.Length) { return true; }
+
+        var remaining = actuals.ToList();
+        foreach (var fixedEffect in templates.Where(effect => !ContainsInferenceParameter(effect, parameters)))
+        {
+            int index = remaining.FindIndex(actual => ReferenceEquals(actual, fixedEffect));
+            if (index < 0) { return true; }
+            remaining.RemoveAt(index);
+        }
+        if (remaining.Count != 1) { return true; }
+        return Collect(open[0], remaining[0], GenericInferenceRelation.Exact, origin,
+            parameters, buckets, fixedMap, depth);
     }
 
     private static void AddEvidence(Evidence evidence, ResolvedType parameter,

@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
 using System.Numerics;
@@ -11,7 +13,8 @@ namespace OpenDot.Sol.Analysis;
 
 internal sealed partial class CallBindingBuilder
 {
-    private sealed record ArgumentValue(ResolvedType? Type, bool Writable, string? Literal);
+    private sealed record ArgumentValue(ResolvedType? Type, bool Writable, string? Literal,
+        ImmutableArray<ArgumentValue> ArrayElements = default, bool IsArrayLiteral = false);
 
     private ArgumentValue Value(AstNode expression, int depth)
     {
@@ -21,6 +24,12 @@ internal sealed partial class CallBindingBuilder
         if (expression is AstSequence { IsGrouping: true } group && group.Elements.Take(2).ToArray() is [var element])
         {
             return Value(element, depth + 1);
+        }
+        if (expression is AstSequence { SyntaxKind: NodeKind.ArrayExpression } array)
+        {
+            var elements = array.Elements.Select(element => Value(element, depth + 1)).ToImmutableArray();
+            var elementType = UniqueCommonType(elements);
+            return new(elementType is null ? null : Types.GetArray(elementType), false, null, elements, true);
         }
         if (expression is AstSequence { SyntaxKind: NodeKind.TupleExpression } tuple)
         {
@@ -71,6 +80,89 @@ internal sealed partial class CallBindingBuilder
             return new(Sources.Types.GetType(property.Type), false, null);
         }
         return new(null, false, null);
+    }
+
+    private ResolvedType? UniqueCommonType(ImmutableArray<ArgumentValue> values)
+    {
+        if (values.IsEmpty || values.Any(value => value.Type is null)) { return null; }
+        var inputs = values.Select(value => value.Type!).Distinct().ToImmutableArray();
+        if (inputs.Length == 1) { return inputs[0]; }
+
+        var candidates = new HashSet<ResolvedType>();
+        var pending = new Queue<(ResolvedType Type, int Depth)>();
+        foreach (var input in inputs) { pending.Enqueue((input, 0)); }
+        if (inputs.All(input => !input.IsRefLike && input.Kind != ResolvedTypeKind.Parameter)
+            && CoreType("Object") is { } objectType)
+        { candidates.Add(objectType); }
+
+        while (pending.TryDequeue(out var item))
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (item.Depth > 128)
+            {
+                throw new TypeSpecializationException(SpecializationFailure.ResourceLimit,
+                    "Array literal common-type projection exceeds the 128-level budget.");
+            }
+            if (!candidates.Add(item.Type)) { continue; }
+            if (candidates.Count > 4096)
+            {
+                throw new TypeSpecializationException(SpecializationFailure.ResourceLimit,
+                    "Array literal common-type projection exceeds the 4096-type budget.");
+            }
+            if (item.Type.IsNullable)
+            {
+                pending.Enqueue((item.Type.Arguments[0], item.Depth + 1));
+            }
+            else if (item.Type.Kind == ResolvedTypeKind.Nominal)
+            {
+                foreach (var parent in Types.GetDirectBases(item.Type, _cancellation))
+                { pending.Enqueue((parent, item.Depth + 1)); }
+            }
+            else if (item.Type.Kind == ResolvedTypeKind.Parameter
+                && item.Type.Parameter is { } identity)
+            {
+                foreach (var bound in ParameterBounds(identity))
+                { pending.Enqueue((Sources.Types.GetType(bound), item.Depth + 1)); }
+            }
+        }
+
+        if (inputs.Any(input => input.IsNullable))
+        {
+            foreach (var candidate in candidates.ToArray())
+            {
+                if (!candidate.IsNullable) { candidates.Add(Types.GetNullable(candidate)); }
+            }
+        }
+
+        var viable = candidates.Where(candidate => inputs.All(input =>
+            Types.ClassifyConversion(input, candidate, _cancellation) != IntrinsicConversion.None)).ToArray();
+        var mostSpecific = viable.Where(candidate => !viable.Any(other => other != candidate
+            && Types.ClassifyConversion(other, candidate, _cancellation) != IntrinsicConversion.None
+            && Types.ClassifyConversion(candidate, other, _cancellation) == IntrinsicConversion.None))
+            .ToArray();
+        return mostSpecific.Length == 1 ? mostSpecific[0] : null;
+    }
+
+    private static IEnumerable<AstType> ParameterBounds(GenericParameterIdentity identity)
+    {
+        var parameters = identity.Owner switch
+        {
+            AstCallable callable => callable.TypeParameters.ToArray(),
+            AstTypeDeclaration type => type.TypeParameters.ToArray(),
+            _ => [],
+        };
+        var parameter = identity.Ordinal >= 0 && identity.Ordinal < parameters.Length
+            ? parameters[identity.Ordinal] : null;
+        if (parameter?.Constraint is { } direct) { yield return direct; }
+        if (parameter?.Name is not { } name) { yield break; }
+        foreach (var clause in identity.Owner.Children.Where(node => node.SyntaxKind == NodeKind.WhereClause))
+        {
+            foreach (var entry in clause.Children.Where(child => child.Children.Any(token =>
+                         token.SyntaxKind == NodeKind.Name && token.Origin.Text == name)))
+            {
+                foreach (var type in entry.Children.OfType<AstType>()) { yield return type; }
+            }
+        }
     }
 
     private ResolvedType? CoreType(string name)

@@ -49,7 +49,7 @@ func useStorage(storage: NamedStorage<String>): String {
     return storage.labelAndCount() + first + all.length.toString() + shown.length.toString()
 }
 
-func useOpenGeneric<T>(storage: NamedStorage<T>, fallback: T): T {
+func <T> useOpenGeneric(storage: NamedStorage<T>, fallback: T): T {
     return storage.firstOrDefault(fallback)
 }
 

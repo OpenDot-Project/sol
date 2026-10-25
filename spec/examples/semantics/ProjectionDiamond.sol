@@ -38,7 +38,7 @@ func closedOwner(): []String {
     return value.root().split("")
 }
 
-func openOwner<T>(value: Leaf<T>): T {
+func <T> openOwner(value: Leaf<T>): T {
     return value.root()
 }
 

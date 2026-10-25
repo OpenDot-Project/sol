@@ -42,7 +42,7 @@ open class SharedBase: SharedA, SharedB {
 
 class SharedChild: SharedBase { }
 
-func readShared<T>(value: T): String where T: SharedA, T: SharedB {
+func <T> readShared(value: T): String where T: SharedA, T: SharedB {
     return value.shared()
 }
 
