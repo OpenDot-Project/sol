@@ -79,7 +79,7 @@ class MissingInitBlockBudget {
 open class CheckedBase() throws NetworkFailure {}
 
 class CheckedDerived: CheckedBase {
-    constructor(): super() throws NetworkFailure {}
+    constructor() throws NetworkFailure: super() {}
 }
 
 func constructCheckedDerived(): CheckedDerived throws NetworkFailure {
@@ -95,7 +95,7 @@ class DerivedDropsBaseEffect: CheckedBase {
 open class BroadCheckedBase() throws Throwable {}
 
 class BroadCheckedDerived: BroadCheckedBase {
-    constructor(): super() throws Exception {}
+    constructor() throws Exception: super() {}
 }
 
 // Negative: Exception does not cover a possible direct Throwable outside its subtree.
@@ -317,7 +317,7 @@ func genericEffectNeedsCoverage(): ! throws ParseFailure {
 open class EffectBase() throws ReadFailure {}
 
 class EffectDerived: EffectBase {
-    constructor(): super() throws ReadFailure {}
+    constructor() throws ReadFailure: super() {}
 }
 
 func staticConstructorContract(): EffectDerived throws ReadFailure {

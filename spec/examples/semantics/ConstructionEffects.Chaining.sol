@@ -107,7 +107,7 @@ func verifyBase(code: int): () throws BaseFailure {
 
 class DerivedFromEffectfulBase: EffectfulBase {
     val value: int = mark(62)
-    constructor(code: int): super(mark(code)) throws BaseFailure {
+    constructor(code: int) throws BaseFailure: super(mark(code)) {
         record(63)
     }
 }
@@ -132,7 +132,7 @@ func baseFailureSkipsDerivedWork(): DerivedFromEffectfulBase throws BaseFailure 
 // publication of the derived instance.
 class DerivedFieldFailure: EffectfulBase {
     val value: int = checkedField()
-    constructor(code: int): super(code) throws BaseFailure, BodyFailure {
+    constructor(code: int) throws BaseFailure, BodyFailure: super(code) {
         record(80)
     }
 }
@@ -150,7 +150,7 @@ class BodyFailureAfterInit {
 // A secondary body failure does not re-run the delegated primary constructor.
 class SecondaryBodyFailure(val value: int) {
     init { record(100) }
-    constructor(value: int, fail: bool): this(mark(value)) throws BodyFailure {
+    constructor(value: int, fail: bool) throws BodyFailure: this(mark(value)) {
         if fail { throw BodyFailure() }
     }
 }
@@ -267,8 +267,8 @@ class EffectfulTarget(val value: int) throws ChainFailure {
 }
 
 class DelegatesToEffectfulTarget: EffectfulTarget {
-    constructor(value: int): super(value) throws ChainFailure {}
-    constructor(): this(mark(200)) throws ChainFailure {}
+    constructor(value: int) throws ChainFailure: super(value) {}
+    constructor() throws ChainFailure: this(mark(200)) {}
 }
 
 func effectfulTargetCall(): DelegatesToEffectfulTarget throws ChainFailure {

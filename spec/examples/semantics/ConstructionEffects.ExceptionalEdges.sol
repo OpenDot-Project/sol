@@ -50,7 +50,7 @@ class ThrowingBase {
 
 class DerivedAfterBase: ThrowingBase {
     val value: int = recordAndReturn(10)
-    constructor(): super() throws BaseFailure { record(11) }
+    constructor() throws BaseFailure: super() { record(11) }
 }
 
 func baseExceptionalEdge(): DerivedAfterBase throws BaseFailure {
