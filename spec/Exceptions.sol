@@ -220,8 +220,11 @@ func catchRuntimeDoesNotCatchChecked(): int throws NetworkFailure {
 // handlers. A throwing branch contributes no result type because ! has no normal continuation.
 // If every branch is non-completing, the try expression has type !. Finally is not a result
 // branch: its expressions are evaluated for side effects and effects, then the pending result
-// or control transfer resumes. A finally body cannot return a value or escape with return,
-// break, continue, or throw.
+// or control transfer resumes. A finally body cannot return a value or use return, break, or
+// continue to alter the pending transfer. If a cleanup call fails on normal completion, that
+// failure becomes primary and cancels the pending return/value; during an existing unwind it is
+// suppressed under the original primary. An explicit throw that escapes cleanup is rejected;
+// a throw caught inside cleanup remains local. See CleanupConstruction.sol.
 
 func recoveredResult(flag: bool): int {
     try {

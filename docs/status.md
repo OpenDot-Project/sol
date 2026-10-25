@@ -63,11 +63,17 @@ exceptional snapshots for explicit throws and supported resolved calls, accessor
 delegation protocols, and constructor field initialization. Catch branches join only snapshots that
 can overlap their caught type; finally is checked on reachable normal, return, and escaping-exception
 paths. Function-value effects and ref/out normal-return assignment are included in this slice. It is
-still conservative for built-in potentially throwing operations, and explicit base/this-constructor
-delegation, implicit construction, lexical defer execution, suppression identity, complete CFG
+still conservative for built-in potentially throwing operations. The lexical cleanup slice now
+tracks reached `defer` registrations and applies bounded LIFO cleanup on normal and abrupt source
+edges; an overflowing path set stays Deferred. Supported zero-argument implicit construction
+records field-initializer/delegate effects and exceptional snapshots when the type has one
+initialization part and no unsupported constructor/base/escape behavior. Explicit constructor
+delegation and other incomplete construction cases remain Deferred. Suppressed failure data is
+analysis metadata, not a runtime Throwable object or delivered Windows exception. Complete CFG
 correlations, full protected receiver checks, interface-default resolution, contextual lambda/array
 evidence, and borrow-origin proof remain incomplete. These are source-analysis facts only; this API
-does not produce verified FIR or native output.
+does not produce verified FIR or native output. See the [cleanup/construction guide](cleanup-construction.md)
+for the exact supported boundary.
 
 The [Yellow Tea implementation inventory](yellow-tea/current-implementation.md) records experimental
 concurrent mark/sweep, generated roots/barriers, handles, and native validation fixtures. The design

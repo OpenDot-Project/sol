@@ -10,7 +10,7 @@ namespace OpenDot.Sol.Analysis;
 
 internal sealed partial class BodyBindingBuilder
 {
-    private Value Statements(IEnumerable<AstNode> statements, State state, Context context, bool resultContext)
+    private Value StatementsCore(IEnumerable<AstNode> statements, State state, Context context, bool resultContext)
     {
         var nodes = statements.ToArray();
         Value result = new(Empty);
@@ -19,6 +19,7 @@ internal sealed partial class BodyBindingBuilder
             var node = nodes[index];
             bool tail = resultContext && index == nodes.Length - 1;
             if (!state.Reachable) { Report("SOL2245", "Unreachable statement.", node); }
+            var cleanupFactsBefore = CaptureCleanupFacts(state);
             switch (node)
             {
                 case AstExpressionStatement expression:
@@ -60,13 +61,22 @@ internal sealed partial class BodyBindingBuilder
                     var returned = ret.Value is null ? new Value(Empty) : Expression(ret.Value, state, context, context.Result);
                     Require(returned, context.Result, ret, state);
                     if (returned.Type?.IsRefLike == true || ret.IsByReference) { CheckEscape(returned, ret, context); }
+                    if (ret.Value is not null && ContainsCall(ret.Value)) { InvalidateMutableCleanupNarrowings(state); }
+                    UpdateCleanupFacts(state, cleanupFactsBefore, CaptureCleanupFacts(state));
                     context.Exits?.Add(state.Clone());
                     state.Reachable = false; result = new(Types.GetBottom());
                     break;
                 case AstIf conditional:
                     Require(Expression(conditional.Condition, state, context, Bool), Bool, conditional.Condition ?? node);
+                    UpdateCleanupFacts(state, cleanupFactsBefore, CaptureCleanupFacts(state));
+                    if (conditional.Condition is not null && ContainsCall(conditional.Condition))
+                    { InvalidateMutableCleanupNarrowings(state); }
                     var left = state.Clone(); var right = state.Clone();
+                    var leftFacts = CaptureCleanupFacts(left);
+                    var rightFacts = CaptureCleanupFacts(right);
                     Refine(conditional.Condition, left, true); Refine(conditional.Condition, right, false);
+                    UpdateCleanupFacts(left, leftFacts, CaptureCleanupFacts(left));
+                    UpdateCleanupFacts(right, rightFacts, CaptureCleanupFacts(right));
                     if (conditional.Then is not null) { Statements(conditional.Then.Statements, left, context, false); }
                     if (conditional.Else is AstBlock alternative) { Statements(alternative.Statements, right, context, false); }
                     else if (conditional.Else is { } otherwise) { Statements([otherwise], right, context, false); }
@@ -87,25 +97,37 @@ internal sealed partial class BodyBindingBuilder
                     else if (node.SyntaxKind is NodeKind.BreakStatement or NodeKind.ContinueStatement)
                     {
                         if (context.LoopDepth == 0) { Report("SOL2246", "Loop control requires an enclosing loop.", node); }
-                        if (context.Cleanup) { Report("SOL2254", "Cleanup cannot transfer control outwards.", node); }
+                        if (context.Cleanup && (context.CleanupLoopDepth is not { } cleanupLoopDepth
+                            || context.LoopDepth <= cleanupLoopDepth))
+                        { Report("SOL2254", "Cleanup cannot transfer control outwards.", node); }
                         if (node.SyntaxKind == NodeKind.BreakStatement) { context.Breaks?.Add(state.Clone()); }
+                        else { context.Continues?.Add(state.Clone()); }
                         state.Reachable = false; result = new(Types.GetBottom());
                     }
-                    else if (node.SyntaxKind is NodeKind.UnsafeStatement or NodeKind.DeferStatement)
+                    else if (node.SyntaxKind == NodeKind.UnsafeStatement)
                     {
                         var nested = node.Children.OfType<AstBlock>().FirstOrDefault();
                         if (nested is not null)
                         {
-                            // Cleanup execution at each normal/exceptional exit needs a later FIR proof.
-                            var cleanup = state.Clone();
-                            Statements(nested.Statements, cleanup, context with { Cleanup = node.SyntaxKind == NodeKind.DeferStatement }, false);
-                            state.Effects.UnionWith(cleanup.Effects);
-                            if (node.SyntaxKind == NodeKind.DeferStatement) { Defer(node); }
+                            Statements(nested.Statements, state, context, false);
                         }
+                        else { Defer(node); }
+                    }
+                    else if (node.SyntaxKind == NodeKind.DeferStatement)
+                    {
+                        var nested = node.Children.OfType<AstBlock>().FirstOrDefault();
+                        if (nested is not null) { RegisterDefer(node, nested, state, context); }
                         else { Defer(node); }
                     }
                     else { Defer(node); }
                     break;
+            }
+            if (node is not (AstIf or AstBlock or AstFor or AstSwitch or AstTry or AstReturn)
+                && node.SyntaxKind is not (NodeKind.ThrowStatement or NodeKind.BreakStatement or NodeKind.ContinueStatement or NodeKind.UnsafeStatement))
+            {
+                UpdateCleanupFacts(state, cleanupFactsBefore, CaptureCleanupFacts(state));
+                if (node is AstAssignment || (node.SyntaxKind != NodeKind.DeferStatement && ContainsCall(node)))
+                { InvalidateMutableCleanupNarrowings(state); }
             }
         }
         if (resultContext && state.Reachable && context.Result is { } expected && expected != Empty)
@@ -210,27 +232,74 @@ internal sealed partial class BodyBindingBuilder
     private void Loop(AstFor loop, State state, Context context)
     {
         if (loop.Initializer is { } initializer) { Statements([initializer], state, context, false); }
-        if (loop.Condition is not null) { Require(Expression(loop.Condition, state, context, Bool), Bool, loop.Condition); }
+        if (loop.Condition is { } condition)
+        {
+            var beforeCondition = CaptureCleanupFacts(state);
+            Require(Expression(condition, state, context, Bool), Bool, condition);
+            UpdateCleanupFacts(state, beforeCondition, CaptureCleanupFacts(state));
+            if (ContainsCall(condition)) { InvalidateMutableCleanupNarrowings(state); }
+        }
         bool bodyMayExecute = loop.Condition is not AstAtom { Spelling: "false" };
         var body = state.Clone();
         // A backedge may change local values; only immutable facts survive entry to the loop.
+        var beforeNarrowing = CaptureCleanupFacts(body);
         foreach (var local in body.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { body.Narrowed.Remove(local); }
+        UpdateCleanupFacts(body, beforeNarrowing, CaptureCleanupFacts(body));
+        InvalidateMutableCleanupNarrowings(body);
+        var beforeRefinement = CaptureCleanupFacts(body);
         Refine(loop.Condition, body, true);
-        if (loop.Iterable is not null)
+        UpdateCleanupFacts(body, beforeRefinement, CaptureCleanupFacts(body));
+        if (loop.Iterable is { } iterableExpression)
         {
-            var iterable = Expression(loop.Iterable, state, context);
+            var beforeIterable = CaptureCleanupFacts(state);
+            var iterable = Expression(iterableExpression, state, context);
+            var afterIterable = CaptureCleanupFacts(state);
+            UpdateCleanupFacts(state, beforeIterable, afterIterable);
+            UpdateCleanupFacts(body, beforeIterable, afterIterable);
+            if (ContainsCall(iterableExpression))
+            {
+                InvalidateMutableCleanupNarrowings(state);
+                InvalidateMutableCleanupNarrowings(body);
+            }
             if (iterable.Type?.Kind is ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)
             {
+                var beforeIterationVariable = CaptureCleanupFacts(body);
                 foreach (var local in OwnLocals(loop).Where(l => l.Kind == LocalSymbolKind.Variable))
                 { _localTypes[local] = iterable.Type.Arguments[0]; body.Assigned.Add(local); }
+                UpdateCleanupFacts(body, beforeIterationVariable, CaptureCleanupFacts(body));
             }
             else { Defer(loop); }
         }
         var breaks = new List<State>();
+        var continues = new List<State>();
         if (!bodyMayExecute) { body.ExceptionSink = null; }
-        if (loop.Body is not null) { Statements(loop.Body.Statements, body, context with { LoopDepth = context.LoopDepth + 1, Breaks = breaks }, false); }
-        if (loop.Update is not null && body.Reachable) { Assignment(loop.Update, body, context); }
-        if (bodyMayExecute) { state.Effects.UnionWith(body.Effects); }
+        if (loop.Body is not null)
+        {
+            Statements(loop.Body.Statements, body, context with
+            { LoopDepth = context.LoopDepth + 1, Breaks = breaks, Continues = continues }, false);
+        }
+        if (loop.Update is not null && body.Reachable)
+        {
+            var beforeUpdate = CaptureCleanupFacts(body);
+            Assignment(loop.Update, body, context);
+            UpdateCleanupFacts(body, beforeUpdate, CaptureCleanupFacts(body));
+            InvalidateMutableCleanupNarrowings(body);
+        }
+        if (loop.Update is not null)
+        {
+            foreach (var continued in continues.Where(exit => exit.Reachable))
+            {
+                var beforeUpdate = CaptureCleanupFacts(continued);
+                Assignment(loop.Update, continued, context);
+                UpdateCleanupFacts(continued, beforeUpdate, CaptureCleanupFacts(continued));
+                InvalidateMutableCleanupNarrowings(continued);
+            }
+        }
+        if (bodyMayExecute)
+        {
+            state.Effects.UnionWith(body.Effects);
+            foreach (var exit in breaks.Concat(continues)) { state.Effects.UnionWith(exit.Effects); }
+        }
         foreach (var local in state.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
         if (loop.Form == AstForForm.Infinite || loop.Condition is AstAtom { Spelling: "true" })
         {
@@ -241,12 +310,21 @@ internal sealed partial class BodyBindingBuilder
 
     private void Switch(AstSwitch selection, State state, Context context)
     {
+        var beforeValue = CaptureCleanupFacts(state);
         var value = Expression(selection.Value, state, context);
+        UpdateCleanupFacts(state, beforeValue, CaptureCleanupFacts(state));
+        if (ContainsCall(selection.Value)) { InvalidateMutableCleanupNarrowings(state); }
         var branches = new List<State>();
         foreach (var @case in selection.Cases)
         {
             var branch = state.Clone();
-            if (@case.Pattern is AstExpression pattern) { Require(Expression(pattern, branch, context, value.Type), value.Type, pattern); }
+            if (@case.Pattern is AstExpression pattern)
+            {
+                var beforePattern = CaptureCleanupFacts(branch);
+                Require(Expression(pattern, branch, context, value.Type), value.Type, pattern);
+                UpdateCleanupFacts(branch, beforePattern, CaptureCleanupFacts(branch));
+                if (ContainsCall(pattern)) { InvalidateMutableCleanupNarrowings(branch); }
+            }
             else if (!@case.IsDefault) { Defer(@case); }
             Statements(@case.Statements, branch, context, false); branches.Add(branch);
         }
@@ -259,13 +337,15 @@ internal sealed partial class BodyBindingBuilder
 
     private Value Throw(AstNode node, State state, Context context)
     {
-        if (context.Cleanup) { Report("SOL2254", "Cleanup cannot throw outwards.", node); }
         var expression = node.Children.OfType<AstExpression>().FirstOrDefault();
+        var beforeExpression = CaptureCleanupFacts(state);
         var value = Expression(expression, state, context);
+        if (expression is not null && ContainsCall(expression)) { InvalidateMutableCleanupNarrowings(state); }
+        UpdateCleanupFacts(state, beforeExpression, CaptureCleanupFacts(state));
         if (value.Type is { } type)
         {
             CheckThrowable(type, node);
-            state.RecordExceptionalEdge(type);
+            state.RecordExceptionalEdge(type, origin: node, fromCleanup: context.Cleanup);
             state.Effects.Add(type);
         }
         state.Reachable = false;
@@ -276,6 +356,8 @@ internal sealed partial class BodyBindingBuilder
     {
         var incoming = state.Clone();
         var outerExceptionSink = incoming.ExceptionSink;
+        int breakStart = context.Breaks?.Count ?? 0;
+        int continueStart = context.Continues?.Count ?? 0;
         var exceptionEdges = new List<State.ExceptionEdge>();
         var body = incoming.Clone(); body.Effects.Clear(); body.ExceptionSink = exceptionEdges;
         var exits = new List<State>();
@@ -327,7 +409,9 @@ internal sealed partial class BodyBindingBuilder
                 branch.Effects.Clear();
                 branch.ExceptionSink = null;
             }
+            var branchFacts = CaptureCleanupFacts(branch);
             foreach (var local in OwnLocals(handler)) { branch.Assigned.Add(local); if (caught is not null) { _localTypes[local] = caught; } }
+            UpdateCleanupFacts(branch, branchFacts, CaptureCleanupFacts(branch));
             var other = handler.Body is null ? new Value(null)
                 : Statements(handler.Body.Statements, branch, reachable ? nested : nested with { Exits = null }, attempt.IsValue);
             if (reachable)
@@ -353,37 +437,46 @@ internal sealed partial class BodyBindingBuilder
         state.ExceptionSink = outerExceptionSink;
         if (attempt.Finally is { } cleanup)
         {
-            var cleanupContext = context with { Cleanup = true, Exits = null, Breaks = null };
+            var cleanupContext = context with
+            {
+                Cleanup = true,
+                CleanupLoopDepth = context.LoopDepth,
+                CleanupBoundary = true,
+                Exits = null,
+                Breaks = null,
+                Continues = null,
+            };
             if (state.Reachable)
             {
                 var normal = state.Clone();
                 Statements(cleanup.Statements, normal, cleanupContext, false);
-                state.Reachable = normal.Reachable;
-                state.Assigned.Clear(); state.Assigned.UnionWith(normal.Assigned);
-                state.Fields.Clear(); state.Fields.UnionWith(normal.Fields);
-                state.Narrowed.Clear(); state.Effects.UnionWith(normal.Effects);
+                CopyState(state, normal);
             }
             foreach (var exit in exits)
             {
+                if (!exit.Reachable) { continue; }
                 exit.ExceptionSink = outerExceptionSink;
                 exit.Reachable = true;
                 Statements(cleanup.Statements, exit, cleanupContext, false);
-                exit.Reachable = false;
             }
+            ApplyFinallyTransfers(context.Breaks, breakStart, cleanup, cleanupContext, outerExceptionSink);
+            ApplyFinallyTransfers(context.Continues, continueStart, cleanup, cleanupContext, outerExceptionSink);
             foreach (var edge in escapingEdges)
             {
                 var exceptional = edge.State.Clone();
                 exceptional.ExceptionSink = outerExceptionSink;
                 exceptional.Reachable = true;
                 exceptional.Effects.Clear();
-                Statements(cleanup.Statements, exceptional, cleanupContext, false);
+                Statements(cleanup.Statements, exceptional, cleanupContext with
+                { ActiveExceptionUnwind = true, SuppressCleanupFailures = true }, false);
                 state.Effects.UnionWith(exceptional.Effects);
-                state.RecordExceptionalEdge(edge.Type, exceptional);
+                state.RecordExceptionalEdge(edge.Type, exceptional, edge.Origin, edge.FromCleanup);
             }
         }
         else
         {
-            foreach (var edge in escapingEdges) { state.RecordExceptionalEdge(edge.Type, edge.State); }
+            foreach (var edge in escapingEdges)
+            { state.RecordExceptionalEdge(edge.Type, edge.State, edge.Origin, edge.FromCleanup); }
         }
         foreach (var exit in exits) { exit.ExceptionSink = outerExceptionSink; }
         context.Exits?.AddRange(exits);

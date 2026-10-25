@@ -15,50 +15,128 @@ internal sealed partial class BodyBindingBuilder
 {
     internal sealed class State
     {
-        internal sealed record ExceptionEdge(ResolvedType Type, State State);
+        internal sealed record ExceptionEdge(ResolvedType Type, State State, AstNode? Origin = null, bool FromCleanup = false);
+        internal sealed record CleanupRegistration(object Scope, AstNode Node, AstBlock Body);
+        internal sealed record CleanupPath(ImmutableArray<CleanupRegistration> Registrations,
+            ImmutableHashSet<LocalSymbol> Assigned, ImmutableDictionary<LocalSymbol, ResolvedType> Narrowed,
+            ImmutableHashSet<AstProperty> Fields);
+        internal const int MaxCleanupPaths = 64;
+        internal const int MaxCleanupRegistrationsPerScope = 128;
+        internal const int MaxCleanupExceptionalAlternatives = 256;
 
         internal HashSet<LocalSymbol> Assigned { get; } = [];
         internal Dictionary<LocalSymbol, ResolvedType> Narrowed { get; } = [];
         internal HashSet<ResolvedType> Effects { get; } = [];
+        internal HashSet<ResolvedType> SuppressedEffects { get; } = [];
         internal HashSet<AstProperty> Fields { get; } = [];
+        internal List<CleanupPath> CleanupPaths { get; } =
+        [new(ImmutableArray<CleanupRegistration>.Empty, ImmutableHashSet<LocalSymbol>.Empty,
+            ImmutableDictionary<LocalSymbol, ResolvedType>.Empty, ImmutableHashSet<AstProperty>.Empty)];
+        internal HashSet<AstNode> OverflowedCleanups { get; } = new(ReferenceEqualityComparer.Instance);
+        internal bool CleanupTrackingDeferred { get; set; }
+        internal bool CleanupFactsInitialized { get; set; }
         internal List<ExceptionEdge>? ExceptionSink { get; set; }
         internal bool Reachable { get; set; } = true;
         internal State Clone()
         {
-            var copy = new State { Reachable = Reachable, ExceptionSink = ExceptionSink };
+            var copy = new State
+            {
+                Reachable = Reachable,
+                ExceptionSink = ExceptionSink,
+                CleanupTrackingDeferred = CleanupTrackingDeferred,
+                CleanupFactsInitialized = CleanupFactsInitialized,
+            };
             copy.Assigned.UnionWith(Assigned);
             foreach (var pair in Narrowed) { copy.Narrowed.Add(pair.Key, pair.Value); }
             copy.Effects.UnionWith(Effects);
+            copy.SuppressedEffects.UnionWith(SuppressedEffects);
             copy.Fields.UnionWith(Fields);
+            copy.CleanupPaths.Clear();
+            copy.CleanupPaths.AddRange(CleanupPaths);
+            copy.OverflowedCleanups.UnionWith(OverflowedCleanups);
             return copy;
         }
 
-        internal void RecordExceptionalEdge(ResolvedType type, State? snapshot = null)
+        internal void RecordExceptionalEdge(ResolvedType type, State? snapshot = null, AstNode? origin = null,
+            bool fromCleanup = false)
         {
             if (ExceptionSink is not { } sink || snapshot is null && !Reachable) { return; }
             var edge = (snapshot ?? this).Clone();
             edge.Reachable = true;
             edge.ExceptionSink = null;
-            sink.Add(new(type, edge));
+            sink.Add(new(type, edge, origin, fromCleanup));
+        }
+
+        internal void InitializeCleanupFacts()
+        {
+            if (CleanupFactsInitialized) { return; }
+            for (int index = 0; index < CleanupPaths.Count; index++)
+            {
+                CleanupPaths[index] = CleanupPaths[index] with
+                {
+                    Assigned = Assigned.ToImmutableHashSet(),
+                    Narrowed = Narrowed.ToImmutableDictionary(),
+                    Fields = Fields.ToImmutableHashSet(),
+                };
+            }
+            CleanupFactsInitialized = true;
         }
 
         internal void Join(State left, State right)
         {
-            Assigned.Clear(); Narrowed.Clear(); Fields.Clear();
+            Assigned.Clear(); Narrowed.Clear(); Fields.Clear(); CleanupPaths.Clear(); OverflowedCleanups.Clear();
             var live = new[] { left, right }.Where(s => s.Reachable).ToArray();
             Reachable = live.Length != 0;
+            CleanupTrackingDeferred = live.Any(s => s.CleanupTrackingDeferred);
+            CleanupFactsInitialized = live.Length != 0 && live.All(s => s.CleanupFactsInitialized);
+            foreach (var next in live) { OverflowedCleanups.UnionWith(next.OverflowedCleanups); }
             if (live.Length != 0)
             {
                 Assigned.UnionWith(live[0].Assigned);
                 Fields.UnionWith(live[0].Fields);
                 foreach (var next in live.Skip(1)) { Assigned.IntersectWith(next.Assigned); }
                 foreach (var next in live.Skip(1)) { Fields.IntersectWith(next.Fields); }
+                if (!CleanupTrackingDeferred)
+                {
+                    foreach (var path in live.SelectMany(s => s.CleanupPaths))
+                    {
+                        int existingIndex = CleanupPaths.FindIndex(existing => SamePath(existing, path));
+                        if (existingIndex < 0) { CleanupPaths.Add(path); }
+                        else { CleanupPaths[existingIndex] = MergePathFacts(CleanupPaths[existingIndex], path); }
+                    }
+                    if (CleanupPaths.Count > MaxCleanupPaths)
+                    {
+                        foreach (var path in CleanupPaths)
+                        { foreach (var registration in path.Registrations) { OverflowedCleanups.Add(registration.Node); } }
+                        CleanupPaths.Clear();
+                        CleanupTrackingDeferred = true;
+                    }
+                }
                 foreach (var pair in live[0].Narrowed)
                 {
                     if (live.All(s => s.Narrowed.GetValueOrDefault(pair.Key) == pair.Value)) { Narrowed.Add(pair.Key, pair.Value); }
                 }
             }
             Effects.UnionWith(left.Effects); Effects.UnionWith(right.Effects);
+            foreach (var next in live) { SuppressedEffects.UnionWith(next.SuppressedEffects); }
+        }
+
+        private static bool SamePath(CleanupPath left, CleanupPath right) =>
+            left.Registrations.Length == right.Registrations.Length
+            && left.Registrations.Zip(right.Registrations).All(pair =>
+                ReferenceEquals(pair.First.Scope, pair.Second.Scope)
+                && ReferenceEquals(pair.First.Node, pair.Second.Node));
+
+        private static CleanupPath MergePathFacts(CleanupPath left, CleanupPath right)
+        {
+            var narrowed = left.Narrowed.Where(pair => right.Narrowed.GetValueOrDefault(pair.Key) == pair.Value)
+                .ToImmutableDictionary();
+            return left with
+            {
+                Assigned = left.Assigned.Intersect(right.Assigned),
+                Narrowed = narrowed,
+                Fields = left.Fields.Intersect(right.Fields),
+            };
         }
     }
 
@@ -67,7 +145,9 @@ internal sealed partial class BodyBindingBuilder
         string? Literal = null, bool IsType = false);
     private sealed record Context(AstCallable? Callable, ResolvedType? Result, AstLambda? Lambda = null,
         ResolvedType? LambdaType = null, int LoopDepth = 0, bool Cleanup = false,
-        List<State>? Exits = null, List<State>? Breaks = null);
+        List<State>? Exits = null, List<State>? Breaks = null, List<State>? Continues = null,
+        object? CleanupScope = null, int? CleanupLoopDepth = null, bool ActiveExceptionUnwind = false,
+        bool SuppressCleanupFailures = false, bool CleanupBoundary = false);
     private readonly CancellationToken _cancellation;
     private readonly MemberLookupResolver _memberResolver;
     private readonly GenericInferenceSolver _genericInference;
@@ -184,9 +264,9 @@ internal sealed partial class BodyBindingBuilder
                 if (state.Reachable) { CheckOut(state, context, callable); }
             }
             else if (body.Kind != AstBodyKind.Missing) { Defer(callable); }
-            foreach (var exit in exits) { CheckOut(exit, context, callable); }
+            foreach (var exit in exits.Where(exit => exit.Reachable)) { CheckOut(exit, context, callable); }
             if (state.Reachable) { CheckInitialized(state, context, callable); }
-            foreach (var exit in exits) { CheckInitialized(exit, context, callable); }
+            foreach (var exit in exits.Where(exit => exit.Reachable)) { CheckInitialized(exit, context, callable); }
             if (callable.ReturnsByReference) { Defer(callable); }
             foreach (var exit in exits) { state.Effects.UnionWith(exit.Effects); }
             var escaping = state.Effects.Where(IsChecked).ToImmutableArray();
