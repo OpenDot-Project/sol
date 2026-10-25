@@ -101,6 +101,7 @@ internal sealed partial class BodyBindingBuilder
             }
         }
         ValidateOverrides();
+        ValidateOperatorContracts();
         ValidateStorage();
     }
 

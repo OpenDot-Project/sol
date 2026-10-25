@@ -99,6 +99,7 @@ public sealed class AstFunction : AstCallable
     }
 
     public AstBody Body { get; }
+    public bool IsCheckedOperator => ((PsiFunction)Origin.Element).IsCheckedOperator;
 }
 
 public sealed class AstConstructor : AstCallable

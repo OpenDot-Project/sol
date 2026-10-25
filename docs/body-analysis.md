@@ -60,9 +60,19 @@ lambdas can infer their tail result. Implicit `it` is not introduced. Ref/out la
 their syntax mode and out obligations. Function effects can broaden to a compatible callback budget;
 a callback cannot silently discard checked effects.
 
-Arithmetic operators and single-step conversions can bind companion declarations. Complete operator
-pair validation, nullable user-operator lifting, conditional truth operators, checked-variant preference,
-and all contextual inference cases are not yet complete. Unsupported expression shapes remain unverified.
+Arithmetic operators and single-step conversions can bind companion declarations. Operator checks
+validate owner and arity rules, required comparison/truth pairs, Boolean results, shift counts, and
+increment/decrement results. Checked arithmetic variants take precedence when applicable; otherwise
+the ordinary variant remains eligible. Applicable overloads are ordered by conversion rank; a more
+specific conversion beats boxing, and unique implicit user conversions remain single-step. Equality
+dispatches to a declared user operator before the intrinsic equality path. Compound assignments bind
+their underlying binary operator and validate its result against the writable location. Conditional
+`&&`/`||` checks the matching `true`/`false` and same-type `&`/`|` declarations. Nullable value
+operands bind their underlying user operators;
+arithmetic/bitwise and unary results are nullable, while equality and ordering produce `bool`. Builtin
+nullable numeric, Boolean, and comparison expressions receive the same type treatment. Runtime null
+dispatch, nullable Boolean truth-table lowering, executable short-circuit lowering, and all contextual
+or generic operator inference are not yet complete. Unsupported expression shapes remain unverified.
 
 ## Flow, effects, and storage
 

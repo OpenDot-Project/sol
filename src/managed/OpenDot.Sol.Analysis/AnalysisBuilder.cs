@@ -184,8 +184,9 @@ internal sealed partial class AnalysisBuilder
     private static string Signature(AstDeclaration declaration)
     {
         if (declaration is not AstCallable callable) { return ""; }
+        string variant = declaration is AstFunction { IsCheckedOperator: true } ? "checked " : "";
         var typeNames = callable.TypeParameters.Select(p => p.Name ?? "").ToArray();
-        return "`" + typeNames.Length + "(" + string.Join(',', callable.Parameters.Select(parameter =>
+        return variant + "`" + typeNames.Length + "(" + string.Join(',', callable.Parameters.Select(parameter =>
         {
             string type = parameter.Type is null ? "<missing>" : SignatureType(parameter.Type, typeNames);
             string mode = parameter.PassingMode switch

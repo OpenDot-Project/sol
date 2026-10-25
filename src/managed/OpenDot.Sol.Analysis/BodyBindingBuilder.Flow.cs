@@ -116,15 +116,32 @@ internal sealed partial class BodyBindingBuilder
         bool compound = assignment.Operation != "=";
         var location = Expression(assignment.Location, state, context, read: compound);
         var value = Expression(assignment.Value, state, context, location.Type);
+        var assignedValue = value;
         if (!location.Writable) { Report("SOL2241", "Assignment requires a writable location.", assignment); }
-        Require(value, location.Type, assignment, state);
-        if (compound && location.Type is not null && !IsNumeric(location.Type) && location.Type != Core("String")) { Defer(assignment); }
+        if (compound && location.Type is not null && value.Type is not null)
+        {
+            string operation = assignment.Operation[..^1];
+            var liftedCompound = LiftNullableBinary(assignment, operation, location, value, state, context);
+            if (liftedCompound is not null) { assignedValue = liftedCompound; }
+            else
+            {
+                bool builtin = IsNumeric(location.Type) && location.Type == value.Type
+                    && operation is ("+" or "-" or "*" or "/" or "%")
+                    || IsInteger(location.Type) && location.Type == value.Type && operation is ("&" or "|" or "^")
+                    || IsInteger(location.Type) && value.Type == Types.GetPrimitive("int") && operation is ("<<" or ">>")
+                    || location.Type == Bool && value.Type == Bool && operation is ("&" or "|" or "^")
+                    || operation == "+" && location.Type == Core("String") && value.Type == location.Type;
+                assignedValue = builtin ? new(location.Type) : OperatorCall(assignment, operation, [location, value], state, context);
+            }
+            Require(assignedValue, location.Type, assignment, state);
+        }
+        else { Require(value, location.Type, assignment, state); }
         if (location.Local is { } local)
         {
             state.Assigned.Add(local); state.Narrowed.Remove(local);
-            if (value.Type?.IsRefLike == true && local.Kind != LocalSymbolKind.Variable) { CheckEscape(value, assignment, context); }
+            if (assignedValue.Type?.IsRefLike == true && local.Kind != LocalSymbolKind.Variable) { CheckEscape(assignedValue, assignment, context); }
         }
-        else if (value.Type?.IsRefLike == true) { Report("SOL2260", "Ref-like values cannot be stored in heap properties.", assignment); }
+        else if (assignedValue.Type?.IsRefLike == true) { Report("SOL2260", "Ref-like values cannot be stored in heap properties.", assignment); }
         if (location.Symbol?.Parts[0] is AstProperty property)
         {
             if (context.Callable is AstConstructor)
