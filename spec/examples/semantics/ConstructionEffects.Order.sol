@@ -118,9 +118,14 @@ func useSecondaryArgumentOrder(): SecondaryArgumentOrder {
 }
 
 // A this-chain cycle is invalid and cannot be resolved by declaration order.
+func selectDelegatedValue(flag: bool): int {
+    if flag { return 1 }
+    return 2
+}
+
 class CyclicDelegationShape(val value: int) {
     // Negative design vector: secondary constructor cycle must be rejected.
-    constructor(flag: bool): this(if flag 1 else 2) {}
+    constructor(flag: bool): this(selectDelegatedValue(flag)) {}
 }
 
 // A derived constructor cannot run its body before its explicit base constructor.
