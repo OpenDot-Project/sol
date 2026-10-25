@@ -94,9 +94,15 @@ internal sealed partial class BodyBindingBuilder
         if (candidates.Length > 1) { Report("SOL2222", "Ambiguous user conversion.", location); return false; }
         if (candidates.Length == 0) { return false; }
         var selected = candidates[0];
+        foreach (var parameter in selected.Function.Parameters.Where(p => p.Type is not null))
+        { ValidateFunctionEffects(Specialize(parameter.Type!, selected.Owner), location); }
+        if (selected.Function.ReturnType is not null)
+        { ValidateFunctionEffects(Specialize(selected.Function.ReturnType, selected.Owner), location); }
         if (Sources.Declarations.GetDeclaredSymbol(selected.Function) is { } symbol && !Accessible(symbol, location))
         { Report("SOL2214", "The user conversion is inaccessible.", location); }
-        state.Effects.UnionWith(selected.Function.ThrownTypes.Select(Written));
+        var effects = selected.Function.ThrownTypes.Select(t => Specialize(t, selected.Owner)).ToArray();
+        RecordPotentialCallEdges(state, effects);
+        state.Effects.UnionWith(effects);
         return true;
     }
 
@@ -123,6 +129,9 @@ internal sealed partial class BodyBindingBuilder
             return new(null);
         }
         var function = best[0].Candidate.Function;
+        var owner = best[0].Candidate.Owner;
+        foreach (var parameter in function.Parameters.Where(p => p.Type is not null))
+        { ValidateFunctionEffects(Specialize(parameter.Type!, owner), location); }
         for (int index = 0; index < operands.Length; index++)
         {
             var target = Written(function.Parameters[index].Type!);
@@ -131,8 +140,13 @@ internal sealed partial class BodyBindingBuilder
         }
         if (Sources.Declarations.GetDeclaredSymbol(function) is { } symbol && !Accessible(symbol, location))
         { Report("SOL2214", "The operator is inaccessible.", location); }
-        state.Effects.UnionWith(function.ThrownTypes.Select(Written));
-        return new(function.ReturnType is null ? CheckBody(function).ReturnType : Written(function.ReturnType));
+        var effects = function.ThrownTypes.Select(t => Specialize(t, owner)).ToArray();
+        RecordPotentialCallEdges(state, effects);
+        state.Effects.UnionWith(effects);
+        var resultType = function.ReturnType is null ? CheckBody(function).ReturnType
+            : Specialize(function.ReturnType, owner);
+        if (resultType is not null) { ValidateFunctionEffects(resultType, location); }
+        return new(resultType);
     }
 
     private static bool BetterOperatorRanks(int[] left, int[] right)

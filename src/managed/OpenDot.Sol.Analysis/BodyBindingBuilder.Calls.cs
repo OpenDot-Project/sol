@@ -67,6 +67,8 @@ internal sealed partial class BodyBindingBuilder
         var selected = best[0];
         Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.Parameters,
             selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults);
+        foreach (var parameter in selected.Parameters) { ValidateFunctionEffects(parameter, call); }
+        if (selected.Result is not null) { ValidateFunctionEffects(selected.Result, call); }
         if (context.Callable is AstConstructor && targetExpression is AstMember { Receiver: AstAtom { Spelling: "this" } }
             && (selected.Target.Callable.Modifiers.Contains("open") || selected.Target.Callable.Modifiers.Contains("override")))
         { Report("SOL2272", "A constructor cannot perform virtual dispatch on its uninitialized receiver.", call); }
@@ -84,6 +86,9 @@ internal sealed partial class BodyBindingBuilder
         }
         if (selected.Target.Callable.Modifiers.Contains("private") && selected.Target.Constructed is { } constructed
             && ContainingType(call)?.Declaration != constructed.Declaration) { Report("SOL2214", "The constructor is private.", call); }
+        var assignedAfterCall = new HashSet<LocalSymbol>();
+        var writableArguments = new HashSet<LocalSymbol>();
+        var outArguments = new HashSet<LocalSymbol>();
         foreach (var mapping in selected.Mapping.Arguments)
         {
             var argument = call.Arguments[mapping.ArgumentIndex];
@@ -94,7 +99,13 @@ internal sealed partial class BodyBindingBuilder
             {
                 var local = Sources.Lexical.Scopes.SelectMany(s => s.Symbols).FirstOrDefault(l => argument.Value.Origin.Span.Start <= l.Origin.Span.Start
                     && l.Origin.Span.End <= argument.Value.Origin.Span.End && ReferenceEquals(l.Origin.Source, argument.Origin.Source));
-                if (local is not null) { _localTypes[local] = type; state.Assigned.Add(local); }
+                if (local is not null)
+                {
+                    _localTypes[local] = type;
+                    assignedAfterCall.Add(local);
+                    writableArguments.Add(local);
+                    outArguments.Add(local);
+                }
                 continue;
             }
             var value = values[mapping.ArgumentIndex];
@@ -103,7 +114,16 @@ internal sealed partial class BodyBindingBuilder
             if (mode is AstPassingMode.Ref or AstPassingMode.Out)
             {
                 if (!value.Storage || !value.Writable || value.Type != type) { Report("SOL2244", "Ref/out requires writable storage of exactly the parameter type.", argument.Value); }
-                if (value.Local is not null) { state.Assigned.Add(value.Local); state.Narrowed.Remove(value.Local); }
+                if (value.Local is not null)
+                {
+                    writableArguments.Add(value.Local);
+                    state.Narrowed.Remove(value.Local);
+                    if (mode == AstPassingMode.Out)
+                    {
+                        assignedAfterCall.Add(value.Local);
+                        outArguments.Add(value.Local);
+                    }
+                }
             }
             else
             {
@@ -113,7 +133,11 @@ internal sealed partial class BodyBindingBuilder
                 if (value.Type?.IsRefLike == true && selected.Target.Constructed is not null) { Defer(call); }
             }
         }
+        foreach (var local in outArguments) { state.Assigned.Remove(local); }
+        RecordPotentialCallEdges(state, selected.Effects);
         state.Effects.UnionWith(selected.Effects);
+        state.Assigned.UnionWith(assignedAfterCall);
+        foreach (var local in writableArguments) { state.Narrowed.Remove(local); }
         // Calls can mutate captured var cells. Narrowing of mutable locals never survives arbitrary code.
         foreach (var local in state.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
         var result = selected.Result;
@@ -333,7 +357,7 @@ internal sealed partial class BodyBindingBuilder
             if (argument.Value is AstSequence { SyntaxKind: NodeKind.ArrayExpression })
             {
                 if (type.Kind is not (ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)) { return null; }
-                _ = Speculate(() => Expression(argument.Value as AstExpression, state.Clone(), context, type),
+                _ = Speculate(state, () => Expression(argument.Value as AstExpression, state.Clone(), context, type),
                     out bool invalidArray);
                 if (invalidArray) { return null; }
                 ranks.Add(0);
@@ -477,13 +501,39 @@ internal sealed partial class BodyBindingBuilder
 
     private Value InvokeValue(AstCall call, ResolvedType function, State state, Context context)
     {
+        ValidateFunctionEffects(function, call);
         if (call.Arguments.Length != function.ParameterModes.Length || call.Arguments.Any(a => a.Name is not null || a.IsTrailingLambda))
         { Report("SOL2221", "Function-value calls require positional arguments matching the signature arity.", call); return new(null); }
+        var assignedAfterCall = new HashSet<LocalSymbol>();
+        var writableArguments = new HashSet<LocalSymbol>();
+        var outArguments = new HashSet<LocalSymbol>();
         for (int index = 0; index < call.Arguments.Length; index++)
         {
             var argument = call.Arguments[index];
             var mode = function.ParameterModes[index];
             var expectedMode = mode == AstPassingMode.Ref ? AstArgumentMode.Ref : mode == AstPassingMode.Out ? AstArgumentMode.Out : AstArgumentMode.Value;
+            if (argument.Mode == AstArgumentMode.OutVariable)
+            {
+                if (mode != AstPassingMode.Out)
+                {
+                    Report("SOL2244", "An out variable requires an out function-value parameter.", argument.Value);
+                    continue;
+                }
+                var local = Sources.Lexical.Scopes.SelectMany(scope => scope.Symbols).FirstOrDefault(symbol =>
+                    argument.Value.Origin.Span.Start <= symbol.Origin.Span.Start
+                    && symbol.Origin.Span.End <= argument.Value.Origin.Span.End
+                    && ReferenceEquals(symbol.Origin.Source, argument.Origin.Source));
+                if (local is null)
+                {
+                    Report("SOL2244", "The out variable does not resolve to a local storage location.", argument.Value);
+                    continue;
+                }
+                _localTypes[local] = function.Arguments[index];
+                writableArguments.Add(local);
+                assignedAfterCall.Add(local);
+                outArguments.Add(local);
+                continue;
+            }
             if (argument.Mode != expectedMode) { Report("SOL2244", "Function-value argument passing mode mismatch.", argument.Value); }
             var value = Expression(argument.Value as AstExpression, state, context, function.Arguments[index], mode != AstPassingMode.Out);
             if (mode == AstPassingMode.Value) { Require(value, function.Arguments[index], argument.Value, state); }
@@ -492,10 +542,49 @@ internal sealed partial class BodyBindingBuilder
                 var storageType = value.Local is null ? value.Type : LocalType(value.Local);
                 if (!value.Storage || !value.Writable || storageType != function.Arguments[index])
                 { Report("SOL2244", "Function-value ref/out argument requires exact writable storage.", argument.Value); }
-                if (value.Local is not null) { state.Assigned.Add(value.Local); state.Narrowed.Remove(value.Local); }
+                if (value.Local is not null)
+                {
+                    writableArguments.Add(value.Local);
+                    state.Narrowed.Remove(value.Local);
+                    if (mode == AstPassingMode.Out)
+                    {
+                        assignedAfterCall.Add(value.Local);
+                        outArguments.Add(value.Local);
+                    }
+                }
             }
         }
+        foreach (var local in outArguments) { state.Assigned.Remove(local); }
+        RecordPotentialCallEdges(state, function.Effects);
         state.Effects.UnionWith(function.Effects);
+        state.Assigned.UnionWith(assignedAfterCall);
+        foreach (var local in writableArguments) { state.Narrowed.Remove(local); }
         return new(function.Arguments[^1]);
+    }
+
+    private void ValidateFunctionEffects(ResolvedType root, AstNode location)
+    {
+        var pending = new Stack<(ResolvedType Type, int Depth)>();
+        var visited = new HashSet<int>();
+        pending.Push((root, 0));
+        while (pending.TryPop(out var current))
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (current.Depth > 128) { Defer(location); continue; }
+            if (!visited.Add(current.Type.Id)) { continue; }
+            if (current.Type.Kind == ResolvedTypeKind.Function)
+            {
+                foreach (var effect in current.Type.Effects) { CheckThrowable(effect, location); }
+            }
+            foreach (var nested in current.Type.Arguments.Concat(current.Type.Effects))
+            { pending.Push((nested, current.Depth + 1)); }
+        }
+    }
+
+    private void RecordPotentialCallEdges(State state, IEnumerable<ResolvedType> effects)
+    {
+        var possibleEffects = effects;
+        if (Core("RuntimeException") is { } runtime) { possibleEffects = possibleEffects.Append(runtime); }
+        foreach (var effect in possibleEffects.Distinct()) { state.RecordExceptionalEdge(effect); }
     }
 }

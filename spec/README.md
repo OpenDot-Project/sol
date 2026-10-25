@@ -86,6 +86,72 @@ Do not link this entire corpus as one application: several examples intentionall
 | [Reflection.sol](Reflection.sol) | Native metadata, SolProperty access and descriptor ownership |
 | [StandardLibrary.sol](StandardLibrary.sol) | Intended modules and collection types |
 
+## Flow-transfer and checked-effect fixtures
+
+These independent files make path-sensitive transfer and effect contracts concrete. They are
+syntax examples and normative expectations, not claims that every rule is implemented by the
+current analyzer. Each file is an independent source module.
+
+| Fixture | Contract focus |
+|---|---|
+| [FlowTransfer.BranchState.sol](examples/semantics/FlowTransfer.BranchState.sol) | Branch joins, reachability, and assignment facts |
+| [FlowTransfer.CallMutationBoundary.sol](examples/semantics/FlowTransfer.CallMutationBoundary.sol) | Call invalidation and stable local refinements |
+| [FlowTransfer.CallSummaries.sol](examples/semantics/FlowTransfer.CallSummaries.sol) | Normal and exceptional call summaries |
+| [FlowTransfer.CapturedAliases.sol](examples/semantics/FlowTransfer.CapturedAliases.sol) | Captured mutable aliases and invalidated facts |
+| [FlowTransfer.CorrelatedBranches.sol](examples/semantics/FlowTransfer.CorrelatedBranches.sol) | Correlated predicates and path joins |
+| [FlowTransfer.DeferRegistration.sol](examples/semantics/FlowTransfer.DeferRegistration.sol) | Lexical defer registration and exit order |
+| [FlowTransfer.EnumeratorEdges.sol](examples/semantics/FlowTransfer.EnumeratorEdges.sol) | Iterable acquisition, iteration, and disposal edges |
+| [FlowTransfer.ExceptionalSnapshots.sol](examples/semantics/FlowTransfer.ExceptionalSnapshots.sol) | Per-operation exceptional definite-assignment snapshots |
+| [FlowTransfer.FinallyExceptionalWrites.sol](examples/semantics/FlowTransfer.FinallyExceptionalWrites.sol) | Finally writes on thrown and escaping paths |
+| [FlowTransfer.FinallyWrites.sol](examples/semantics/FlowTransfer.FinallyWrites.sol) | Finally writes on normal and return exits |
+| [FlowTransfer.FunctionValues.sol](examples/semantics/FlowTransfer.FunctionValues.sol) | Function-value calls, effects, and out assignment |
+| [FlowTransfer.LoopBackedgeWrites.sol](examples/semantics/FlowTransfer.LoopBackedgeWrites.sol) | Loop backedge assignments and killed refinements |
+| [FlowTransfer.LoopEdges.sol](examples/semantics/FlowTransfer.LoopEdges.sol) | Zero-iteration, continue, break, and return edges |
+| [FlowTransfer.LoopFixedPoint.sol](examples/semantics/FlowTransfer.LoopFixedPoint.sol) | Fixed-point invariants and bounded convergence |
+| [FlowTransfer.MixedTransfers.sol](examples/semantics/FlowTransfer.MixedTransfers.sol) | Combined normal, return, break, and throw transfers |
+| [FlowTransfer.NullableFacts.sol](examples/semantics/FlowTransfer.NullableFacts.sol) | Null and type-test facts across branch forms |
+| [FlowTransfer.PatternScopes.sol](examples/semantics/FlowTransfer.PatternScopes.sol) | Case-local bindings and scope isolation |
+| [FlowTransfer.RefOutEdges.sol](examples/semantics/FlowTransfer.RefOutEdges.sol) | Ref/out mutation and normal-return assignment |
+| [FlowTransfer.RequiredFields.sol](examples/semantics/FlowTransfer.RequiredFields.sol) | Constructor field assignment and publication |
+| [FlowTransfer.ShortCircuitFacts.sol](examples/semantics/FlowTransfer.ShortCircuitFacts.sol) | Short-circuit edge facts and single evaluation |
+| [FlowTransfer.SwitchAlternativeStates.sol](examples/semantics/FlowTransfer.SwitchAlternativeStates.sol) | Alternative switch states and exhaustive joins |
+| [FlowTransfer.SwitchCoverage.sol](examples/semantics/FlowTransfer.SwitchCoverage.sol) | Closed/open-domain coverage and unmatched edges |
+| [FlowTransfer.TryCleanup.sol](examples/semantics/FlowTransfer.TryCleanup.sol) | Catch, cleanup, and escaping-exception transfer |
+| [FlowTransfer.TryValueResults.sol](examples/semantics/FlowTransfer.TryValueResults.sol) | Try/catch value joins and bottom paths |
+| [CheckedEffects.Accessors.sol](examples/semantics/CheckedEffects.Accessors.sol) | Getter/setter effect composition |
+| [CheckedEffects.ArgumentEvaluationOrder.sol](examples/semantics/CheckedEffects.ArgumentEvaluationOrder.sol) | Source-order argument effects and failure points |
+| [CheckedEffects.BudgetCompatibility.sol](examples/semantics/CheckedEffects.BudgetCompatibility.sol) | Checked subtype budgets and incompatibility |
+| [CheckedEffects.Callbacks.sol](examples/semantics/CheckedEffects.Callbacks.sol) | Function-value effect contracts and callbacks |
+| [CheckedEffects.CallEdges.sol](examples/semantics/CheckedEffects.CallEdges.sol) | Direct call edges, hierarchy coverage, and propagation |
+| [CheckedEffects.CandidateEffects.sol](examples/semantics/CheckedEffects.CandidateEffects.sol) | Candidate-local effect inference and rollback |
+| [CheckedEffects.CleanupComposition.sol](examples/semantics/CheckedEffects.CleanupComposition.sol) | Cleanup effects across nested exits |
+| [CheckedEffects.CleanupOrdering.sol](examples/semantics/CheckedEffects.CleanupOrdering.sol) | Cleanup execution order and effect union |
+| [CheckedEffects.ConstructorDefaults.sol](examples/semantics/CheckedEffects.ConstructorDefaults.sol) | Constructor defaults and initialization effects |
+| [CheckedEffects.Constructors.sol](examples/semantics/CheckedEffects.Constructors.sol) | Constructor call and initializer effects |
+| [CheckedEffects.DefaultOriginOverrides.sol](examples/semantics/CheckedEffects.DefaultOriginOverrides.sol) | Inherited defaults and source-origin effects |
+| [CheckedEffects.DefaultsVarargs.sol](examples/semantics/CheckedEffects.DefaultsVarargs.sol) | Defaulted and variadic call effect sets |
+| [CheckedEffects.DeferredCandidates.sol](examples/semantics/CheckedEffects.DeferredCandidates.sol) | Deferred candidate proof and non-publication |
+| [CheckedEffects.DispatchContract.sol](examples/semantics/CheckedEffects.DispatchContract.sol) | Virtual dispatch and declared effect contracts |
+| [CheckedEffects.EffectProvenance.sol](examples/semantics/CheckedEffects.EffectProvenance.sol) | Effect identity, origin, and deterministic reporting |
+| [CheckedEffects.ExceptionalRefOut.sol](examples/semantics/CheckedEffects.ExceptionalRefOut.sol) | Ref/out facts at exceptional call edges |
+| [CheckedEffects.ForeignBoundary.sol](examples/semantics/CheckedEffects.ForeignBoundary.sol) | Native-boundary effect obligations |
+| [CheckedEffects.FunctionValueReturns.sol](examples/semantics/CheckedEffects.FunctionValueReturns.sol) | Returned callable effect signatures |
+| [CheckedEffects.GenericPatterns.sol](examples/semantics/CheckedEffects.GenericPatterns.sol) | Generic effect patterns and substitution |
+| [CheckedEffects.HandlerEffectSets.sol](examples/semantics/CheckedEffects.HandlerEffectSets.sol) | Handler-local effect sets and propagation |
+| [CheckedEffects.HandlerPathSubtraction.sol](examples/semantics/CheckedEffects.HandlerPathSubtraction.sol) | Catch subtraction by hierarchy and path |
+| [CheckedEffects.HierarchyCatch.sol](examples/semantics/CheckedEffects.HierarchyCatch.sol) | Catch subtype coverage and broad static types |
+| [CheckedEffects.Indexers.sol](examples/semantics/CheckedEffects.Indexers.sol) | Indexer getter/setter effect order |
+| [CheckedEffects.InterfaceDiamonds.sol](examples/semantics/CheckedEffects.InterfaceDiamonds.sol) | Interface inheritance and effect contracts |
+| [CheckedEffects.InvocationBranches.sol](examples/semantics/CheckedEffects.InvocationBranches.sol) | Branch-sensitive callable invocation effects |
+| [CheckedEffects.NestedFunctionTypes.sol](examples/semantics/CheckedEffects.NestedFunctionTypes.sol) | Nested function-type effect validity |
+| [CheckedEffects.OperatorCheckedVariant.sol](examples/semantics/CheckedEffects.OperatorCheckedVariant.sol) | Checked effects from operator selection |
+| [CheckedEffects.OperatorDelegation.sol](examples/semantics/CheckedEffects.OperatorDelegation.sol) | Operator and delegation protocol effects |
+| [CheckedEffects.OperatorSelection.sol](examples/semantics/CheckedEffects.OperatorSelection.sol) | Selected operator effects and conversion edges |
+| [CheckedEffects.Overrides.sol](examples/semantics/CheckedEffects.Overrides.sol) | Override effect narrowing and generic substitution |
+| [CheckedEffects.SelectedDefaultsAndVarargs.sol](examples/semantics/CheckedEffects.SelectedDefaultsAndVarargs.sol) | Selected overload mapping with defaults/varargs |
+| [CheckedEffects.StandardIoChain.sol](examples/semantics/CheckedEffects.StandardIoChain.sol) | Chained standard I/O checked effects |
+| [CheckedEffects.UnhandledBoundary.sol](examples/semantics/CheckedEffects.UnhandledBoundary.sol) | Unhandled effects at the process boundary |
+
 ## Implementation boundaries
 
 - The development frontend parses the illustrated syntax into lossless CST, PSI and structural AST.
@@ -113,4 +179,5 @@ remain documented even when their semantic tests or implementation do not exist.
 
 See [argument contracts](../docs/arguments.md), [generic call analysis](../docs/generic-calls.md),
 [generic inference](../docs/generic-inference.md), [member resolution](../docs/member-resolution.md),
-and the [implementation status](../docs/status.md) for the supported API boundaries.
+the [path-sensitive flow and checked-effect guide](../docs/flow-and-effects.md), and the
+[implementation status](../docs/status.md) for the supported API boundaries.

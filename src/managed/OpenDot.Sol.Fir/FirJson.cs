@@ -42,13 +42,28 @@ public static class FirJson
         }
         return JsonSerializer.Serialize(new
         {
-            schema = 1, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
+            schema = 2, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
             functions = program.Program.Functions.Select(f => new { f.Id, f.Name, runtime = f.RuntimeFunction.ToString(),
-                returnType = f.ReturnType.Id, parameters = f.Parameters.Select(p => p.Id).ToArray(),
+                returnType = f.ReturnType.Id, effects = f.Effects.Select(effect => effect.Id).ToArray(),
+                parameters = f.Parameters.Select(p => p.Id).ToArray(),
                 slots = f.Slots.Select(s => new { s.Id, s.Name, type = s.Type.Id, s.Mutable, mode = s.Mode.ToString(), s.IsParameter }).ToArray(),
                 body = f.Body is null ? null : Node(f.Body) }).ToArray(),
             types = program.Program.Analysis.Types.Types.Select(t => new { t.Id, kind = t.Kind.ToString(), t.Name, arguments = t.Arguments.Select(a => a.Id).ToArray() }).ToArray(),
-            flow = program.FlowGraphs.Select(g => g.Blocks.Select(b => new { b.Id, b.Reads, b.Writes, b.Kills, b.Successors, b.Returns }).ToArray()).ToArray(),
+            flow = program.FlowGraphs.Select(g => new
+            {
+                g.FunctionId,
+                blocks = g.Blocks.Select(b => new
+                {
+                    b.Id, b.Reads, b.Writes, b.Kills, b.Successors, b.Returns,
+                    calls = b.Calls.Select(call => new
+                    {
+                        call.Target,
+                        effects = call.Effects.Select(effect => effect.Id).ToArray(),
+                        start = call.Origin.Span.Start,
+                        length = call.Origin.Span.Length,
+                    }).ToArray(),
+                }).ToArray(),
+            }).ToArray(),
         }, new JsonSerializerOptions { WriteIndented = true });
     }
 }

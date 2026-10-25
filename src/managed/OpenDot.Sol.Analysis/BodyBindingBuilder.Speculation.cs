@@ -11,8 +11,10 @@ namespace OpenDot.Sol.Analysis;
 
 internal sealed partial class BodyBindingBuilder
 {
-    private TResult Speculate<TResult>(Func<TResult> action, out bool reportedDiagnostic)
+    private TResult Speculate<TResult>(State state, Func<TResult> action, out bool reportedDiagnostic)
     {
+        var exceptionSink = state.ExceptionSink;
+        int exceptionalEdgeCount = exceptionSink?.Count ?? 0;
         var expressionSnapshot = Expressions.ToArray();
         var callSnapshot = Calls.ToArray();
         var bodySnapshot = Bodies.ToArray();
@@ -40,6 +42,8 @@ internal sealed partial class BodyBindingBuilder
             Restore(_deferred, deferredSnapshot);
             if (Diagnostics.Count > diagnosticCount) { Diagnostics.RemoveRange(diagnosticCount, Diagnostics.Count - diagnosticCount); }
             _depth = depth;
+            if (exceptionSink is not null && exceptionSink.Count > exceptionalEdgeCount)
+            { exceptionSink.RemoveRange(exceptionalEdgeCount, exceptionSink.Count - exceptionalEdgeCount); }
         }
     }
 
@@ -58,10 +62,10 @@ internal sealed partial class BodyBindingBuilder
 
     private Value AnalyzeLambdaCandidate(AstLambda lambda, State state, Context context,
         ResolvedType expected, ImmutableArray<ResolvedType> inferenceParameters, out bool invalid) =>
-        Speculate(() => Lambda(lambda, state.Clone(), context, expected, inferenceParameters), out invalid);
+        Speculate(state, () => Lambda(lambda, state.Clone(), context, expected, inferenceParameters), out invalid);
 
     private Value AnalyzeExpressionCandidate(AstExpression expression, State state, Context context,
-        out bool invalid) => Speculate(() => Expression(expression, state.Clone(), context), out invalid);
+        out bool invalid) => Speculate(state, () => Expression(expression, state.Clone(), context), out invalid);
 
     private bool ContainsInferenceParameter(ResolvedType type,
         ImmutableArray<ResolvedType> parameters)

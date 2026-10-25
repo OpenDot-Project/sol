@@ -177,9 +177,16 @@ internal sealed partial class BodyBindingBuilder
             if (read && getter is not null && !getterAccessible && declarationAccessible)
             { Report("SOL2214", "The getter is inaccessible here.", location); }
             if (read && getter is not null && getterAccessible)
-            { state.Effects.UnionWith(getter.ThrownTypes.Select(t => Specialize(t, receiver))); }
+            {
+                var getterEffects = getter.ThrownTypes.Select(t => Specialize(t, receiver)).ToArray();
+                RecordPotentialCallEdges(state, getterEffects);
+                state.Effects.UnionWith(getterEffects);
+            }
             if (read && getterAccessible && delegateContract is not null)
-            { state.Effects.UnionWith(delegateContract.GetEffects); }
+            {
+                RecordPotentialCallEdges(state, delegateContract.GetEffects);
+                state.Effects.UnionWith(delegateContract.GetEffects);
+            }
 
             bool setterAccessible = setter is null || AccessorAccessible(setter, property,
                 accessReceiver ?? receiver, location, declarationAccessible);
@@ -197,10 +204,12 @@ internal sealed partial class BodyBindingBuilder
             var result = function.ReturnType is null ? CheckBody(function).ReturnType is { } inferred
                 ? Types.Substitute(inferred, Substitution(receiver), _cancellation) : null : Specialize(function.ReturnType, receiver);
             if (result is null || function.Parameters.Any(p => p.Type is null) || symbol.Arity != 0) { return new(null, Symbol: symbol, Receiver: receiver); }
-            return new(Types.GetFunction(function.Parameters.Select(p => p.PassingMode == AstPassingMode.Vararg
+            var functionType = Types.GetFunction(function.Parameters.Select(p => p.PassingMode == AstPassingMode.Vararg
                     ? Types.GetArray(Specialize(p.Type!, receiver)) : Specialize(p.Type!, receiver)), result,
                 function.Parameters.Select(p => p.PassingMode == AstPassingMode.Vararg ? AstPassingMode.Value : p.PassingMode),
-                function.ThrownTypes.Select(t => Specialize(t, receiver))), Symbol: symbol, Receiver: receiver);
+                function.ThrownTypes.Select(t => Specialize(t, receiver)));
+            ValidateFunctionEffects(functionType, location);
+            return new(functionType, Symbol: symbol, Receiver: receiver);
         }
         Defer(location); return new(null, Symbol: symbol, Receiver: receiver);
     }
@@ -296,10 +305,12 @@ internal sealed partial class BodyBindingBuilder
                     || original.Modifiers.Contains("override") || ContainingType(original)?.Declaration?.Parts[0].SyntaxKind == NodeKind.InterfaceDeclaration))
                 { Report("SOL2232", "The inherited member cannot be overridden.", function); }
                 if (AccessRank(function) < AccessRank(original)) { Report("SOL2233", "Override cannot reduce accessibility.", function); }
+                var overrideSubstitution = OverrideSubstitution(function, original, member.DeclaringType);
                 if (function.ReturnType is not null && original.ReturnType is not null
-                    && !Converts(Written(function.ReturnType), Specialize(original.ReturnType, member.DeclaringType)))
+                    && !Converts(Written(function.ReturnType), Types.Substitute(Written(original.ReturnType),
+                        overrideSubstitution, _cancellation)))
                 { Report("SOL2234", "Override return type is incompatible.", function); }
-                var budget = original.ThrownTypes.Select(t => Specialize(t, member.DeclaringType)).ToArray();
+                var budget = original.ThrownTypes.Select(t => Types.Substitute(Written(t), overrideSubstitution, _cancellation)).ToArray();
                 if (function.ThrownTypes.Select(Written).Where(IsChecked).Any(t => !budget.Any(b => Converts(t, b))))
                 { Report("SOL2235", "Override cannot widen checked effects.", function); }
             }
@@ -309,13 +320,24 @@ internal sealed partial class BodyBindingBuilder
     private bool SameParameters(AstFunction left, AstFunction right, ResolvedType receiver)
     {
         if (left.TypeParameters.Count() != right.TypeParameters.Count()) { return false; }
-        var substitution = Substitution(receiver);
-        var a = Sources.Types.GetTypeParameters(left); var b = Sources.Types.GetTypeParameters(right);
-        for (int index = 0; index < b.Length; index++) { substitution[b[index]] = a[index]; }
+        var substitution = OverrideSubstitution(left, right, receiver);
         return left.Parameters.Zip(right.Parameters).All(pair => pair.First.Type is not null && pair.Second.Type is not null
             && pair.First.PassingMode == pair.Second.PassingMode && Written(pair.First.Type)
                 == Types.Substitute(Written(pair.Second.Type), substitution, _cancellation));
     }
+
+    private Dictionary<ResolvedType, ResolvedType> OverrideSubstitution(AstFunction overriding,
+        AstFunction inherited, ResolvedType receiver)
+    {
+        var substitution = Substitution(receiver);
+        var overridingParameters = Sources.Types.GetTypeParameters(overriding);
+        var inheritedParameters = Sources.Types.GetTypeParameters(inherited);
+        if (overridingParameters.Length != inheritedParameters.Length) { return substitution; }
+        for (int index = 0; index < inheritedParameters.Length; index++)
+        { substitution[inheritedParameters[index]] = overridingParameters[index]; }
+        return substitution;
+    }
+
     private static int AccessRank(AstDeclaration declaration) => declaration.Modifiers.Contains("private") ? 0
         : declaration.Modifiers.Contains("protected") ? 1 : declaration.Modifiers.Contains("internal") ? 2 : 3;
 }

@@ -24,6 +24,7 @@ internal sealed partial class BodyBindingBuilder
     private Value Lambda(AstLambda lambda, State outer, Context parent, ResolvedType? expected,
         ImmutableArray<ResolvedType> inferenceParameters = default)
     {
+        if (expected is not null) { ValidateFunctionEffects(expected, lambda); }
         if (expected is not null && (expected.Kind != ResolvedTypeKind.Function || !LambdaShape(lambda, expected)))
         { Report("SOL2220", "Lambda parameters do not match the expected function type.", lambda); return new(null); }
         if (lambda.Form == AstLambdaForm.Positional && expected is null)
