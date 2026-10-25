@@ -46,6 +46,7 @@ public sealed class DeclarationSymbol
     public ImmutableArray<AstDeclaration> Parts { get; }
     public ImmutableArray<DeclarationSymbol> Members { get; }
     public bool IsPublic => Parts.All(p => p.IsPublic);
+    internal bool IsInternal => Parts.All(p => p.Modifiers.Contains("internal", StringComparer.Ordinal));
     public bool IsPartial => Parts.Length > 1 && Parts.All(p => p.IsPartial);
 
     public IEnumerable<DeclarationSymbol> FindMembers(string name)

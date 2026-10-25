@@ -74,10 +74,13 @@ Selective import targets are checked against actual public exports.
 Public imports re-export visible public bindings; private imports do not.
 Public module aliases propagate as qualifiers through public import chains.
 
-Private, internal, and protected declarations are not public exports.
-Internal cross-module access within a distribution is not yet implemented by this public-export
-lookup surface; the session conservatively exposes public declarations across module imports.
-Type/member access control after receiver binding is also outside the current lookup API.
+Private, internal, and protected declarations are not public exports. Internal top-level declarations
+are visible through a direct import inside the one distribution indexed by an `AnalysisSession`;
+normal, aliased, and selective imports preserve the binding's local name. A direct module qualifier can
+resolve that module's internal declarations. Internal symbols do not pass through `public import`,
+`GetExports`, or transitive module qualifiers. The current session has one `DistributionName`; loading
+and checking declarations across distribution metadata remains future work. Type/member access control
+after receiver binding is also outside the current lookup API.
 
 ## Graphs and re-exports
 

@@ -192,6 +192,9 @@ internal sealed partial class BodyBindingBuilder
         if (operands.Length == 1)
         {
             if (op == "!!") { return new(left.Type?.IsNullable == true ? left.Type.Arguments[0] : left.Type); }
+            if (op is not ("++" or "--") && left.Type?.IsNullable == true
+                && LiftNullableUnary(operation, op, left, state, context) is { } liftedUnary)
+            { return liftedUnary; }
             if (op == "!" && left.Type == Bool) { return new(Bool); }
             if (op is "+" or "-" && left.Type is not null && IsNumeric(left.Type)) { return new(left.Type); }
             if (op == "~" && left.Type is not null && IsInteger(left.Type)) { return new(left.Type); }
@@ -199,6 +202,9 @@ internal sealed partial class BodyBindingBuilder
             {
                 if (!left.Writable) { Report("SOL2241", "Increment requires a writable location.", operation); }
                 if (left.Local is not null) { state.Narrowed.Remove(left.Local); }
+                if (left.Type?.IsNullable == true
+                    && LiftNullableUnary(operation, op, left, state, context) is { } liftedIncrement)
+                { return liftedIncrement; }
                 if (left.Type is not null && IsNumeric(left.Type)) { return new(left.Type); }
             }
             return OperatorCall(operation, op, [left], state, context);
@@ -227,8 +233,28 @@ internal sealed partial class BodyBindingBuilder
             if (!Converts(right.Type, nonnull)) { Report("SOL2205", "Elvis alternatives have incompatible types.", operation); }
             return new(nonnull);
         }
+        if (op is not ("&&" or "||") && (left.Type.IsNullable || right.Type.IsNullable)
+            && LiftNullableBinary(operation, op, left, right, state, context) is { } liftedBinary)
+        { return liftedBinary; }
         if (op is "&&" or "||")
         {
+            if (left.Type != Bool || right.Type != Bool)
+            {
+                string truthOperator = op == "&&" ? "false" : "true";
+                string bitwiseOperator = op == "&&" ? "&" : "|";
+                bool hasTruth = HasDeclaredOperator(truthOperator, left.Type);
+                bool hasBitwise = HasDeclaredOperator(bitwiseOperator, left.Type, right.Type);
+                if (hasTruth || hasBitwise)
+                {
+                    var truth = OperatorCall(operation, truthOperator, [left], state, context, exactOperands: true);
+                    if (truth.Type != Bool)
+                    { Report("SOL2207", "Conditional logical truth operators must return bool.", operation); }
+                    var logical = OperatorCall(operation, bitwiseOperator, [left, right], state, context, exactOperands: true);
+                    if (logical.Type != left.Type)
+                    { Report("SOL2207", "Conditional logical bitwise operators must accept and return the same operand type.", operation); }
+                    return logical.Type == left.Type ? logical : new(null);
+                }
+            }
             Require(left, Bool, operands[0]); Require(right, Bool, operands[1]); return new(Bool);
         }
         if (op is "===" or "!==")
@@ -237,6 +263,8 @@ internal sealed partial class BodyBindingBuilder
             { Report("SOL2207", "Identity comparison requires reference operands.", operation); }
             return new(Bool);
         }
+        if (op is "==" or "!=" && HasDeclaredOperator(op, left.Type, right.Type))
+        { return OperatorCall(operation, op, [left, right], state, context); }
         if (op is "==" or "!=" && (Converts(left.Type, right.Type) || Converts(right.Type, left.Type))) { return new(Bool); }
         if (left.Type == right.Type && IsNumeric(left.Type) && (op is "+" or "-" or "*" or "/" or "%" or "<" or ">" or "<=" or ">="
             || IsInteger(left.Type) && op is "&" or "|" or "^"))
