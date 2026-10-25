@@ -102,7 +102,7 @@ func candidateSelectionKeepsSelectedEffects(): CandidateRecord throws NetworkFai
 open class PublicBase() throws NetworkFailure
 
 public class PublicDerived: PublicBase {
-    constructor(): super() throws NetworkFailure {}
+    constructor() throws NetworkFailure: super() {}
 }
 
 func downstreamDerivedCall(): PublicDerived throws NetworkFailure {
