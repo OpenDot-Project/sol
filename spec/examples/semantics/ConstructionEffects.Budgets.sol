@@ -61,7 +61,7 @@ func constructFieldEffect(): FieldEffectResource throws ReadFailure {
 func verifyRemote(): () throws NetworkFailure {}
 
 class InitBlockEffectResource {
-    init throws NetworkFailure { verifyRemote() }
+    init { verifyRemote() }
     constructor() throws NetworkFailure {}
 }
 
@@ -71,7 +71,7 @@ func constructInitBlockEffect(): InitBlockEffectResource throws NetworkFailure {
 
 // Negative: an initializer's effect cannot be omitted from the constructor contract.
 class MissingInitBlockBudget {
-    init throws NetworkFailure { verifyRemote() }
+    init { verifyRemote() }
     constructor() {}
 }
 
