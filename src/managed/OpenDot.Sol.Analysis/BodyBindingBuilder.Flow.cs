@@ -38,9 +38,15 @@ internal sealed partial class BodyBindingBuilder
                     }
                     if (property.Delegate is not null)
                     {
-                        var contract = Delegate(property);
+                        var contract = Delegate(property, state, context);
                         if (contract is null) { Defer(property); }
-                        else { state.Effects.UnionWith(contract.InitEffects); }
+                        else
+                        {
+                            state.Effects.UnionWith(contract.InitEffects);
+                            foreach (var local in Sources.Lexical.Scopes.SelectMany(scope => scope.Symbols)
+                                .Where(symbol => ReferenceEquals(symbol.Origin.Element, property.Origin.Element)))
+                            { state.Assigned.Add(local); }
+                        }
                     }
                     if (property.BindingNames.Count() != 1) { Defer(property); }
                     result = new(Empty);
@@ -144,15 +150,27 @@ internal sealed partial class BodyBindingBuilder
         else if (assignedValue.Type?.IsRefLike == true) { Report("SOL2260", "Ref-like values cannot be stored in heap properties.", assignment); }
         if (location.Symbol?.Parts[0] is AstProperty property)
         {
+            bool initializesOwnField = false;
             if (context.Callable is AstConstructor)
             {
-                bool own = assignment.Location is AstMember member ? IsOwnConstructorReceiver(member.Receiver, context)
+                initializesOwnField = assignment.Location is AstMember member ? IsOwnConstructorReceiver(member.Receiver, context)
                     : assignment.Location is AstAtom;
-                if (own) { state.Fields.Add(property); }
             }
             var setter = property.Accessors.FirstOrDefault(a => a.Name is "set" or "init");
-            if (setter is not null) { state.Effects.UnionWith(setter.ThrownTypes.Select(t => Specialize(t, location.Receiver))); }
-            if (property.Delegate is not null && Delegate(property) is { } contract) { state.Effects.UnionWith(contract.SetEffects); }
+            if (setter is not null)
+            {
+                foreach (var effect in setter.ThrownTypes.Select(t => Specialize(t, location.Receiver)))
+                { state.RecordExceptionalEdge(effect); state.Effects.Add(effect); }
+                if (Core("RuntimeException") is { } runtime)
+                { state.RecordExceptionalEdge(runtime); state.Effects.Add(runtime); }
+            }
+            if (property.Delegate is not null && Delegate(property) is { } contract)
+            {
+                foreach (var effect in contract.SetEffects) { state.RecordExceptionalEdge(effect); state.Effects.Add(effect); }
+                if (Core("RuntimeException") is { } runtime)
+                { state.RecordExceptionalEdge(runtime); state.Effects.Add(runtime); }
+            }
+            if (initializesOwnField) { state.Fields.Add(property); }
         }
     }
 
@@ -163,7 +181,16 @@ internal sealed partial class BodyBindingBuilder
         if (operation.Operation == "!" && operands.Length == 1) { Refine(operands[0], state, !positive); return; }
         if ((operation.Operation == "&&" && positive || operation.Operation == "||" && !positive) && operands.Length == 2)
         { Refine(operands[0], state, positive); Refine(operands[1], state, positive); return; }
-        if (operands.FirstOrDefault() is not AstAtom { SyntaxKind: NodeKind.NameExpression } atom) { return; }
+        AstAtom? atom = operands.FirstOrDefault() as AstAtom;
+        bool comparesWithNull = operands.Length == 2 && operands[1] is AstAtom { Spelling: "null" }
+            && operands[0] is AstAtom { SyntaxKind: NodeKind.NameExpression }
+            || operands.Length == 2 && operands[0] is AstAtom { Spelling: "null" }
+            && operands[1] is AstAtom { SyntaxKind: NodeKind.NameExpression };
+        if (comparesWithNull)
+        {
+            atom = operands[0] is AstAtom { Spelling: "null" } ? operands[1] as AstAtom : operands[0] as AstAtom;
+        }
+        if (atom is not { SyntaxKind: NodeKind.NameExpression }) { return; }
         var locals = Sources.Lexical.Lookup(atom, atom.Spelling).Locals;
         if (locals is not [var local] || !state.Assigned.Contains(local)) { return; }
         bool captured = Sources.Lexical.Bindings.Any(b => b.CapturesOuterLocal && b.Lookup.Locals.Contains(local));
@@ -172,7 +199,7 @@ internal sealed partial class BodyBindingBuilder
         {
             if (positive == (operation.Operation == "is")) { state.Narrowed[local] = Written(operation.TargetType); }
         }
-        else if (operands.Length == 2 && operands[1] is AstAtom { Spelling: "null" }
+        else if (comparesWithNull
             && (operation.Operation is "!=" or "!==" && positive || operation.Operation is "==" or "===" && !positive))
         {
             var type = LocalType(local);
@@ -184,6 +211,7 @@ internal sealed partial class BodyBindingBuilder
     {
         if (loop.Initializer is { } initializer) { Statements([initializer], state, context, false); }
         if (loop.Condition is not null) { Require(Expression(loop.Condition, state, context, Bool), Bool, loop.Condition); }
+        bool bodyMayExecute = loop.Condition is not AstAtom { Spelling: "false" };
         var body = state.Clone();
         // A backedge may change local values; only immutable facts survive entry to the loop.
         foreach (var local in body.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { body.Narrowed.Remove(local); }
@@ -199,9 +227,10 @@ internal sealed partial class BodyBindingBuilder
             else { Defer(loop); }
         }
         var breaks = new List<State>();
+        if (!bodyMayExecute) { body.ExceptionSink = null; }
         if (loop.Body is not null) { Statements(loop.Body.Statements, body, context with { LoopDepth = context.LoopDepth + 1, Breaks = breaks }, false); }
         if (loop.Update is not null && body.Reachable) { Assignment(loop.Update, body, context); }
-        state.Effects.UnionWith(body.Effects);
+        if (bodyMayExecute) { state.Effects.UnionWith(body.Effects); }
         foreach (var local in state.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
         if (loop.Form == AstForForm.Infinite || loop.Condition is AstAtom { Spelling: "true" })
         {
@@ -233,7 +262,12 @@ internal sealed partial class BodyBindingBuilder
         if (context.Cleanup) { Report("SOL2254", "Cleanup cannot throw outwards.", node); }
         var expression = node.Children.OfType<AstExpression>().FirstOrDefault();
         var value = Expression(expression, state, context);
-        if (value.Type is { } type) { CheckThrowable(type, node); state.Effects.Add(type); }
+        if (value.Type is { } type)
+        {
+            CheckThrowable(type, node);
+            state.RecordExceptionalEdge(type);
+            state.Effects.Add(type);
+        }
         state.Reachable = false;
         return new(Types.GetBottom());
     }
@@ -241,47 +275,157 @@ internal sealed partial class BodyBindingBuilder
     private Value Try(AstTry attempt, State state, Context context, ResolvedType? expected)
     {
         var incoming = state.Clone();
-        var body = incoming.Clone(); body.Effects.Clear();
+        var outerExceptionSink = incoming.ExceptionSink;
+        var exceptionEdges = new List<State.ExceptionEdge>();
+        var body = incoming.Clone(); body.Effects.Clear(); body.ExceptionSink = exceptionEdges;
         var exits = new List<State>();
         var nested = context with { Exits = exits, Result = expected ?? context.Result };
         var value = attempt.Body is null ? new Value(null) : Statements(attempt.Body.Statements, body, nested, attempt.IsValue);
         var effects = new HashSet<ResolvedType>(body.Effects);
         foreach (var exit in exits) { effects.UnionWith(exit.Effects); }
+        var bodyExits = exits.ToArray();
+        AddUnknownRuntimeEdge(attempt.Body, incoming, body, exceptionEdges);
         var alternatives = new List<State> { body };
         var catchTypes = new List<ResolvedType>();
+        bool priorCatchAll = false;
+        var unhandledEdges = exceptionEdges.ToList();
+        var handlerExceptionEdges = new List<State.ExceptionEdge>();
         foreach (var handler in attempt.Catches)
         {
             var caught = handler.ExceptionType is null ? null : Written(handler.ExceptionType);
+            bool alreadyCovered = priorCatchAll || caught is not null && catchTypes.Any(t => Converts(caught, t));
+            if (alreadyCovered) { Report("SOL2252", "An earlier catch already handles this type.", handler); }
             if (caught is not null)
             {
                 CheckThrowable(caught, handler);
-                if (catchTypes.Any(t => Converts(caught, t))) { Report("SOL2252", "An earlier catch already handles this type.", handler); }
                 catchTypes.Add(caught);
                 effects.RemoveWhere(t => Converts(t, caught));
-                foreach (var exit in exits) { exit.Effects.RemoveWhere(t => Converts(t, caught)); }
+                foreach (var exit in bodyExits) { exit.Effects.RemoveWhere(t => Converts(t, caught)); }
             }
-            var branch = incoming.Clone(); branch.Effects.Clear();
+            else { priorCatchAll = true; }
+
+            var matchingEdges = unhandledEdges.Where(edge => caught is null || MayOverlap(edge.Type, caught)).ToArray();
+            bool reachable = matchingEdges.Length != 0;
+            if (!reachable && !alreadyCovered)
+            { Report("SOL2255", "Catch clause cannot match an exception from this try body.", handler); }
+            State branch;
+            if (reachable)
+            {
+                branch = matchingEdges[0].State.Clone();
+                for (int index = 1; index < matchingEdges.Length; index++)
+                {
+                    var previous = branch.Clone();
+                    branch.Join(previous, matchingEdges[index].State);
+                }
+                branch.Effects.Clear();
+                branch.ExceptionSink = handlerExceptionEdges;
+            }
+            else
+            {
+                branch = incoming.Clone();
+                branch.Reachable = false;
+                branch.Effects.Clear();
+                branch.ExceptionSink = null;
+            }
             foreach (var local in OwnLocals(handler)) { branch.Assigned.Add(local); if (caught is not null) { _localTypes[local] = caught; } }
-            var other = handler.Body is null ? new Value(null) : Statements(handler.Body.Statements, branch, nested, attempt.IsValue);
-            if (attempt.IsValue) { value = Common(value, other, attempt); }
-            alternatives.Add(branch);
+            var other = handler.Body is null ? new Value(null)
+                : Statements(handler.Body.Statements, branch, reachable ? nested : nested with { Exits = null }, attempt.IsValue);
+            if (reachable)
+            {
+                if (attempt.IsValue) { value = Common(value, other, attempt); }
+                alternatives.Add(branch);
+            }
+
+            if (caught is null)
+            {
+                unhandledEdges.Clear();
+            }
+            else
+            {
+                unhandledEdges.RemoveAll(edge => Converts(edge.Type, caught));
+            }
         }
+        var escapingEdges = unhandledEdges.Concat(handlerExceptionEdges).ToArray();
         foreach (var branch in alternatives.Skip(1)) { effects.UnionWith(branch.Effects); }
         state.Reachable = false;
         foreach (var branch in alternatives) { var previous = state.Clone(); state.Join(previous, branch); }
         state.Effects.Clear(); state.Effects.UnionWith(incoming.Effects); state.Effects.UnionWith(effects);
+        state.ExceptionSink = outerExceptionSink;
         if (attempt.Finally is { } cleanup)
         {
-            var normal = state.Clone();
-            normal.Reachable = true;
-            Statements(cleanup.Statements, normal, context with { Cleanup = true }, false);
-            state.Assigned.Clear(); state.Assigned.UnionWith(normal.Assigned);
-            state.Fields.Clear(); state.Fields.UnionWith(normal.Fields);
-            state.Narrowed.Clear(); state.Effects.UnionWith(normal.Effects);
-            foreach (var exit in exits) { Statements(cleanup.Statements, exit, context with { Cleanup = true }, false); }
+            var cleanupContext = context with { Cleanup = true, Exits = null, Breaks = null };
+            if (state.Reachable)
+            {
+                var normal = state.Clone();
+                Statements(cleanup.Statements, normal, cleanupContext, false);
+                state.Reachable = normal.Reachable;
+                state.Assigned.Clear(); state.Assigned.UnionWith(normal.Assigned);
+                state.Fields.Clear(); state.Fields.UnionWith(normal.Fields);
+                state.Narrowed.Clear(); state.Effects.UnionWith(normal.Effects);
+            }
+            foreach (var exit in exits)
+            {
+                exit.ExceptionSink = outerExceptionSink;
+                exit.Reachable = true;
+                Statements(cleanup.Statements, exit, cleanupContext, false);
+                exit.Reachable = false;
+            }
+            foreach (var edge in escapingEdges)
+            {
+                var exceptional = edge.State.Clone();
+                exceptional.ExceptionSink = outerExceptionSink;
+                exceptional.Reachable = true;
+                exceptional.Effects.Clear();
+                Statements(cleanup.Statements, exceptional, cleanupContext, false);
+                state.Effects.UnionWith(exceptional.Effects);
+                state.RecordExceptionalEdge(edge.Type, exceptional);
+            }
         }
+        else
+        {
+            foreach (var edge in escapingEdges) { state.RecordExceptionalEdge(edge.Type, edge.State); }
+        }
+        foreach (var exit in exits) { exit.ExceptionSink = outerExceptionSink; }
         context.Exits?.AddRange(exits);
         return attempt.IsValue ? value : new(Empty);
+    }
+
+    private bool MayOverlap(ResolvedType thrown, ResolvedType caught) => Converts(thrown, caught) || Converts(caught, thrown);
+
+    private void AddUnknownRuntimeEdge(AstBlock? body, State incoming, State normal, List<State.ExceptionEdge> edges)
+    {
+        if (Core("RuntimeException") is not { } runtime || !MayContainPotentiallyThrowingExpression(body)
+            || edges.Any(edge => Converts(edge.Type, runtime))) { return; }
+
+        // Some built-in operations can raise RuntimeException without a declared call effect. Their
+        // exact instruction snapshots are not available until FIR, so retain only facts true both
+        // before and after the try body. This is conservative and never grants a smart cast.
+        var snapshot = incoming.Clone();
+        snapshot.Assigned.IntersectWith(normal.Assigned);
+        snapshot.Fields.IntersectWith(normal.Fields);
+        snapshot.Narrowed.Clear();
+        snapshot.Effects.Clear();
+        snapshot.ExceptionSink = null;
+        snapshot.Reachable = true;
+        edges.Add(new(runtime, snapshot));
+    }
+
+    private bool MayContainPotentiallyThrowingExpression(AstNode? root)
+    {
+        if (root is null) { return false; }
+        var pending = new Stack<AstNode>();
+        var visited = new HashSet<AstNode>(ReferenceEqualityComparer.Instance);
+        pending.Push(root);
+        while (pending.TryPop(out var node))
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (!visited.Add(node)) { continue; }
+            if (visited.Count > 65536) { Defer(root); return true; }
+            if (node is AstCall or AstMember || node.SyntaxKind == NodeKind.IndexExpression
+                || node is AstOperation { Operation: not ("&&" or "||" or "?:") }) { return true; }
+            foreach (var child in node.Children) { pending.Push(child); }
+        }
+        return false;
     }
 
     private Value Common(Value left, Value right, AstNode node)

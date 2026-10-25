@@ -15,20 +15,33 @@ internal sealed partial class BodyBindingBuilder
 {
     internal sealed class State
     {
+        internal sealed record ExceptionEdge(ResolvedType Type, State State);
+
         internal HashSet<LocalSymbol> Assigned { get; } = [];
         internal Dictionary<LocalSymbol, ResolvedType> Narrowed { get; } = [];
         internal HashSet<ResolvedType> Effects { get; } = [];
         internal HashSet<AstProperty> Fields { get; } = [];
+        internal List<ExceptionEdge>? ExceptionSink { get; set; }
         internal bool Reachable { get; set; } = true;
         internal State Clone()
         {
-            var copy = new State { Reachable = Reachable };
+            var copy = new State { Reachable = Reachable, ExceptionSink = ExceptionSink };
             copy.Assigned.UnionWith(Assigned);
             foreach (var pair in Narrowed) { copy.Narrowed.Add(pair.Key, pair.Value); }
             copy.Effects.UnionWith(Effects);
             copy.Fields.UnionWith(Fields);
             return copy;
         }
+
+        internal void RecordExceptionalEdge(ResolvedType type, State? snapshot = null)
+        {
+            if (ExceptionSink is not { } sink || snapshot is null && !Reachable) { return; }
+            var edge = (snapshot ?? this).Clone();
+            edge.Reachable = true;
+            edge.ExceptionSink = null;
+            sink.Add(new(type, edge));
+        }
+
         internal void Join(State left, State right)
         {
             Assigned.Clear(); Narrowed.Clear(); Fields.Clear();

@@ -5,28 +5,34 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
+using OpenDot.Sol.Analysis;
 using OpenDot.Sol.Ast;
 using OpenDot.Sol.Diagnostics;
 
 namespace OpenDot.Sol.Fir;
 
 public sealed record FirFlowBlock(int Id, AstOrigin Origin, ImmutableArray<int> Reads,
-    ImmutableArray<int> Writes, ImmutableArray<int> Kills, ImmutableArray<int> Successors, bool Returns);
+    ImmutableArray<int> Writes, ImmutableArray<int> Kills, ImmutableArray<int> Successors,
+    ImmutableArray<FirCallSite> Calls, bool Returns);
+
+/// <summary>A resolved call and its declared exception set at one FIR operation.</summary>
+public sealed record FirCallSite(int Target, AstOrigin Origin, ImmutableArray<ResolvedType> Effects);
 
 /// <summary>CFG side table owned by FIR; this is not a second intermediate language.</summary>
 public sealed class FirFlowGraph
 {
-    private FirFlowGraph(ImmutableArray<FirFlowBlock> blocks, ImmutableArray<Diagnostic> diagnostics)
-    { Blocks = blocks; Diagnostics = diagnostics; }
+    private FirFlowGraph(int functionId, ImmutableArray<FirFlowBlock> blocks, ImmutableArray<Diagnostic> diagnostics)
+    { FunctionId = functionId; Blocks = blocks; Diagnostics = diagnostics; }
+    public int FunctionId { get; }
     public ImmutableArray<FirFlowBlock> Blocks { get; }
     public ImmutableArray<Diagnostic> Diagnostics { get; }
 
-    internal static FirFlowGraph Create(FirFunction function, CancellationToken cancellation)
+    internal static FirFlowGraph Create(FirFunction function, ImmutableArray<FirFunction> functions, CancellationToken cancellation)
     {
-        var builder = new Builder(function, cancellation);
+        var builder = new Builder(function, functions, cancellation);
         builder.Build();
-        return new(builder.Nodes.Select(n => new FirFlowBlock(n.Id, n.Origin, n.Reads.ToImmutableArray(), n.Writes.ToImmutableArray(),
-            n.Kills.ToImmutableArray(), n.Next.ToImmutableArray(), n.Returns)).ToImmutableArray(), builder.Verify());
+        return new(function.Id, builder.Nodes.Select(n => new FirFlowBlock(n.Id, n.Origin, n.Reads.ToImmutableArray(), n.Writes.ToImmutableArray(),
+            n.Kills.ToImmutableArray(), n.Next.ToImmutableArray(), n.Calls.ToImmutableArray(), n.Returns)).ToImmutableArray(), builder.Verify());
     }
 
     private sealed class Node(int id, AstOrigin origin)
@@ -37,10 +43,11 @@ public sealed class FirFlowGraph
         internal List<int> Reads = [];
         internal List<int> Writes = [];
         internal List<int> Kills = [];
+        internal List<FirCallSite> Calls = [];
         internal bool Returns;
     }
 
-    private sealed class Builder(FirFunction function, CancellationToken cancellation)
+    private sealed class Builder(FirFunction function, ImmutableArray<FirFunction> functions, CancellationToken cancellation)
     {
         internal List<Node> Nodes { get; } = [];
         private int _fallthrough;
@@ -129,6 +136,7 @@ public sealed class FirFlowGraph
                         if (argument.Mode != AstPassingMode.Out) { before = Expression(argument.Value, before); }
                     }
                     var completed = New(call.Origin); Edge(before, completed.Id);
+                    completed.Calls.Add(new(call.Target, call.Origin, functions[call.Target].Effects));
                     foreach (var argument in call.Arguments.Where(a => a.Mode == AstPassingMode.Out))
                     { completed.Writes.Add(((FirRead)argument.Value).Slot); }
                     if (call.Type.Kind == Analysis.ResolvedTypeKind.Bottom) { return New(call.Origin).Id; }

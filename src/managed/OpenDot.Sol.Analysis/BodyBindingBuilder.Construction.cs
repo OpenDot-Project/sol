@@ -12,7 +12,11 @@ internal sealed partial class BodyBindingBuilder
 {
     private IEnumerable<AstProperty> StoredProperties(ResolvedType owner) => owner.Declaration?.Parts
         .OfType<AstTypeDeclaration>().SelectMany(t => t.Members).OfType<AstProperty>()
-        .Where(p => p.Delegate is null && (!p.Accessors.Any() || p.Accessors.All(a => a.Body.Kind == AstBodyKind.Missing))) ?? [];
+        .Where(p => !p.Accessors.Any() || p.Accessors.All(a => a.Body.Kind == AstBodyKind.Missing)) ?? [];
+
+    private IEnumerable<AstNode> InitializationMembers(ResolvedType owner) => owner.Declaration?.Parts
+        .OfType<AstTypeDeclaration>().SelectMany(t => t.Members)
+        .Where(member => member is AstProperty or AstInitializer) ?? [];
 
     private void InitializeFields(AstConstructor constructor, State state, Context context)
     {
@@ -20,19 +24,26 @@ internal sealed partial class BodyBindingBuilder
         if (owner is null) { Defer(constructor); return; }
         if (constructor.Delegation is not null || Types.GetDirectBases(owner).Any(t => t.Declaration is not { ModuleName: "std.core", Name: "Object" }))
         { Defer(constructor); }
-        foreach (var property in StoredProperties(owner))
+        var stored = StoredProperties(owner).ToHashSet();
+        foreach (var member in InitializationMembers(owner))
         {
-            if (property.Initializer is { } initializer)
+            if (member is AstProperty delegatedProperty && stored.Contains(delegatedProperty)
+                && delegatedProperty.Delegate is not null)
             {
-                var expected = property.Type is null ? null : Specialize(property.Type, owner);
-                Require(Expression(initializer, state, context, expected), expected, initializer, state);
-                state.Fields.Add(property);
+                var contract = Delegate(delegatedProperty, state, context);
+                if (contract is null) { Defer(delegatedProperty); continue; }
+                state.Effects.UnionWith(contract.InitEffects);
+                state.Fields.Add(delegatedProperty);
             }
-        }
-        var initBlocks = owner.Declaration?.Parts.OfType<AstTypeDeclaration>().SelectMany(t => t.Members).OfType<AstInitializer>() ?? [];
-        foreach (var initializer in initBlocks)
-        {
-            if (initializer.Body is not null) { Statements(initializer.Body.Statements, state, context, false); }
+            else if (member is AstProperty { Delegate: null, Initializer: { } propertyInitializer } storedProperty
+                && stored.Contains(storedProperty))
+            {
+                var expected = storedProperty.Type is null ? null : Specialize(storedProperty.Type, owner);
+                Require(Expression(propertyInitializer, state, context, expected), expected, propertyInitializer, state);
+                state.Fields.Add(storedProperty);
+            }
+            else if (member is AstInitializer { Body: not null } initBlock)
+            { Statements(initBlock.Body!.Statements, state, context, false); }
         }
     }
 
@@ -68,7 +79,8 @@ internal sealed partial class BodyBindingBuilder
         var type = Types.Nominal(symbol, []);
         foreach (var property in StoredProperties(type))
         {
-            if (property.Initializer is null) { Report("SOL2270", "Implicit construction leaves a stored property unassigned: " + property.Name, call); }
+            if (property.Delegate is not null) { Defer(call); }
+            else if (property.Initializer is null) { Report("SOL2270", "Implicit construction leaves a stored property unassigned: " + property.Name, call); }
             else { Defer(call); }
         }
         if (Types.GetDirectBases(type).Any(t => t.Declaration is not { ModuleName: "std.core", Name: "Object" })) { Defer(call); }
