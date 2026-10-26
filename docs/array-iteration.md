@@ -17,7 +17,7 @@ native admission list.
 
 The surface form is:
 
-```sol
+```text
 for val item in expression {
     use(item)
 }
@@ -62,6 +62,8 @@ reference still denotes the same referenced object; mutating that object's state
 through any alias, while assigning a new reference to the item does not replace the array element.
 
 ```sol
+module docs.arrayiteration.copy
+
 func localCopy(values: []int): int {
     var total = 0
     for var item in values {
@@ -105,6 +107,8 @@ continues to govern this loop. If the body mutates an element through that origi
 loads observe the modified element value.
 
 ```sol
+module docs.arrayiteration.evaluation
+
 func selectArray(): []int throws SelectionFailure {
     recordSelection()
     [4, 5, 6]
@@ -139,9 +143,13 @@ GC visibility, and transfer edges.
 An empty array literal needs an element type from context:
 
 ```sol
-val noValues: []int = []
-for val item in noValues {
-    unreachableBody()
+module docs.arrayiteration.empty
+
+func demonstrateEmptyArray(): () {
+    val noValues: []int = []
+    for val item in noValues {
+        unreachableBody()
+    }
 }
 ```
 
@@ -214,6 +222,8 @@ The flow state before the loop is a zero-trip predecessor of the state after the
 assignments cannot be used after the loop:
 
 ```sol
+module docs.arrayiteration.definiteassignment
+
 func assignedOnlyWhenNonEmpty(values: []int): int {
     var last: int
     for val item in values {

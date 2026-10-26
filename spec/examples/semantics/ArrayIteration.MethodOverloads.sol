@@ -110,7 +110,7 @@ func exactCurrentDeclarationSetsItemType(source: CurrentOverloadSource): () {
     for val item in source { consume(item) }
 }
 
-func receiverTypeSubstitutionSetsCurrentType<T>(source: SourceFor<T>): () {
+func <T> receiverTypeSubstitutionSetsCurrentType(source: SourceFor<T>): () {
     for val item in source { consume(item) }
 }
 

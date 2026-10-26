@@ -84,7 +84,7 @@ func arrayExpressionLocalIsRetained(values: []int, replacement: []int): int {
 
 func arrayPropertyIsRetained(owner: ArrayOwner, replacement: []int): int {
     var total = 0
-    for val item in owner.values {
+    for val item in owner.loggedValues {
         owner.values = replacement
         total += item
     }
@@ -102,8 +102,7 @@ func expressionFactoryStillRunsOnlyOnce(values: []int): int {
 class ArrayOwner {
     var values: []int
     var reads: int
-    val loggedValues: []int
-        get { reads += 1; values }
+    val loggedValues: []int { get { reads += 1; values } }
 }
 
 func getterResultIsRetained(owner: ArrayOwner): int {

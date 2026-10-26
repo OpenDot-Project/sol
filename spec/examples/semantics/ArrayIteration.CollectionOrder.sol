@@ -48,7 +48,7 @@ func priorityQueueIteratorIsHeapLayout(values: PriorityQueue<int>): []int {
 func priorityQueueDrainHasPriorityOrder(values: PriorityQueue<int>): []int {
     val clone = values.clone()
     var drained: []int = []
-    while clone.length > 0 { drained.add(clone.dequeue()) }
+    for clone.length > 0 { drained.add(clone.dequeue()) }
     drained
 }
 

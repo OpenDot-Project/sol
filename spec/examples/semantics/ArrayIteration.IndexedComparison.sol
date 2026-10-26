@@ -12,7 +12,7 @@ func foreachSum(values: []int): int {
 func indexedSum(values: []int): int {
     var total = 0
     var index = 0
-    while index < values.length {
+    for index < values.length {
         total += values[index]
         index += 1
     }
@@ -33,7 +33,7 @@ func manualIndexSourceExpressionRunsOnce(values: []int): int {
     val source = countedSource(values)
     var total = 0
     var index = 0
-    while index < source.length { total += source[index]; index += 1 }
+    for index < source.length { total += source[index]; index += 1 }
     total
 }
 
@@ -46,7 +46,7 @@ func foreachItemIsCopy(values: []int): int {
 func indexedStoreIsExplicit(values: []int): int {
     var index = 0
     var total = 0
-    while index < values.length {
+    for index < values.length {
         val item = values[index]
         values[index] = item + 1
         total += values[index]
@@ -64,7 +64,7 @@ func foreachDoesNotExposeImplicitIndex(values: []int): int {
 func indexLoopMustGuardBeforeRead(values: []int): int {
     var total = 0
     var index = 0
-    while index < values.length {
+    for index < values.length {
         total += values[index]
         index += 1
     }
@@ -96,10 +96,10 @@ func nestedForeachUsesNestedIndices(rows: [][]int): int {
 func nestedIndexLoopsUseIndependentCounters(rows: [][]int): int {
     var total = 0
     var rowIndex = 0
-    while rowIndex < rows.length {
+    for rowIndex < rows.length {
         val row = rows[rowIndex]
         var column = 0
-        while column < row.length { total += row[column]; column += 1 }
+        for column < row.length { total += row[column]; column += 1 }
         rowIndex += 1
     }
     total

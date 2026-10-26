@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Normative matrix: getter/indexer receiver effects occur once before iteration begins.
+// Normative matrix: getter and source-method effects occur once before iteration begins.
 module spec.arrayiteration.accessoreffects
 
 class AccessFailure: Exception {}
@@ -8,8 +8,7 @@ class AccessFailure: Exception {}
 class SourceOwner {
     var reads: int
     var value: []int
-    val values: []int
-        get throws AccessFailure { reads += 1; value }
+    val values: []int { get throws AccessFailure { reads += 1; value } }
 }
 
 func getterEffectIncluded(owner: SourceOwner): int throws AccessFailure {
@@ -51,29 +50,29 @@ func getterFailureHasNoItemAssignment(owner: SourceOwner): int throws AccessFail
 class IndexedSources {
     var reads: int
     val rows: [][]int
-    operator get(index: int): []int throws AccessFailure {
+    func rowAt(index: int): []int throws AccessFailure {
         reads += 1
         rows[index]
     }
 }
 
-func indexerSourceReceiverRunsOnce(source: IndexedSources, index: int): int
+func sourceMethodReceiverRunsOnce(source: IndexedSources, index: int): int
     throws AccessFailure {
     var total = 0
-    for val item in source[index] { total += item }
+    for val item in source.rowAt(index) { total += item }
     total
 }
 
-func indexerArgumentRunsBeforeBody(source: IndexedSources): int throws AccessFailure {
+func sourceMethodArgumentRunsBeforeBody(source: IndexedSources): int throws AccessFailure {
     var total = 0
-    for val item in source[nextIndex()] { total += item }
+    for val item in source.rowAt(nextIndex()) { total += item }
     total
 }
 
-func indexerGetterResultRemainsActive(source: IndexedSources, replacement: []int): int
+func sourceMethodResultRemainsActive(source: IndexedSources, replacement: []int): int
     throws AccessFailure {
     var total = 0
-    for val item in source[0] {
+    for val item in source.rowAt(0) {
         source.rows[0] = replacement
         total += item
     }
@@ -82,12 +81,12 @@ func indexerGetterResultRemainsActive(source: IndexedSources, replacement: []int
 
 func setterBodyMutationIsSeparate(source: IndexedSources, values: []int): ()
     throws AccessFailure {
-    for val item in source[0] { source.rows[0] = values; consume(item) }
+    for val item in source.rowAt(0) { source.rows[0] = values; consume(item) }
 }
 
 func sourceCallAndGetterOrder(source: IndexedSources): int throws AccessFailure {
     var total = 0
-    for val item in selectSource(source)[nextIndex()] { total += item }
+    for val item in selectSource(source).rowAt(nextIndex()) { total += item }
     total
 }
 
@@ -127,5 +126,5 @@ func localSnapshotAvoidsRepeatGetter(owner: SourceOwner): int throws AccessFailu
 
 class NullableSourceOwner { val values: []int? }
 
-// Property/indexer evaluation uses the normal getter and argument order. The loop retains its result;
+// Property/method evaluation uses the normal getter, receiver, and argument order. The loop retains its result;
 // an explicit later getter read is a separate operation with its own effect and source origin.

@@ -15,7 +15,7 @@ func inlineArrayNotAcceptedAsManagedPointer(values: [4]String): int {
     total
 }
 
-func genericElementLayoutNeedsSpecialization<T>(values: []T): () {
+func <T> genericElementLayoutNeedsSpecialization(values: []T): () {
     for val item in values { consume(item) }
 }
 

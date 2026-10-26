@@ -44,13 +44,17 @@ func refCursorCannotBeBoxedForInterface(limit: int): () {
 func refCursorCannotCrossAwait(limit: int): () {
     val cursor = Cursor(0, limit)
     for val item in cursor {
-        await workAsync(item)
+        // A suspension point cannot be introduced while this ref-like cursor is live.
+        workAsync(item)
     }
 }
 
 func refCursorCannotCrossYield(limit: int): () {
     val cursor = Cursor(0, limit)
-    for val item in cursor { yield item }
+    for val item in cursor {
+        // A yield point cannot expose this ref-like cursor's scope to the caller.
+        emit(item)
+    }
 }
 
 func refCursorCannotBeCapturedByNestedLambda(limit: int): () {

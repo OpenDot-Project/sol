@@ -8,12 +8,12 @@ class AdvanceFailure: Exception {}
 class ValueFailure: Exception {}
 class CloseFailure: Exception {}
 
-interface Cursor<T, A: Throwable, V: Throwable> {
+interface Cursor<T, A, V> {
     func moveNext(): bool throws A
     func current(): T throws V
 }
 
-interface Source<T, A: Throwable, V: Throwable> {
+interface Source<T, A, V> {
     func iterator(): Cursor<T, A, V> throws AcquireFailure
 }
 
@@ -55,12 +55,12 @@ func effectStillPossibleForUnknownCursor(source: Source<int, AdvanceFailure, Val
     for val item in source { consume(item) }
 }
 
-func genericEffectsSubstituteAtCall<T, A: Throwable, V: Throwable>(source: Source<T, A, V>): ()
+func <T, A: Throwable, V: Throwable> genericEffectsSubstituteAtCall(source: Source<T, A, V>): ()
     throws AcquireFailure, A, V {
     for val item in source { consume(item) }
 }
 
-func genericEffectMissingAtCall<T, A: Throwable, V: Throwable>(source: Source<T, A, V>): ()
+func <T, A: Throwable, V: Throwable> genericEffectMissingAtCall(source: Source<T, A, V>): ()
     throws AcquireFailure, A {
     // Expected error: V is not included in the caller budget.
     for val item in source { consume(item) }

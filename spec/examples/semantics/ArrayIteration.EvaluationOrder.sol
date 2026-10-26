@@ -54,8 +54,10 @@ func indexExpressionOnce(rows: [][]int, selector: int): int {
 }
 
 func conditionalSourceOnce(left: []int, right: []int, chooseLeft: bool): int {
+    var sourceArray = left
+    if !chooseLeft { sourceArray = right }
     var total = 0
-    for val item in if chooseLeft { left } else { right } {
+    for val item in sourceArray {
         total += item
     }
     total

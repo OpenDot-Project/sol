@@ -111,11 +111,11 @@ func structuralRouteUsesStaticType(source: StructuralSource): () {
     for val item in source { consumeInt(item) }
 }
 
-func cursorTypeVariableSubstitutesCurrent<T>(source: Iterable<T>): () {
+func <T> cursorTypeVariableSubstitutesCurrent(source: Iterable<T>): () {
     for val item in source { consume(item) }
 }
 
-func cursorTypeVariableKeepsInvariantIdentity<T>(source: InvariantSource<T>): () {
+func <T> cursorTypeVariableKeepsInvariantIdentity(source: InvariantSource<T>): () {
     for val item in source { consume(item) }
 }
 

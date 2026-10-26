@@ -176,11 +176,11 @@ func nullableArraySafeDefault(values: []int?): int {
     total
 }
 
-func genericArray<T>(values: []T): () {
+func <T> genericArray(values: []T): () {
     for val item in values { consume(item) }
 }
 
-func genericConcreteArray<T>(values: []T): () {
+func <T> genericConcreteArray(values: []T): () {
     // The source contract permits generic element iteration after type binding. Native lowering
     // remains unavailable until the closed element layout is qualified.
     for val item in values { consume(item) }

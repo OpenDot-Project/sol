@@ -175,7 +175,7 @@ func staticCursorTypeControlsProtocol(source: BaseSource): () {
     for val item in source { consume(item) }
 }
 
-func genericCursorEffectsAreSubstituted<T, E: Throwable>(source: GenericSource<T, E>): ()
+func <T, E: Throwable> genericCursorEffectsAreSubstituted(source: GenericSource<T, E>): ()
     throws E {
     for val item in source { consume(item) }
 }

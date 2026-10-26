@@ -39,7 +39,8 @@ func emptyExpectedFromArgument(): int {
 }
 
 func emptyExpectedFromConditional(flag: bool): int {
-    val values: []int = if flag { [] } else { [1] }
+    var values: []int = []
+    if flag { values = [] } else { values = [1] }
     var total = 0
     for val item in values { total += item }
     total
@@ -147,7 +148,8 @@ func parameterMayBeEmptyOrNonEmpty(values: []int): () throws Failure {
 }
 
 func emptyAfterRuntimeBranch(flag: bool): () throws Failure {
-    val values: []int = if flag { [] } else { [1] }
+    var values: []int = []
+    if flag { values = [] } else { values = [1] }
     for val item in values { mightThrow(item) }
 }
 
@@ -175,9 +177,11 @@ func nonEmptyLiteralExecutesPerElement(): int {
     result
 }
 
-func literalWithConditionalElementStillHasOneSlot(flag: bool): int {
+func literalShapeSelectedByBranch(flag: bool): int {
+    var values: []int = []
+    if flag { values = [1] } else { values = [0] }
     var result = 0
-    for val item in [if flag { 1 } else { 0 }] { result += item }
+    for val item in values { result += item }
     result
 }
 

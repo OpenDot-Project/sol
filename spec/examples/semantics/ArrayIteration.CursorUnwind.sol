@@ -177,7 +177,7 @@ func outerCatchDoesNotReceivePreCloseState(cursor: Cursor<int>): int {
         for val item in cursor { completed = true }
     } catch (error: CloseFailure) {
         // The handler receives the state at the close edge, including completed when traversal ran.
-        return if completed { 1 } else { 0 }
+        if completed { return 1 } else { return 0 }
     }
     2
 }
