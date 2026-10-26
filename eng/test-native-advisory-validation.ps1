@@ -37,6 +37,9 @@ $mutations = [ordered]@{
     'repository query' = { param($v) $v.components[1].repository = 'https://github.com/madler/zlib?secret=x' }
     'unmapped primary repository' = { param($v) $v.components[1].advisory_repositories = @('https://github.com/other/zlib') }
     'duplicate repository alias' = { param($v) $v.components[1].advisory_repositories += 'https://github.com/madler/zlib.git' }
+    'unverified libxml advisory fix commit' = { param($v) $v.components[3].verified_upstream_fixes[0].commit = ('0' * 40) }
+    'missing libxml advisory fix path' = { param($v) $v.components[3].verified_upstream_fixes[1].files = @('HTMLtree.c') }
+    'unknown libxml advisory fix' = { param($v) $v.components[3].verified_upstream_fixes[0].advisory_id = 'OSV-2099-999' }
 }
 foreach ($case in $mutations.GetEnumerator()) {
     $value = Copy-Data $catalog
@@ -109,6 +112,35 @@ $mirror = @{ vulns = @(@{ id = 'OSV-2021-777'; affected = @(@{
     ranges = @(@{ type = 'GIT'; repo = 'https://gitlab.gnome.org/GNOME/libxml2.git' }) }) }) }
 $matched = ConvertFrom-NativeAdvisoryPage $mirror $xml
 if ($matched.advisories.Count -ne 1) { throw 'Explicit upstream mirror identity was lost.' }
+$verifiedFixes = @($xml.verified_upstream_fixes | ForEach-Object {
+    @{ advisory_id = $_.advisory_id; commit = $_.commit; files = @($_.files); source_tag = $xml.tag; status = 'verified' }
+})
+$xincludeFix = $xml.verified_upstream_fixes | Where-Object advisory_id -CEQ 'OSV-2021-777'
+$xmlIoFix = $xml.verified_upstream_fixes | Where-Object advisory_id -CEQ 'OSV-2024-698'
+$script:olderCommits = @(for ($index = 0; $index -lt 100; $index++) {
+    @{ id = ('{0:x40}' -f $index); title = 'Earlier upstream change' }
+})
+if (-not (Test-NativeAdvisoryFixInPinnedTag $xml $xincludeFix {
+    param($path, $tag, $page)
+    if ($path -cne 'xinclude.c' -or $tag -cne 'v2.15.4') { throw 'Wrong upstream fix query identity.' }
+    if ($page -eq 1) { return $script:olderCommits }
+    return @(@{ id = $xincludeFix.commit; title = $xincludeFix.subject })
+})) { throw 'Pinned libxml2 XInclude fix was not found in the tag history.' }
+if (-not (Test-NativeAdvisoryFixInPinnedTag $xml $xmlIoFix {
+    param($path, $tag, $page)
+    if ($tag -cne 'v2.15.4' -or $page -ne 1) { throw 'Wrong upstream fix query identity.' }
+    return @(@{ id = $xmlIoFix.commit; title = $xmlIoFix.subject })
+})) { throw 'Pinned libxml2 encoder ownership fix was not found in the tag history.' }
+Expect-Rejection 'mismatched upstream fix subject' {
+    Test-NativeAdvisoryFixInPinnedTag $xml $xincludeFix {
+        param($path, $tag, $page)
+        return @(@{ id = $xincludeFix.commit; title = 'Different upstream change' })
+    }
+}
+if (Test-NativeAdvisoryFixInPinnedTag $xml $xincludeFix {
+    param($path, $tag, $page)
+    return @()
+}) { throw 'Missing upstream fix was treated as verified.' }
 Write-Host "Native advisory validation passed: $script:passed rejection cases, clean response, pagination, exact requests and mirror matching."
 
 $scratch = Join-Path ([IO.Path]::GetTempPath()) ("sol-dependency-proof-" + [guid]::NewGuid().ToString('N'))
@@ -125,15 +157,40 @@ try {
     $proofPath = Join-Path $scratch 'proof.json'
     $evidence | ConvertTo-Json -Depth 8 | Set-Content $proofPath -Encoding utf8NoBOM
     $result = @{ name = 'libxml2'; status = 'advisories-found'; advisories = @(@{ id = 'OSV-2021-777' }, @{ id = 'OSV-2024-698' }) }
-    $reviewed = Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch
-    if ($reviewed.status -cne 'advisories-found' -or $reviewed.blocking_advisories -ne 2 -or $reviewed.advisories.Count -ne 2 -or
-        @($reviewed.dispositions | Where-Object path_status -CNE 'reported-path-absent-review-required').Count) {
-        throw 'Feature-absent evidence must preserve both records and leave shared-function applicability blocked.'
+    $reviewed = Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch $verifiedFixes
+    if ($reviewed.status -cne 'advisories-present-upstream-fix-verified' -or $reviewed.blocking_advisories -ne 0 -or
+        $reviewed.advisories.Count -ne 2 -or
+        @($reviewed.dispositions | Where-Object status -CNE 'fixed-upstream-commit-verified').Count) {
+        throw 'Verified upstream fixes must preserve the raw OSV records and clear only their blocking status.'
+    }
+    $unverified = Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch
+    if ($unverified.blocking_advisories -ne 2 -or $unverified.advisories.Count -ne 2) {
+        throw 'Missing upstream fix evidence must leave both OSV records blocking.'
+    }
+    $wrongFixes = @($verifiedFixes | ForEach-Object { Copy-Data $_ })
+    $wrongFixes[0].commit = ('0' * 40)
+    $wrongIdentity = Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch $wrongFixes
+    if ($wrongIdentity.blocking_advisories -ne 1) { throw 'Mismatched fix identity cleared an advisory.' }
+    $wrongTagFixes = @($verifiedFixes | ForEach-Object { Copy-Data $_ })
+    $wrongTagFixes[0].source_tag = 'v2.15.3'
+    if ((Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch $wrongTagFixes).blocking_advisories -ne 1) {
+        throw 'Fix evidence from another source tag cleared an advisory.'
+    }
+    $wrongFileFixes = @($verifiedFixes | ForEach-Object { Copy-Data $_ })
+    $wrongFileFixes[1].files = @('xmlIO.c')
+    if ((Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch $wrongFileFixes).blocking_advisories -ne 1) {
+        throw 'Incomplete upstream patch file evidence cleared an advisory.'
+    }
+    $failedFixes = @($verifiedFixes | ForEach-Object { Copy-Data $_ })
+    $failedFixes[1].status = 'verification-failed'
+    if ((Resolve-NativeAdvisoryResult (Copy-Data $result) $catalog $proofPath $scratch $failedFixes).blocking_advisories -ne 1) {
+        throw 'Unavailable upstream history evidence cleared an advisory.'
     }
     $unknown = Copy-Data $result
     $unknown.advisories += @{ id = 'OSV-2099-1234' }
-    $remaining = Resolve-NativeAdvisoryResult $unknown $catalog $proofPath $scratch
-    if ($remaining.blocking_advisories -ne 3 -or $remaining.status -cne 'advisories-found') { throw 'Advisory was incorrectly exempted.' }
+    $remaining = Resolve-NativeAdvisoryResult $unknown $catalog $proofPath $scratch $verifiedFixes
+    if ($remaining.blocking_advisories -ne 1 -or $remaining.status -cne 'advisories-found' -or
+        $remaining.advisories.Count -ne 3) { throw 'Unknown advisory was incorrectly cleared.' }
     $badProofs = [ordered]@{
         'wrong catalog digest' = { param($v) $v.catalog_sha256 = ('0' * 64) }
         'wrong zlib commit' = { param($v) $v.zlib_commit = ('0' * 40) }

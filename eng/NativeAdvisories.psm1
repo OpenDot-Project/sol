@@ -3,6 +3,13 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+$script:ExpectedUpstreamFixes = @(
+    @{ advisory_id = 'OSV-2021-777'; commit = '8f5ccada05ddd4a1ff8e399ad39fc7cd4bd33325'
+        files = @('xinclude.c'); subject = 'xmlAddChild() and xmlAddNextSibling() may not attach their second argument' },
+    @{ advisory_id = 'OSV-2024-698'; commit = 'fcb7a777ce19ff2bef020ed2966a0c96e4f4da4c'
+        files = @('HTMLtree.c', 'xmlIO.c'); subject = 'io: Make xmlOutputBufferCreate* not free encoder on error' }
+)
+
 function Assert-AdvisoryString($Value, [string]$Pattern, [string]$Name) {
     if ($Value -isnot [string] -or $Value.Length -gt 2048 -or $Value -match '[\x00-\x1f\x7f]' -or
         $Value -cnotmatch $Pattern) {
@@ -50,7 +57,62 @@ function Assert-NativeAdvisoryCatalog($Catalog) {
             if (-not $repositories.Add((Get-AdvisoryRepository $item))) { throw 'Duplicate advisory repository.' }
         }
         if (-not $repositories.Contains($repository)) { throw 'Primary source repository is not mapped.' }
+        if ($component.name -ceq 'libxml2') {
+            if ($component.verified_upstream_fixes -isnot [array] -or
+                $component.verified_upstream_fixes.Count -ne $script:ExpectedUpstreamFixes.Count) {
+                throw 'libxml2 upstream fix evidence is incomplete.'
+            }
+            foreach ($expected in $script:ExpectedUpstreamFixes) {
+                $fixes = @($component.verified_upstream_fixes | Where-Object advisory_id -CEQ $expected.advisory_id)
+                if ($fixes.Count -ne 1) { throw 'Missing or duplicate verified upstream fix.' }
+                $fix = $fixes[0]
+                if ($fix.commit -cne $expected.commit -or $fix.subject -cne $expected.subject -or
+                    $fix.files -isnot [array] -or ($fix.files -join ',') -cne ($expected.files -join ',')) {
+                    throw 'libxml2 upstream fix identity or patch scope changed.'
+                }
+                Assert-AdvisoryString $fix.commit '^[a-f0-9]{40}$' 'verified upstream fix commit'
+                Assert-AdvisoryString $fix.subject '^.{8,200}$' 'verified upstream fix subject'
+                foreach ($file in $fix.files) {
+                    Assert-AdvisoryString $file '^(xinclude|HTMLtree|xmlIO)\.c$' 'verified upstream fix path'
+                }
+            }
+        } elseif ($component.Contains('verified_upstream_fixes')) {
+            throw 'Unexpected verified upstream fix evidence.'
+        }
     }
+}
+
+function Test-NativeAdvisoryFixInPinnedTag($Component, $Fix, [scriptblock]$Request) {
+    $expected = @($script:ExpectedUpstreamFixes | Where-Object advisory_id -CEQ $Fix.advisory_id)
+    $gitLabSource = @($Component.advisory_repositories | Where-Object {
+        (Get-AdvisoryRepository $_) -ceq 'https://gitlab.gnome.org/gnome/libxml2'
+    })
+    if ($Component.name -cne 'libxml2' -or $Component.repository -cne 'https://github.com/GNOME/libxml2' -or
+        $gitLabSource.Count -ne 1 -or $expected.Count -ne 1 -or
+        $Fix.commit -cne $expected[0].commit -or $Fix.subject -cne $expected[0].subject -or
+        $Fix.files -isnot [array] -or ($Fix.files -join ',') -cne ($expected[0].files -join ',')) {
+        throw 'Unrecognized upstream advisory fix evidence.'
+    }
+
+    foreach ($file in $expected[0].files) {
+        $found = $false
+        for ($page = 1; $page -le 10; $page++) {
+            $commits = @(& $Request $file $Component.tag $page)
+            if ($commits.Count -gt 100) { throw 'Upstream commit history page exceeded its limit.' }
+            foreach ($commit in $commits) {
+                if ($commit -isnot [Collections.IDictionary]) { throw 'Invalid upstream commit history response.' }
+                Assert-AdvisoryString $commit.id '^[a-f0-9]{40}$' 'upstream commit identity'
+                if ($commit.id -ceq $Fix.commit) {
+                    if ($commit.title -cne $Fix.subject) { throw 'Upstream fix subject does not match its pinned identity.' }
+                    $found = $true
+                    break
+                }
+            }
+            if ($found -or $commits.Count -lt 100) { break }
+        }
+        if (-not $found) { return $false }
+    }
+    return $true
 }
 
 function ConvertFrom-NativeAdvisoryPage($Response, $Component) {
@@ -132,9 +194,12 @@ function Invoke-NativeAdvisoryQuery($Component, [scriptblock]$Request) {
     }
 }
 
-function Resolve-NativeAdvisoryResult($Result, $Catalog, [string]$EvidencePath, [string]$LibraryDirectory) {
+function Resolve-NativeAdvisoryResult($Result, $Catalog, [string]$EvidencePath, [string]$LibraryDirectory, $FixEvidence = @()) {
     $dispositions = @()
     if ($Result.advisories.Count -and $Result.name -ceq 'libxml2') {
+        $xmlComponents = @($Catalog.components | Where-Object name -CEQ 'libxml2')
+        if ($xmlComponents.Count -ne 1) { throw 'Native advisory catalog has no unique libxml2 identity.' }
+        $xmlComponent = $xmlComponents[0]
         $evidence = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json -AsHashtable
         $catalogJson = Join-Path $PSScriptRoot 'native-advisories.json'
         foreach ($field in @('catalog_sha256', 'zlib_sha256', 'libxml2_sha256', 'xml_header_sha256')) {
@@ -161,15 +226,27 @@ function Resolve-NativeAdvisoryResult($Result, $Catalog, [string]$EvidencePath, 
             if ($actual -cne $evidence[$pair[1]]) { throw 'Qualified native library bytes changed.' }
         }
         foreach ($record in $Result.advisories) {
-            $feature = switch -CaseSensitive ($record.id) {
-                'OSV-2021-777' { 'XINCLUDE' }
-                'OSV-2024-698' { 'HTML' }
-                default { '' }
+            $fix = @($xmlComponent.verified_upstream_fixes | Where-Object advisory_id -CEQ $record.id)
+            $proof = @($FixEvidence | Where-Object advisory_id -CEQ $record.id)
+            $verified = $false
+            if ($fix.Count -eq 1 -and $proof.Count -eq 1 -and $proof[0].status -ceq 'verified' -and
+                $proof[0].commit -ceq $fix[0].commit -and $proof[0].source_tag -ceq $xmlComponent.tag -and
+                $proof[0].files -is [array] -and ($proof[0].files -join ',') -ceq ($fix[0].files -join ',')) {
+                $verified = $true
             }
-            $dispositions += @{ id = $record.id; status = 'blocking'
-                path_status = $(if ($feature) { 'reported-path-absent-review-required' } else { 'unknown' })
-                excluded_feature = $feature }
+            $dispositions += @{ id = $record.id
+                status = $(if ($verified) { 'fixed-upstream-commit-verified' } else { 'blocking' })
+                path_status = $(if ($verified) { 'upstream-fix-in-pinned-tag-and-reported-feature-absent' }
+                    elseif ($fix.Count -eq 1 -and $proof.Count -eq 1) { $proof[0].status }
+                    else { 'unknown' })
+                fix_commit = $(if ($fix.Count -eq 1) { $fix[0].commit } else { '' })
+                excluded_feature = $(switch -CaseSensitive ($record.id) {
+                    'OSV-2021-777' { 'XINCLUDE' }
+                    'OSV-2024-698' { 'HTML' }
+                    default { '' }
+                }) }
         }
+        $Result.upstream_fix_evidence = @($FixEvidence)
         $Result.qualification = @{ evidence_sha256 = (Get-FileHash $EvidencePath -Algorithm SHA256).Hash.ToLowerInvariant()
             libxml2_sha256 = $evidence.libxml2_sha256; zlib_sha256 = $evidence.zlib_sha256 }
     } else {
@@ -177,7 +254,10 @@ function Resolve-NativeAdvisoryResult($Result, $Catalog, [string]$EvidencePath, 
     }
     $Result.dispositions = $dispositions
     $Result.blocking_advisories = @($dispositions | Where-Object status -CEQ 'blocking').Count
+    if ($Result.advisories.Count -and $Result.blocking_advisories -eq 0) {
+        $Result.status = 'advisories-present-upstream-fix-verified'
+    }
     return $Result
 }
 
-Export-ModuleMember -Function Assert-NativeAdvisoryCatalog, ConvertFrom-NativeAdvisoryPage, Invoke-NativeAdvisoryQuery, Resolve-NativeAdvisoryResult
+Export-ModuleMember -Function Assert-NativeAdvisoryCatalog, ConvertFrom-NativeAdvisoryPage, Invoke-NativeAdvisoryQuery, Test-NativeAdvisoryFixInPinnedTag, Resolve-NativeAdvisoryResult

@@ -76,7 +76,8 @@ Source-resource identities, library hashes, catalog digest and successful smoke 
 recorded in `dependency-qualification.json`. Staging preserves that evidence and source IDs.
 The advisory review checks the actual linker libraries and the `xml2s.lib` alias against those
 hashes. Missing/stale evidence, changed bytes or any new advisory identity block qualification.
-Successful feature-absence checks are hardening evidence, not clearance of the two records.
+Feature absence alone is not clearance; the exact upstream fix commits must also be present in the
+pinned source-tag history.
 
 The native backend build also records a `dependency_binding` in its local `build-info.json`:
 the exact source-catalog digest, qualification-report digest and names, sizes and SHA-256
@@ -98,39 +99,38 @@ is not a complete SPDX or CycloneDX SBOM and does not replace private-runtime/Nu
 
 ## Advisory dispositions
 
-The initial October 23, 2026 commit queries returned these records. A fresh query of the
-selected zlib fix returned no records; the libxml2 query still returned both records:
+The October 23, 2026 commit queries returned these records. The current query still returns both
+libxml2 records because OSV lists introduced-only ranges through v2.15.4. The workflow retains
+those raw records and verifies the upstream fix commits against the pinned v2.15.4 file history:
 
 | Component | Advisory | Reported affected behavior | Disposition |
 |---|---|---|---|
 | zlib | [CVE-2026-76844](https://osv.dev/vulnerability/CVE-2026-76844) | Stale gzip write input after a failed write can lead to a heap buffer overflow. | Fixed source built locally; fresh query returned no records and the failed-write regression passed. Full package qualification remains pending. |
 | zlib | [CVE-2026-85091](https://osv.dev/vulnerability/CVE-2026-85091) | Non-blocking gzip writes followed by formatted writes can reach an invalid buffer move. | Same fixed source and local regression evidence; comprehensive vendor sanitizer coverage is not established. |
-| libxml2 | [OSV-2021-777](https://osv.dev/vulnerability/OSV-2021-777) | Heap use-after-free in an XInclude sibling/copy path. | XInclude macros/symbols absent; shared-function applicability remains blocking. |
-| libxml2 | [OSV-2024-698](https://osv.dev/vulnerability/OSV-2024-698) | Heap use-after-free in an encoding-close/HTML-save path. | HTML macros/symbols absent; shared-function applicability remains blocking. |
+| libxml2 | [OSV-2021-777](https://osv.dev/vulnerability/OSV-2021-777) | Heap use-after-free in an XInclude sibling/copy path. | [Upstream fix 8f5ccada](https://gitlab.gnome.org/GNOME/libxml2/-/commit/8f5ccada05ddd4a1ff8e399ad39fc7cd4bd33325) is present in the pinned tag; XInclude is disabled and its symbols are absent. Raw OSV record remains in the report. |
+| libxml2 | [OSV-2024-698](https://osv.dev/vulnerability/OSV-2024-698) | Heap use-after-free in an encoding-close/HTML-save path. | [Upstream fix fcb7a777](https://gitlab.gnome.org/GNOME/libxml2/-/commit/fcb7a777ce19ff2bef020ed2966a0c96e4f4da4c) is present in the pinned tag; HTML is disabled and its symbols are absent. Raw OSV record remains in the report. |
 
 The generated zlib overlay selects the upstream gzip-write fix:
 [commit df84af25](https://github.com/madler/zlib/commit/df84af25dc1942490e1d1c899a07619152a46148).
 That commit resets pending input after an error. Neither an unchanged upstream version string
 nor an assumption that LLVM does not call gzip file APIs substitutes for source/binary evidence.
 
-The libxml2 OSS-Fuzz records returned open-ended Git ranges and high ecosystem severity.
-Their age does not establish that they are obsolete. They remain visible in the source query;
-the identified XInclude and HTML paths are removed from the qualified build. This does not
-claim that all libxml2 defects are fixed or that all XML paths are absent. No CodeQL finding
-has been dismissed, and no exploitability claim is made for Sol's supported CLI.
+The upstream fixes address the specific lifetime errors reported by OSS-Fuzz. The first stores
+the node returned by `xmlAddNextSibling`/`xmlAddChild` while XInclude copies a node range. The second
+defines that output-buffer creation leaves the encoder with its caller on failure, with HTML save
+callers closing it explicitly. CI verifies each immutable commit SHA and subject in the pinned
+tag's relevant file history, then binds the disabled-feature and absent-symbol proof to the exact
+static library bytes. Local validation passes; complete product requalification still depends on
+PR CI. This does not claim that all libxml2 defects are fixed or that all XML paths are absent.
+No CodeQL finding has been dismissed, and no general security clearance is implied.
 
-Inspection of the selected 2.15.4 source leaves two distinct lifetime questions open:
+The affected helper functions remain present in general libxml2 code, so symbol presence alone
+cannot describe these fixes. The verified fixes change the vulnerable caller/ownership contracts:
 
-| Shared function | Observed behavior | Remaining proof obligation |
+| Advisory path | Verified upstream change | Build evidence |
 |---|---|---|
-| `xmlAddNextSibling` in `tree.c` | Rejects null, namespace and self-insertion arguments, then delegates insertion to `xmlInsertNode`. | Establish the ownership and continued validity of both nodes across the complete caller path; argument guards do not validate an already-freed pointer. |
-| `xmlCharEncCloseFunc` in `encoding.c` | Reads handler flags, retains static handlers and releases dynamic handler state. XML input/output cleanup in `xmlIO.c` also calls it. | Establish single-owner cleanup and the absence of reuse after release across those remaining paths. Removing HTML does not remove XML encoding cleanup. |
-
-The internal filename-output constructor documents that an encoder is not consumed on
-failure and clears the output buffer's encoder before closing an unsuccessful output.
-That local ownership observation is insufficient to reconstruct either OSS-Fuzz report,
-identify a fixing commit, or establish that every relevant caller obeys the contract.
-No malformed-input exploit test or advisory closure follows from this source inspection.
+| `OSV-2021-777` | Copy helpers retain the node pointer returned by sibling/child insertion; the change covers both XInclude range and XPointer copy paths. | Exact commit in `xinclude.c` history; XInclude option macros and symbols absent in the built library. |
+| `OSV-2024-698` | Encoder ownership on output-buffer creation failure is explicit; HTML save callers release the encoder on failure. | Exact commit in `xmlIO.c` and `HTMLtree.c` histories; HTML option macros and symbols absent in the built library. |
 
 ## CodeQL review remains separate
 

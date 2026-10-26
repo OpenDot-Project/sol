@@ -41,11 +41,33 @@ foreach ($component in $catalog.components) {
                 -Body ($query | ConvertTo-Json -Compress) -TimeoutSec 45
             return $raw.Content | ConvertFrom-Json -AsHashtable -Depth 64
         }
+        $fixEvidence = @()
+        if ($component.name -ceq 'libxml2' -and $result.advisories.Count) {
+            foreach ($fix in $component.verified_upstream_fixes) {
+                $fixStatus = 'not-found'
+                try {
+                    $present = Test-NativeAdvisoryFixInPinnedTag $component $fix {
+                        param($path, $tag, $page)
+                        $pathQuery = [uri]::EscapeDataString($path)
+                        $tagQuery = [uri]::EscapeDataString($tag)
+                        $uri = "https://gitlab.gnome.org/api/v4/projects/GNOME%2Flibxml2/repository/commits?ref_name=$tagQuery&path=$pathQuery&per_page=100&page=$page"
+                        $commits = Invoke-RestMethod -Uri $uri -TimeoutSec 45
+                        return $commits | ConvertTo-Json -Depth 8 | ConvertFrom-Json -AsHashtable
+                    }
+                    if ($present) { $fixStatus = 'verified' }
+                } catch {
+                    $fixStatus = 'verification-failed'
+                    Write-Warning "Pinned libxml2 fix history could not be verified for $($fix.advisory_id)."
+                }
+                $fixEvidence += @{ advisory_id = $fix.advisory_id; commit = $fix.commit
+                    files = @($fix.files); source_tag = $component.tag; status = $fixStatus }
+            }
+        }
         $result = Resolve-NativeAdvisoryResult $result $catalog `
             (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') `
-            (Join-Path $root 'out/native/llvm-native/dependencies')
+            (Join-Path $root 'out/native/llvm-native/dependencies') $fixEvidence
         $results += $result
-        Write-Host "$($component.name) $($component.version): $($result.status), $($result.advisories.Count) advisory records."
+        Write-Host "$($component.name) $($component.version): $($result.status), $($result.advisories.Count) advisory records, $($result.blocking_advisories) blocking."
     } catch {
         $results += @{ name = $component.name; version = $component.version; source_commit = $component.commit
             status = 'query-failed'; error = 'Network or advisory evidence validation failed.' }
@@ -65,13 +87,14 @@ $report = [ordered]@{
     matching = 'native-upstream-commit'
     vcpkg_commit = $catalog.vcpkg_commit
     catalog_sha256 = (Get-FileHash (Join-Path $PSScriptRoot 'native-advisories.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-    coverage = 'OSV commit matching plus hash-bound XML feature-absence evidence; not CodeQL clearance or a complete SBOM.'
+    coverage = 'OSV commit matching, hash-bound XML feature-absence evidence, and exact upstream fix commits in the pinned source tag; not CodeQL clearance or a complete SBOM.'
     components = $results
 }
 $stream = [IO.File]::Open($reportPath, [IO.FileMode]::CreateNew)
 $writer = [IO.StreamWriter]::new($stream, [Text.UTF8Encoding]::new($false))
 try { $writer.Write(($report | ConvertTo-Json -Depth 64)) } finally { $writer.Dispose() }
 Write-Host "Native advisory evidence: $reportPath"
-if (@($results | Where-Object status -CNE 'no-known-advisories').Count) {
-    throw 'Native advisory qualification failed. Findings and unknown results require review; no exceptions were applied.'
+if (@($results | Where-Object status -CEQ 'query-failed').Count -or
+    @($results | Where-Object { $_.blocking_advisories -gt 0 }).Count) {
+    throw 'Native advisory qualification failed. Blocking findings and unavailable evidence require review.'
 }

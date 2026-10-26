@@ -13,6 +13,15 @@ compression/XML libraries are zlib, zstd, and libxml2 core. Downloads are digest
 package builds stay under `out/dependencies`. Their license inventory is copied under
 `out/native/llvm-native/dependency-licenses`. First-party native projects remain MSBuild projects.
 
+The native advisory workflow retains every OSV record in its report. The pinned libxml2 tag still
+matches two introduced-only OSV ranges, so the workflow verifies the exact upstream fix commits in
+the files' history for that tag. `OSV-2021-777` is matched to the XInclude copy-node ownership fix;
+`OSV-2024-698` is matched to the output-buffer encoder ownership fix and its HTML save call sites.
+The same build also proves HTML and XInclude are disabled and their symbol families are absent from
+the hash-bound static library. A finding only stops blocking after its exact fix commit and the
+binary feature evidence both match. A missing fix, unknown record, or unavailable query remains a
+blocking result; the report is not a complete SBOM or a general security clearance.
+
 The asset provider tries a bounded upstream MSYS2 mirror list when the primary host fails or returns
 bytes with the wrong digest. Every candidate uses HTTPS and the same pinned SHA-512. Downloads are
 staged in a temporary file; only verified bytes replace the destination. A verification page or an

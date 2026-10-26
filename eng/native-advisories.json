@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_date": "2026-10-23",
+  "verified_date": "2026-10-26",
   "vcpkg_commit": "fcb618092467258d6d4d924ad0ebb24acfa06ebd",
   "components": [
     {
@@ -42,6 +42,20 @@
       "advisory_repositories": [
         "https://github.com/GNOME/libxml2",
         "https://gitlab.gnome.org/GNOME/libxml2.git"
+      ],
+      "verified_upstream_fixes": [
+        {
+          "advisory_id": "OSV-2021-777",
+          "commit": "8f5ccada05ddd4a1ff8e399ad39fc7cd4bd33325",
+          "files": ["xinclude.c"],
+          "subject": "xmlAddChild() and xmlAddNextSibling() may not attach their second argument"
+        },
+        {
+          "advisory_id": "OSV-2024-698",
+          "commit": "fcb7a777ce19ff2bef020ed2966a0c96e4f4da4c",
+          "files": ["HTMLtree.c", "xmlIO.c"],
+          "subject": "io: Make xmlOutputBufferCreate* not free encoder on error"
+        }
       ]
     }
   ]
