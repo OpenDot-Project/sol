@@ -42,7 +42,7 @@ internal sealed partial class Parser
                     if (Take(ArrowToken))
                     {
                         children.Add(ParseType());
-                        if (IsText("throws")) { children.Add(ParseThrows()); }
+                        if (IsText("throws")) { children.Add(ParseThrows(stopAtParameterDelimiter: true)); }
                     }
                     else if (passingMode) { Error("SOL1101", "Ref/out type modes require a function type."); }
                 }
@@ -149,13 +149,28 @@ internal sealed partial class Parser
         return Node(NodeKind.WhereClause, start, constraints);
     }
 
-    private SyntaxNode ParseThrows()
+    private SyntaxNode ParseThrows() => ParseThrows(stopAtParameterDelimiter: false);
+
+    private SyntaxNode ParseThrows(bool stopAtParameterDelimiter)
     {
         int start = Start;
         Advance();
         var types = new List<SyntaxNode>();
-        do { types.Add(ParseType()); } while (Take(CommaToken));
+        do { types.Add(ParseType()); }
+        while (Kind == CommaToken && !(stopAtParameterDelimiter && BeginsNamedParameterGroupAfterComma())
+            && Take(CommaToken));
         return Node(NodeKind.ThrowsClause, start, types);
+    }
+
+    private bool BeginsNamedParameterGroupAfterComma()
+    {
+        if (Kind != CommaToken || Peek(1).Kind != IdentifierToken) { return false; }
+        int lookahead = 2;
+        while (Peek(lookahead).Kind == CommaToken && Peek(lookahead + 1).Kind == IdentifierToken)
+        {
+            lookahead += 2;
+        }
+        return Peek(lookahead).Kind == ColonToken;
     }
 
     private bool LooksLikeGenericApplication()

@@ -44,7 +44,9 @@ The [source binding SDK](source-binding.md) now resolves written type identities
 checks explicit bases and inheritance cycles, and indexes lexical scopes and capture candidates.
 The optional [generic and call analysis](generic-calls.md) now substitutes owned type parameters,
 checks specialized nominal constraints, maps direct module-function arguments, and selects supported
-overloads. Unsupported receiver, lambda, inference, and conversion paths remain explicitly deferred.
+overloads. Its shared generic solver now collects input/exact/expected bounds, invariant nested
+evidence, and constructed nominal base projections. Unsupported candidate paths remain explicitly
+deferred.
 The [argument contract](arguments.md) now covers ordered mixed calls, middle varargs, array-valued
 named varargs, default origins/inheritance, and outside-lambda destinations. The commented
 [source specification](source-specification.md) also explains planned language/runtime behavior;
@@ -52,9 +54,26 @@ its syntax/AST gate does not certify complete semantic implementation or native 
 
 The optional [body analysis](body-analysis.md) adds receiver/member lookup, contextual expression and
 lambda checking, constructor/override checks, structured definite assignment and smart casts, checked
-effects, and conservative storage/capture checks. Its unverified source locations remain queryable;
-full inherited overload/conversion/lambda solving, exceptional flow, and borrow-origin proof are still
-incomplete. It does not produce verified FIR or native output.
+effects, and conservative storage/capture checks. Receiver lookup substitutes constructed bases,
+merges inherited callable groups, removes same-signature base recovery candidates after override,
+and supports constrained type-parameter lookup. Generic member calls use candidate-local argument,
+ref/out, expected-result, and base-projection evidence before checking owner/method constraints.
+Unverified source locations remain queryable. The current development body-analysis slice records
+exceptional snapshots for explicit throws and supported resolved calls, accessors, operators,
+delegation protocols, and constructor field initialization. Catch branches join only snapshots that
+can overlap their caught type; finally is checked on reachable normal, return, and escaping-exception
+paths. Function-value effects and ref/out normal-return assignment are included in this slice. It is
+still conservative for built-in potentially throwing operations. The lexical cleanup slice now
+tracks reached `defer` registrations and applies bounded LIFO cleanup on normal and abrupt source
+edges; an overflowing path set stays Deferred. Supported zero-argument implicit construction
+records field-initializer/delegate effects and exceptional snapshots when the type has one
+initialization part and no unsupported constructor/base/escape behavior. Explicit constructor
+delegation and other incomplete construction cases remain Deferred. Suppressed failure data is
+analysis metadata, not a runtime Throwable object or delivered Windows exception. Complete CFG
+correlations, full protected receiver checks, interface-default resolution, contextual lambda/array
+evidence, and borrow-origin proof remain incomplete. These are source-analysis facts only; this API
+does not produce verified FIR or native output. See the [cleanup/construction guide](cleanup-construction.md)
+for the exact supported boundary.
 
 The [Yellow Tea implementation inventory](yellow-tea/current-implementation.md) records experimental
 concurrent mark/sweep, generated roots/barriers, handles, and native validation fixtures. The design
@@ -73,8 +92,8 @@ remain gated. The [standard library inventory](standard-library.md) lists implem
 ### Remaining stages
 
 1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.
-2. Extend binding with full visibility, generic body validation, receiver-dependent references,
-   generated members, and complete overload/expression typing.
+2. Complete receiver visibility/default conflict rules, generic body specialization, generated
+   members, and complete overload/expression typing on top of the new constructed-member resolver.
 3. Expand the verified FIR subset with full nullability, checked exception/cleanup CFG, borrowing,
    closures, generic specialization, and general object layouts.
 4. Qualify complete Windows/ORC exception handling, library consumption and extended native ABI.

@@ -30,4 +30,5 @@ checks also validate the corpus's Markdown links. DocFX publishes the public sou
 resources; private working notes are not inputs to that publication.
 
 For the current implementation boundaries, read [argument contracts](arguments.md),
-[generic call analysis](generic-calls.md), and the [status page](status.md).
+[generic call analysis](generic-calls.md), [generic inference](generic-inference.md),
+[receiver/member resolution](member-resolution.md), and the [status page](status.md).

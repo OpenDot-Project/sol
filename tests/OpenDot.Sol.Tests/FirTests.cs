@@ -87,7 +87,7 @@ public sealed class FirTests
         string json = FirJson.Serialize(program, TestContext.Current.CancellationToken);
         using var document = JsonDocument.Parse(json);
         Assert.True(document.RootElement.GetProperty("verified").GetBoolean());
-        Assert.Equal(1, document.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(3, document.RootElement.GetProperty("schema").GetInt32());
         Assert.DoesNotContain("<solrt>", json);
         Assert.NotEmpty(document.RootElement.GetProperty("flow").EnumerateArray());
         Assert.Equal(json, FirJson.Serialize(program, TestContext.Current.CancellationToken));

@@ -118,7 +118,11 @@ internal sealed partial class AnalysisBuilder
                 if (!Exports.TryGetValue(import.ModuleName, out var exports)) { continue; }
                 foreach (var item in import.Items)
                 {
-                    if (!exports.TryGetValue(item.OriginalName, out var symbols) || symbols.IsEmpty)
+                    bool hasPublicExport = exports.TryGetValue(item.OriginalName, out var symbols) && !symbols.IsEmpty;
+                    bool hasInternalTarget = !import.IsPublic
+                        && Modules.TryGetValue(import.ModuleName, out var module)
+                        && module.Declarations.Any(declaration => declaration.Name == item.OriginalName && declaration.IsInternal);
+                    if (!hasPublicExport && !hasInternalTarget)
                     {
                         Report("SOL2008", "No public export named " + item.OriginalName + " in " + import.ModuleName, import);
                     }

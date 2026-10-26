@@ -89,7 +89,8 @@ internal sealed partial class TypeBindingBuilder
                     if (symbol.Parts.FirstOrDefault() is not AstCallable callable) { continue; }
                     var parameters = callable.Parameters.Select(p => p.Type is null ? null : References[p.Type]).ToArray();
                     if (parameters.Any(t => t is null || t.IsError || t.Kind == ResolvedTypeKind.Parameter)) { continue; }
-                    string key = symbol.Name + "`" + symbol.Arity + "(" + string.Join(',', callable.Parameters.Select((p, index) =>
+                    string variant = callable is AstFunction { IsCheckedOperator: true } ? "checked " : "";
+                    string key = variant + symbol.Name + "`" + symbol.Arity + "(" + string.Join(',', callable.Parameters.Select((p, index) =>
                         (p.PassingMode switch
                         {
                             AstPassingMode.Ref or AstPassingMode.Out => "ref:",

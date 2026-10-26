@@ -73,14 +73,26 @@ another intermediate language. The pipeline remains CST → PSI → AST → FIR 
 
 `FirVerifier` independently checks type workspace ownership, literal domains, slot/call identities,
 parameter modes, return types, checked call budgets, Boolean conditions, and supported operation shapes.
+Each source function is tied back to its AST declaration: name, result, parameter modes/types/names,
+and ordered effect metadata must agree with source analysis. Escaping checked effects must fit that
+declared budget. Each native call is tied back to
+the selected overload and argument-origin mapping, so replacing a call target or swapping same-typed
+named arguments cannot pass verification. Function effect entries must be workspace-owned Throwable
+types without duplicates. The verifier retains explicit unchecked effect metadata while only requiring
+checked effects in caller budgets.
 Its CFG analysis computes reachable blocks and a fixed point of definite assignment. Branches join
 by intersection; loop backedges participate in convergence. Local declaration resets prevent a previous
 iteration's value from proving initialization in a later iteration. Normal exits must assign every
 out parameter and cannot fall through without a return.
 
 Only the verifier can construct `VerifiedFirProgram`, which is the input to LLVM lowering. `FirJson`
-schema 1 includes functions, slots, type identities, expression trees, and flow reads/writes/kills/edges,
-with byte spans and no host source paths. IDs are local to this compilation, not stable library ABI IDs.
+schema 3 includes functions, slots, type identities, expression trees, and flow reads/writes/kills/edges.
+Each graph identifies its function, and each call-bearing flow block carries target IDs, declared effect
+type IDs and source byte spans. These are conservative call-site effect facts; the current native subset
+does not lower catch or exceptional CFG edges. The JSON contains byte spans but no host source paths.
+IDs are local to this compilation, not stable library ABI IDs. Schema 3 adds the verified dynamic-array
+iteration node and invalidates consumers that assumed schema 2 or earlier; the enclosing `.solib`
+compiler identity changes with the compiler assembly.
 
 ## Qualified native subset
 
@@ -88,7 +100,12 @@ Supported programs use scalar integer/Boolean/single/double values, empty-tuple 
 local val/var bindings, source functions, stateless object methods, named argument reordering,
 scalar ref/out locations, braced branches, condition/three-clause/infinite loops, break/continue,
 short-circuit Boolean expressions, collectible String concatenation/content equality, and single-level
-array literals/length/index access for supported scalars and String. String has scalar `length`,
+array literals/length/index access plus dynamic-array `for-in` for the exact supported scalar and
+String element subset. Array iteration evaluates its array expression once, snapshots the fixed length,
+loads in ascending order, and copies each element into the item slot. The source identity and item slot
+are independently checked by FIR verification. The CFG includes zero-trip, body, continue, break, and
+backedge paths; lowering retains and roots the array reference, item references where applicable, and
+the saved length/index state. Polls on the loop backedge preserve bounded guest-runtime progress. String has scalar `length`,
 `substring(start, length)`, `indexOf(value, start)`, `compareOrdinal`, and `hashCode`. `Gc.collect()`
 requests and waits for a concurrent cycle. Integral `std.math.abs/min/max` overloads are source bodies.
 The four standard output adapters accept scalar and String arguments, preserve evaluation order,
@@ -99,7 +116,8 @@ shifts reject invalid counts before LLVM instructions can observe poison-produci
 operations preserve normal IEEE behavior and do not enable fast math. Runtime bounds and arithmetic
 failures report an unhandled error and exit with status 1 in this bootstrap.
 
-The native gate rejects general class construction, nested/value-layout arrays, closures, ref-struct borrowing,
+The native gate rejects general class construction, nested/value-layout arrays, fixed-array iteration,
+user-defined iterator/cursor iteration, closures, ref-struct borrowing,
 generic body specialization, user default/vararg lowering, custom operators/conversions, exception
 handlers, defer cleanup, reflection, and unqualified half/quad operations. Source body analysis may
 understand more of these constructs; that does not make them eligible for native generation.
