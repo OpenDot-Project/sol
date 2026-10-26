@@ -13,6 +13,16 @@ if ($Url.Host -eq 'mirror.msys2.org') {
         $candidates += [uri]("https://$mirror$prefix" + $Url.PathAndQuery)
     }
 }
+# Retry immutable GitHub commit archives through GitHub's dedicated archive host.
+# The digest is still checked against the original vcpkg pin before installation.
+if ($Url.Host -eq 'github.com' -and $Url.IsDefaultPort -and -not $Url.UserInfo -and
+    -not $Url.Query -and -not $Url.Fragment -and
+    $Url.AbsolutePath -cmatch '^/(?<owner>[A-Za-z0-9_.-]+)/(?<repo>[A-Za-z0-9_.-]+)/archive/(?<commit>[a-f0-9]{40})\.tar\.gz$') {
+    $owner = $Matches.owner
+    $repository = $Matches.repo
+    $commit = $Matches.commit
+    $candidates += [uri]"https://codeload.github.com/$owner/$repository/tar.gz/$commit"
+}
 $temporary = "$Destination.$([guid]::NewGuid().ToString('N')).partial"
 try {
     foreach ($candidate in $candidates) {
