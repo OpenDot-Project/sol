@@ -112,6 +112,7 @@ public sealed partial class LlvmEmitter
             if (slot.IsParameter && slot.Mode is AstPassingMode.Ref or AstPassingMode.Out) { _addresses.Add(slot.Id, _parameters[slot.Id]); }
             else if (!_addresses.ContainsKey(slot.Id)) { _addresses.Add(slot.Id, Op(LlvmOperation.Alloca, T(Type(slot.Type)))); }
         }
+        AllocateArrayIterationSlots(function.Body!);
         foreach (var parameter in function.Parameters.Where(p => p.Mode is not (AstPassingMode.Ref or AstPassingMode.Out)))
         { Store(new(Type(parameter.Type), _parameters[parameter.Id], parameter.Type), Address(parameter.Id)); }
         Call("sol_gc_poll"); Statement(function.Body!);
@@ -146,6 +147,7 @@ public sealed partial class LlvmEmitter
                 Start(body); _loops.Push((after, update)); Statement(loop.Body); _loops.Pop(); if (!_terminated) { Branch(update); }
                 Start(update); if (loop.Update is not null) { Statement(loop.Update); }
                 if (!_terminated) { Call("sol_gc_poll"); Branch(test); } Start(after); break;
+            case FirArrayForEach iteration: ArrayForEach(iteration); break;
             case FirBreak: Branch(_loops.Peek().Break); _terminated = true; break;
             case FirContinue: Branch(_loops.Peek().Continue); _terminated = true; break;
             default: throw new InvalidOperationException("Unverified FIR statement.");

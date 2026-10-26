@@ -106,6 +106,21 @@ public sealed class FirFlowGraph
                     int updated = loop.Update is null ? update.Id : Statement(loop.Update, update.Id, after.Id, test.Id);
                     if (updated >= 0) { Edge(updated, test.Id); }
                     return after.Id;
+                case FirArrayForEach iteration:
+                    var resetItem = New(iteration.Origin); resetItem.Kills.Add(iteration.ItemSlot); Edge(before, resetItem.Id);
+                    before = Expression(iteration.Array, resetItem.Id);
+                    var eachTest = New(iteration.Origin); Edge(before, eachTest.Id);
+                    var eachAfter = New(iteration.Origin);
+                    Edge(eachTest.Id, eachAfter.Id);
+                    if (iteration.Array is FirArrayLiteral { Elements.IsEmpty: true }) { return eachAfter.Id; }
+                    var itemEntry = New(iteration.Origin); itemEntry.Writes.Add(iteration.ItemSlot);
+                    var eachBody = New(iteration.Body.Origin); var eachStep = New(iteration.Origin);
+                    Edge(eachTest.Id, itemEntry.Id);
+                    Edge(itemEntry.Id, eachBody.Id);
+                    int eachLast = Statement(iteration.Body, eachBody.Id, eachAfter.Id, eachStep.Id);
+                    if (eachLast >= 0) { Edge(eachLast, eachStep.Id); }
+                    Edge(eachStep.Id, eachTest.Id);
+                    return eachAfter.Id;
                 default: throw new InvalidOperationException("Verified statement shape was not handled by CFG construction.");
             }
         }

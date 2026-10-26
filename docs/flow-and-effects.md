@@ -26,6 +26,12 @@ The normative source contracts are [ControlFlow.sol](../spec/ControlFlow.sol) an
 [cleanup ordering](../spec/examples/semantics/CheckedEffects.CleanupOrdering.sol), and the
 [process boundary](../spec/examples/semantics/CheckedEffects.UnhandledBoundary.sol).
 
+For `for-in`, the [array and cursor iteration guide](array-iteration.md) defines the zero-trip edge,
+dynamic-array snapshot, item copy, checked effects, and future cursor cleanup behavior. Its normative
+source contract is [ArrayIteration.sol](../spec/ArrayIteration.sol). The native implementation
+currently qualifies the dynamic-array route only; cursor acquisition, advance, current, and close
+remain future source behavior.
+
 ## Analysis stages
 
 The compiler pipeline is CST → PSI → AST → FIR → LLVM IR. Flow facts are computed over source
@@ -428,7 +434,8 @@ each row.
 | Compound property update | Receiver/index once, getter, right operand, operator, setter. | Read, argument, operator, and write effects accumulate; earlier side effects are not rolled back. |
 | Try statement | Protected operations, matching handler, then finally on the selected exit. | A handler receives the state at its exception edge; handler effects escape outward. |
 | Defer | Register at declaration, execute active registrations in LIFO order at scope exit. | Cleanup effects and writes apply to each exit that registered the action. |
-| For-in iteration | Resolve iterator/cursor, advance, obtain current value, run body, clean up on exit. | Iteration and close effects follow their own exception and transfer edges. |
+| Dynamic-array `for-in` | Evaluate the array once, snapshot its fixed length once, load each element into a value-copy item, and run the body. | Source evaluation effects occur once; body effects occur only on reachable iterations, with a zero-trip edge unless emptiness is statically known. |
+| Cursor `for-in` | Resolve iterator/cursor, advance, obtain current value, run body, and close the resource on exit. | Future source contract: acquisition, advance, current, and close have independent effects and exception/transfer edges. |
 
 The order is observable when expressions write through ref/out, invoke a property getter, mutate
 a captured cell, throw a checked exception, or register cleanup. A compiler must not reorder
@@ -455,11 +462,24 @@ cannot be boxed, stored in ordinary heap fields, or captured beyond their permit
 Returning a borrow requires an explicit origin relation to caller-owned storage. The language
 does not treat a non-moving object address as proof of lifetime.
 
-## Iterator and cursor cleanup
+## Array iteration and future cursor cleanup
 
-An array or supported collection iteration has an empty-input edge. The loop body may execute
-zero times, so body-only assignments are not definite after the loop. The update/backedge
-rules still apply when the collection is nonempty.
+Dynamic arrays evaluate their source expression once and retain the resulting array reference. A
+single fixed length snapshot determines the ascending index sequence. Every loaded item is a lexical
+value copy; rebinding the source variable cannot redirect the traversal, and assigning to a mutable
+item never writes the element back. An indexed store through the retained array object is visible to
+later element loads. The loop has a zero-trip edge unless a typed empty literal proves otherwise, so
+body-only assignments do not establish post-loop definite assignment. Array traversal itself adds
+no acquisition or close effect.
+
+These facts are the current native array-loop contract for the qualified element subset. They are
+specified in [array and cursor iteration](array-iteration.md); the verifier still rejects fixed arrays,
+user cursors, and unsupported array layouts.
+
+For any future collection route that resolves to a cursor, empty-input and cleanup behavior follow
+the actual protocol operations. The body may execute zero times, and body-only assignments remain
+non-definite unless analysis proves every normal exit assigned them. The update/backedge rules still
+apply when the collection is nonempty.
 
 The resolved cursor contract can include iterator creation, moveNext, current, and close
 operations. Each operation has its own callable and effect identity. A cursor is closed on

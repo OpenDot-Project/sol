@@ -29,7 +29,8 @@ public static class FirVerifier
     internal static bool IsString(ResolvedType type) => type.Declaration is { ModuleName: "std.core", Name: "String", Arity: 0 };
     internal static bool Supported(ResolvedType type) => type.Kind == ResolvedTypeKind.Primitive && type.Name is not ("half" or "quad")
         || IsEmpty(type) || IsString(type)
-        || type.Kind == ResolvedTypeKind.Array && (IsString(type.Arguments[0]) || type.Arguments[0].Kind == ResolvedTypeKind.Primitive && type.Arguments[0].Name is not ("half" or "quad"));
+        || type.Kind == ResolvedTypeKind.Array && type.Arguments.Length == 1
+            && (IsString(type.Arguments[0]) || type.Arguments[0].Kind == ResolvedTypeKind.Primitive && type.Arguments[0].Name is not ("half" or "quad"));
 
     private sealed class Checker(FirProgram program, CancellationToken cancellation)
     {
@@ -212,11 +213,78 @@ public static class FirVerifier
                         if (loop.Initializer is not null) { Statement(loop.Initializer, loops); }
                         if (loop.Condition is not null) { Expression(loop.Condition); Boolean(loop.Condition); }
                         Statement(loop.Body, loops + 1); if (loop.Update is not null) { Statement(loop.Update, loops + 1); } break;
+                    case FirArrayForEach iteration:
+                        ArrayForEach(iteration, loops); break;
                     case FirBreak or FirContinue: if (loops == 0) { Fail("Loop control lacks a target.", statement.Origin); } break;
                     default: Fail("Unrecognized FIR statement.", statement.Origin); break;
                 }
             }
             finally { Leave(statement); }
+        }
+
+        private void ArrayForEach(FirArrayForEach iteration, int loops)
+        {
+            Expression(iteration.Array);
+
+            var source = program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
+                .OfType<AstFor>().SingleOrDefault(loop => ReferenceEquals(loop.Origin.Element, iteration.Origin.Element));
+            AstProperty? binding = source?.Binding;
+            var sourceIterableExpression = source?.Iterable;
+            if (source is null || source.Form != AstForForm.Each || binding is null || sourceIterableExpression is null)
+            {
+                Fail("Array iteration is not anchored to a source for-each binding.", iteration.Origin);
+            }
+            else
+            {
+                if (source.Body is null || !ReferenceEquals(source.Body.Origin.Element, iteration.Body.Origin.Element))
+                { Fail("Array iteration body differs from its source loop body.", iteration.Body.Origin); }
+
+                var sourceIterable = UnwrapGrouping(sourceIterableExpression);
+                if (!ReferenceEquals(sourceIterable.Origin.Element, iteration.Array.Origin.Element))
+                { Fail("Array iteration expression differs from its source iterable.", iteration.Array.Origin); }
+
+                var sourceType = program.Analysis.GetExpression(sourceIterableExpression);
+                if (sourceType is not { Status: BodyBindingStatus.Bound, Type: var sourceArrayType }
+                    || sourceArrayType != iteration.Array.Type)
+                { Fail("Array iteration type differs from source analysis.", iteration.Array.Origin); }
+
+                var names = binding.BindingNames.ToArray();
+                var locals = program.Analysis.Sources.Lexical.Scopes.Where(scope => ReferenceEquals(scope.Owner, source))
+                    .SelectMany(scope => scope.Symbols)
+                    .Where(local => local.Kind == LocalSymbolKind.Variable
+                        && ReferenceEquals(local.Origin.Element, binding.Origin.Element)).ToArray();
+                if (names.Length != 1 || string.IsNullOrWhiteSpace(names[0]) || names[0] == "_"
+                    || binding.Type is not null || binding.Initializer is not null || binding.Delegate is not null
+                    || locals is not [var local])
+                {
+                    Fail("Native array iteration requires one source-owned item local.", iteration.Origin);
+                }
+                else
+                {
+                    var item = Slot(iteration.ItemSlot, iteration.Origin);
+                    if (item is not null)
+                    {
+                        if (item.IsParameter || item.Mode != AstPassingMode.Value)
+                        { Fail("An array iteration item must use a local value slot.", iteration.Origin); }
+                        if (item.Name != local.Name || item.Name != names[0]
+                            || item.Mutable != local.IsMutable || item.Mutable != binding.IsMutable
+                            || !ReferenceEquals(item.Origin.Element, binding.Origin.Element))
+                        { Fail("Array iteration item slot identity or mutability differs from its source binding.", iteration.Origin); }
+                        if (iteration.Array.Type.Kind != ResolvedTypeKind.Array || iteration.Array.Type.Arguments.Length != 1)
+                        { Fail("Native array iteration requires a dynamic array with one element type.", iteration.Origin); }
+                        else
+                        {
+                            var elementType = iteration.Array.Type.Arguments[0];
+                            CheckType(elementType, iteration.Origin);
+                            Exact(item.Type, elementType, iteration.Origin);
+                        }
+                        if (!_declared.Add(item.Id))
+                        { Fail("An array iteration item slot has multiple declaration sites.", iteration.Origin); }
+                    }
+                }
+            }
+
+            Statement(iteration.Body, loops + 1);
         }
 
         private void Expression(FirExpression expression)

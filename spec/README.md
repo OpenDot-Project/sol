@@ -76,6 +76,7 @@ Do not link this entire corpus as one application: several examples intentionall
 | [Modules.sol](Modules.sol) | Logical identities, aliases, selective/public imports, partials |
 | [Exceptions.sol](Exceptions.sol) | Checked/unchecked hierarchy, throws, catch, cleanup |
 | [ControlFlow.sol](ControlFlow.sol) | Four loop forms, switch patterns, try results, tail results |
+| [ArrayIteration.sol](ArrayIteration.sol) | Dynamic-array snapshots, item copies, loop edges, cursor contract, roots, and native qualification |
 | [CleanupConstruction.sol](CleanupConstruction.sol) | Lexical defer activation/unwind and construction-time effects |
 | [Delegation.sol](Delegation.sol) | Property/interface delegation and descriptor identity |
 | [Operators.sol](Operators.sol) | Companion operators, pairing and location semantics |
@@ -194,6 +195,62 @@ support while distinguishing the current body's bounded subset.
 | [ConstructionEffects.Order.sol](examples/semantics/ConstructionEffects.Order.sol) | Declaration-order initializer evaluation |
 | [ConstructionEffects.Partial.sol](examples/semantics/ConstructionEffects.Partial.sol) | Single initialization part and unsupported multi-part effects |
 | [ConstructionEffects.ValueTypes.sol](examples/semantics/ConstructionEffects.ValueTypes.sol) | Class allocation edges versus struct/ref-struct construction |
+
+## Array-iteration contract and fixtures
+
+[ArrayIteration.sol](ArrayIteration.sol) is the normative source contract. The [reader guide](../docs/array-iteration.md)
+explains the same rules in execution order and marks the current verified-FIR/native boundary. The
+45 independent fixtures below separate source semantics, future cursor behavior, GC obligations,
+and native qualification. They are not one buildable application, and a normative fixture may use
+syntax whose semantic or backend support is still pending.
+
+| Fixture | Contract focus |
+|---|---|
+| [ArrayIteration.AccessorEffects.sol](examples/semantics/ArrayIteration.AccessorEffects.sol) | Getter and setter effects around source and indexed access |
+| [ArrayIteration.AssignmentJoins.sol](examples/semantics/ArrayIteration.AssignmentJoins.sol) | Zero-trip and break-state definite-assignment joins |
+| [ArrayIteration.BindingsAndCopies.sol](examples/semantics/ArrayIteration.BindingsAndCopies.sol) | Item mutability, copy semantics, and reference values |
+| [ArrayIteration.BorrowedViews.sol](examples/semantics/ArrayIteration.BorrowedViews.sol) | Borrowed span lifetime and escape restrictions |
+| [ArrayIteration.BoundsAndOrder.sol](examples/semantics/ArrayIteration.BoundsAndOrder.sol) | Saved length, ascending indexes, and observable order |
+| [ArrayIteration.CaptureAndRefinement.sol](examples/semantics/ArrayIteration.CaptureAndRefinement.sol) | Captures, alias invalidation, and nullable facts |
+| [ArrayIteration.CheckedEffects.sol](examples/semantics/ArrayIteration.CheckedEffects.sol) | Source and body checked-effect propagation |
+| [ArrayIteration.CollectionMutation.sol](examples/semantics/ArrayIteration.CollectionMutation.sol) | Element mutation versus structural collection mutation |
+| [ArrayIteration.CollectionOrder.sol](examples/semantics/ArrayIteration.CollectionOrder.sol) | Stable array order versus collection-defined order |
+| [ArrayIteration.CursorCleanup.sol](examples/semantics/ArrayIteration.CursorCleanup.sol) | Close obligations on exhaustion and loop transfers |
+| [ArrayIteration.CursorEffects.sol](examples/semantics/ArrayIteration.CursorEffects.sol) | Independent acquisition, advance, current, and close effects |
+| [ArrayIteration.CursorMutation.sol](examples/semantics/ArrayIteration.CursorMutation.sol) | Cursor state mutation across repeated advance calls |
+| [ArrayIteration.CursorProtocol.sol](examples/semantics/ArrayIteration.CursorProtocol.sol) | Future iterator and cursor member contract |
+| [ArrayIteration.CursorState.sol](examples/semantics/ArrayIteration.CursorState.sol) | Cursor state transitions and current-value availability |
+| [ArrayIteration.CursorTransferState.sol](examples/semantics/ArrayIteration.CursorTransferState.sol) | Cursor state at continue, break, return, and throw edges |
+| [ArrayIteration.CursorUnwind.sol](examples/semantics/ArrayIteration.CursorUnwind.sol) | Cleanup failures while another failure is unwinding |
+| [ArrayIteration.DeferEdges.sol](examples/semantics/ArrayIteration.DeferEdges.sol) | Per-iteration defer activation and execution order |
+| [ArrayIteration.DefiniteAssignment.sol](examples/semantics/ArrayIteration.DefiniteAssignment.sol) | Body-only assignment and reachable normal exits |
+| [ArrayIteration.DescriptorLayout.sol](examples/semantics/ArrayIteration.DescriptorLayout.sol) | Array descriptor and element-storage assumptions |
+| [ArrayIteration.Diagnostics.sol](examples/semantics/ArrayIteration.Diagnostics.sol) | Source binding and semantic error locations |
+| [ArrayIteration.DiagnosticsAndRecovery.sol](examples/semantics/ArrayIteration.DiagnosticsAndRecovery.sol) | Error recovery without fabricating a successful loop |
+| [ArrayIteration.EmptyAndInference.sol](examples/semantics/ArrayIteration.EmptyAndInference.sol) | Contextual element types and statically empty literals |
+| [ArrayIteration.EvaluationOrder.sol](examples/semantics/ArrayIteration.EvaluationOrder.sol) | One-time source evaluation and side-effect order |
+| [ArrayIteration.FactoryEvaluation.sol](examples/semantics/ArrayIteration.FactoryEvaluation.sol) | Factory calls, empty results, and source evaluation count |
+| [ArrayIteration.FirJsonSchema.sol](examples/semantics/ArrayIteration.FirJsonSchema.sol) | Serialized FIR schema and array-node identity |
+| [ArrayIteration.FirVerification.sol](examples/semantics/ArrayIteration.FirVerification.sol) | Verifier obligations for slots, source types, and loop body |
+| [ArrayIteration.FixedArrays.sol](examples/semantics/ArrayIteration.FixedArrays.sol) | Normative fixed-array traversal outside current native support |
+| [ArrayIteration.GcProgress.sol](examples/semantics/ArrayIteration.GcProgress.sol) | Bounded safepoints and progress through long traversal |
+| [ArrayIteration.GcRoots.sol](examples/semantics/ArrayIteration.GcRoots.sol) | Array, current item, and reference-element roots |
+| [ArrayIteration.IndexedComparison.sol](examples/semantics/ArrayIteration.IndexedComparison.sol) | Explicit indexed-loop equivalence and differences |
+| [ArrayIteration.MethodOverloads.sol](examples/semantics/ArrayIteration.MethodOverloads.sol) | Overload resolution before iteration protocol lowering |
+| [ArrayIteration.NativeNegative.sol](examples/semantics/ArrayIteration.NativeNegative.sol) | Unsupported element, shape, and cursor rejection |
+| [ArrayIteration.NativePositive.sol](examples/semantics/ArrayIteration.NativePositive.sol) | Qualified dynamic-array bootstrap shapes |
+| [ArrayIteration.NestedScopes.sol](examples/semantics/ArrayIteration.NestedScopes.sol) | Nested-loop targets, bindings, and cleanup scopes |
+| [ArrayIteration.NullableFlow.sol](examples/semantics/ArrayIteration.NullableFlow.sol) | Nullable array references and nullable elements |
+| [ArrayIteration.ProtocolResolution.sol](examples/semantics/ArrayIteration.ProtocolResolution.sol) | Exact protocol selection and ambiguity handling |
+| [ArrayIteration.RefLikeLifetime.sol](examples/semantics/ArrayIteration.RefLikeLifetime.sol) | Scoped cursor and ref-like value lifetime constraints |
+| [ArrayIteration.RuntimeValidation.sol](examples/semantics/ArrayIteration.RuntimeValidation.sol) | Runtime length, element access, and failure behavior |
+| [ArrayIteration.Shapes.sol](examples/semantics/ArrayIteration.Shapes.sol) | Dynamic arrays, fixed arrays, and collection categories |
+| [ArrayIteration.StdCollections.sol](examples/semantics/ArrayIteration.StdCollections.sol) | Standard collection iteration promises and boundaries |
+| [ArrayIteration.StructuralPattern.sol](examples/semantics/ArrayIteration.StructuralPattern.sol) | Structural cursor protocol shape and member identity |
+| [ArrayIteration.Transfers.sol](examples/semantics/ArrayIteration.Transfers.sol) | Break, continue, return, throw, and nesting transfers |
+| [ArrayIteration.TryCatchEdges.sol](examples/semantics/ArrayIteration.TryCatchEdges.sol) | Cursor and body failures across catch/finally edges |
+| [ArrayIteration.ValueViews.sol](examples/semantics/ArrayIteration.ValueViews.sol) | Value copy versus object identity through reference elements |
+| [ArrayIteration.WritesAndIdentity.sol](examples/semantics/ArrayIteration.WritesAndIdentity.sol) | Rebinding, explicit indexed stores, and active array identity |
 
 ## Implementation boundaries
 

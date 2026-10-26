@@ -86,12 +86,13 @@ iteration's value from proving initialization in a later iteration. Normal exits
 out parameter and cannot fall through without a return.
 
 Only the verifier can construct `VerifiedFirProgram`, which is the input to LLVM lowering. `FirJson`
-schema 2 includes functions, slots, type identities, expression trees, and flow reads/writes/kills/edges.
+schema 3 includes functions, slots, type identities, expression trees, and flow reads/writes/kills/edges.
 Each graph identifies its function, and each call-bearing flow block carries target IDs, declared effect
 type IDs and source byte spans. These are conservative call-site effect facts; the current native subset
 does not lower catch or exceptional CFG edges. The JSON contains byte spans but no host source paths.
-IDs are local to this compilation, not stable library ABI IDs. The schema change invalidates consumers
-that assumed schema 1; the enclosing `.solib` compiler identity changes with the compiler assembly.
+IDs are local to this compilation, not stable library ABI IDs. Schema 3 adds the verified dynamic-array
+iteration node and invalidates consumers that assumed schema 2 or earlier; the enclosing `.solib`
+compiler identity changes with the compiler assembly.
 
 ## Qualified native subset
 
@@ -99,7 +100,12 @@ Supported programs use scalar integer/Boolean/single/double values, empty-tuple 
 local val/var bindings, source functions, stateless object methods, named argument reordering,
 scalar ref/out locations, braced branches, condition/three-clause/infinite loops, break/continue,
 short-circuit Boolean expressions, collectible String concatenation/content equality, and single-level
-array literals/length/index access for supported scalars and String. String has scalar `length`,
+array literals/length/index access plus dynamic-array `for-in` for the exact supported scalar and
+String element subset. Array iteration evaluates its array expression once, snapshots the fixed length,
+loads in ascending order, and copies each element into the item slot. The source identity and item slot
+are independently checked by FIR verification. The CFG includes zero-trip, body, continue, break, and
+backedge paths; lowering retains and roots the array reference, item references where applicable, and
+the saved length/index state. Polls on the loop backedge preserve bounded guest-runtime progress. String has scalar `length`,
 `substring(start, length)`, `indexOf(value, start)`, `compareOrdinal`, and `hashCode`. `Gc.collect()`
 requests and waits for a concurrent cycle. Integral `std.math.abs/min/max` overloads are source bodies.
 The four standard output adapters accept scalar and String arguments, preserve evaluation order,
@@ -110,7 +116,8 @@ shifts reject invalid counts before LLVM instructions can observe poison-produci
 operations preserve normal IEEE behavior and do not enable fast math. Runtime bounds and arithmetic
 failures report an unhandled error and exit with status 1 in this bootstrap.
 
-The native gate rejects general class construction, nested/value-layout arrays, closures, ref-struct borrowing,
+The native gate rejects general class construction, nested/value-layout arrays, fixed-array iteration,
+user-defined iterator/cursor iteration, closures, ref-struct borrowing,
 generic body specialization, user default/vararg lowering, custom operators/conversions, exception
 handlers, defer cleanup, reflection, and unqualified half/quad operations. Source body analysis may
 understand more of these constructs; that does not make them eligible for native generation.

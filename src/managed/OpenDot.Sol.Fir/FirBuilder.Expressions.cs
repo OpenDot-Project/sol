@@ -128,7 +128,7 @@ internal sealed partial class FirBuilder
                     : conditional.Else is { } nested && Statement(nested) is { } nestedStatement ? new FirBlock([nestedStatement], nested.Origin) : null;
                 return new FirIf(Expression(conditional.Condition), Block(conditional.Then), alternative, node.Origin);
             case AstFor { Body: not null } loop:
-                if (loop.Form == AstForForm.Each) { Unsupported(loop, "Collection iteration"); return null; }
+                if (loop.Form == AstForForm.Each) { return ForEach(loop); }
                 return new FirLoop(loop.Initializer is null ? null : Statement(loop.Initializer), loop.Condition is null ? null : Expression(loop.Condition),
                     Block(loop.Body), loop.Update is null ? null : Statement(loop.Update), node.Origin);
             default:

@@ -239,44 +239,68 @@ internal sealed partial class BodyBindingBuilder
             UpdateCleanupFacts(state, beforeCondition, CaptureCleanupFacts(state));
             if (ContainsCall(condition)) { InvalidateMutableCleanupNarrowings(state); }
         }
-        bool bodyMayExecute = loop.Condition is not AstAtom { Spelling: "false" };
-        var body = state.Clone();
-        // A backedge may change local values; only immutable facts survive entry to the loop.
-        var beforeNarrowing = CaptureCleanupFacts(body);
-        foreach (var local in body.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { body.Narrowed.Remove(local); }
-        UpdateCleanupFacts(body, beforeNarrowing, CaptureCleanupFacts(body));
-        InvalidateMutableCleanupNarrowings(body);
-        var beforeRefinement = CaptureCleanupFacts(body);
-        Refine(loop.Condition, body, true);
-        UpdateCleanupFacts(body, beforeRefinement, CaptureCleanupFacts(body));
+        bool bodyMayExecute = state.Reachable && loop.Condition is not AstAtom { Spelling: "false" };
+        bool emptyArrayLiteral = false;
+        ResolvedType? iterationElementType = null;
         if (loop.Iterable is { } iterableExpression)
         {
             var beforeIterable = CaptureCleanupFacts(state);
             var iterable = Expression(iterableExpression, state, context);
             var afterIterable = CaptureCleanupFacts(state);
             UpdateCleanupFacts(state, beforeIterable, afterIterable);
-            UpdateCleanupFacts(body, beforeIterable, afterIterable);
             if (ContainsCall(iterableExpression))
             {
                 InvalidateMutableCleanupNarrowings(state);
-                InvalidateMutableCleanupNarrowings(body);
             }
-            if (iterable.Type?.Kind is ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)
+            // A bottom-valued/throwing source expression cannot enter the iteration body.
+            bodyMayExecute &= state.Reachable;
+            emptyArrayLiteral = IsEmptyArrayLiteral(iterableExpression);
+            if (emptyArrayLiteral) { bodyMayExecute = false; }
+            if (iterable.Type is { Kind: ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray } iterableType)
             {
-                var beforeIterationVariable = CaptureCleanupFacts(body);
+                var elementType = iterableType.Arguments[0];
+                iterationElementType = elementType;
                 foreach (var local in OwnLocals(loop).Where(l => l.Kind == LocalSymbolKind.Variable))
-                { _localTypes[local] = iterable.Type.Arguments[0]; body.Assigned.Add(local); }
-                UpdateCleanupFacts(body, beforeIterationVariable, CaptureCleanupFacts(body));
+                { _localTypes[local] = elementType; }
             }
             else { Defer(loop); }
         }
+        // The iterable is evaluated once before the loop; its assigned/type facts are visible in the body.
+        var body = state.Clone();
+        // A backedge may change local values; only immutable facts survive entry to the loop.
+        if (bodyMayExecute)
+        {
+            var beforeNarrowing = CaptureCleanupFacts(body);
+            foreach (var local in body.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { body.Narrowed.Remove(local); }
+            UpdateCleanupFacts(body, beforeNarrowing, CaptureCleanupFacts(body));
+            InvalidateMutableCleanupNarrowings(body);
+        }
+        var beforeRefinement = CaptureCleanupFacts(body);
+        Refine(loop.Condition, body, true);
+        UpdateCleanupFacts(body, beforeRefinement, CaptureCleanupFacts(body));
+        if (loop.Form == AstForForm.Each)
+        {
+            var beforeIterationVariable = CaptureCleanupFacts(body);
+            foreach (var local in OwnLocals(loop).Where(l => l.Kind == LocalSymbolKind.Variable))
+            {
+                if (iterationElementType is not null || emptyArrayLiteral) { body.Assigned.Add(local); }
+            }
+            UpdateCleanupFacts(body, beforeIterationVariable, CaptureCleanupFacts(body));
+        }
         var breaks = new List<State>();
         var continues = new List<State>();
+        // Keep a non-executable body available for diagnostics without exporting its flow edges.
+        var bodyExits = bodyMayExecute ? context.Exits : new List<State>();
         if (!bodyMayExecute) { body.ExceptionSink = null; }
         if (loop.Body is not null)
         {
             Statements(loop.Body.Statements, body, context with
-            { LoopDepth = context.LoopDepth + 1, Breaks = breaks, Continues = continues }, false);
+            {
+                LoopDepth = context.LoopDepth + 1,
+                Breaks = breaks,
+                Continues = continues,
+                Exits = bodyExits,
+            }, false);
         }
         if (loop.Update is not null && body.Reachable)
         {
@@ -299,13 +323,24 @@ internal sealed partial class BodyBindingBuilder
         {
             state.Effects.UnionWith(body.Effects);
             foreach (var exit in breaks.Concat(continues)) { state.Effects.UnionWith(exit.Effects); }
+            foreach (var local in state.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
         }
-        foreach (var local in state.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
         if (loop.Form == AstForForm.Infinite || loop.Condition is AstAtom { Spelling: "true" })
         {
             state.Reachable = false;
             foreach (var exit in breaks) { var before = state.Clone(); state.Join(before, exit); }
         }
+    }
+
+    private static bool IsEmptyArrayLiteral(AstExpression expression)
+    {
+        while (expression is AstSequence { IsGrouping: true } grouping)
+        {
+            var elements = grouping.Elements.Take(2).ToArray();
+            if (elements.Length != 1) { return false; }
+            expression = elements[0];
+        }
+        return expression is AstSequence { SyntaxKind: NodeKind.ArrayExpression } array && !array.Elements.Any();
     }
 
     private void Switch(AstSwitch selection, State state, Context context)
