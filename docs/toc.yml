@@ -34,6 +34,8 @@
   href: library-artifacts.md
 - name: Native component packaging
   href: native-component.md
+- name: Native dependency review
+  href: native-dependency-review.md
 - name: Standard library implementation
   href: standard-library.md
 - name: Source language specification

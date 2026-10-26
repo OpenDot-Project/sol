@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+name: Native dependency advisories
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  schedule:
+    - cron: '13 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+concurrency:
+  group: native-advisories-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence-validation:
+    name: Native advisory evidence validation
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: ./eng/test-native-advisory-validation.ps1
+      - run: ./eng/test-native-build-evidence.ps1
+
+  review:
+    name: Native upstream commit advisory review
+    needs: evidence-validation
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Query OSV for the pinned native source commits
+        env:
+          LLVM_ROOT: ${{ github.workspace }}/out/toolchains/clang+llvm-23.1.3-x86_64-pc-windows-msvc
+        run: |
+          ./eng/install-llvm.ps1
+          ./eng/install-llvm-native-deps.ps1
+          ./eng/test-native-dependencies.ps1
+          ./eng/test-native-advisories.ps1
+      - name: Preserve native advisory evidence on success or failure
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-advisory-review
+          path: |
+            out/security/native-advisories/*.json
+            out/native/llvm-native/dependency-qualification.json
+          if-no-files-found: warn
+          retention-days: 7

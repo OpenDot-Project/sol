@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 param(
     [ValidateSet('Cleanup', 'Inspect')][string]$Mode = 'Inspect',
-    [ValidateRange(1, 8)][int]$Jobs = 2
+    [ValidateRange(1, 8)][int]$Jobs = 2,
+    [string[]]$Sources
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -27,7 +28,14 @@ $sourceFiles = 'llvm-bridge/Compiler.cpp;llvm-native/Api.h;llvm-native/Support.h
 $sourceFiles += ';runtime/MarkWork.h;runtime/GcDiagnostics.h;runtime/GcPacing.h;runtime/GcProfile.h;runtime/TraceHarnessSupport.h;runtime/MarkWork.cpp;runtime/GcDiagnostics.cpp;runtime/GcDiagnosticNames.cpp;runtime/GcPacing.cpp;runtime/GcTracing.cpp;runtime/MarkBitmapHarness.cpp;runtime/ReadyWorkModel.cpp;runtime/BarrierPhaseModel.cpp;runtime/SpanTraceHarness.cpp;runtime/DiagnosticsHarness.cpp;runtime/PacingHarness.cpp;runtime/BarrierHarness.cpp;runtime/DescriptorHarness.cpp;runtime/GcProfile.cpp;runtime/ProfileWorkloads.cpp;runtime/ProfileJson.cpp'
 $arguments = @('src/native/Sol.Native.sln', '--no-build', '--no-updates', '--disable-settings-layers=GlobalAll;GlobalPerProduct;SolutionPersonal;ProjectPersonal', "--toolset-path=$(Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe')", "--properties=$properties", '--caches-home=out/jetbrains/cache', "--include=$sourceFiles")
 $sourceFiles += ';runtime/TraceLayoutHarness.cpp;runtime/ProfileOptionsHarness.cpp'
+$sourceFiles += ';dependencies/DependencyHarness.cpp'
 $arguments[-1] = "--include=$sourceFiles"
+if ($Sources) {
+    $allowed = $sourceFiles.Split(';')
+    foreach ($source in $Sources) { if ($source -cnotin $allowed) { throw 'Source is outside the native tool inventory.' } }
+    $sourceFiles = $Sources -join ';'
+    $arguments[-1] = "--include=$sourceFiles"
+}
 Push-Location $root
 try {
     New-Item -ItemType Directory -Path out/jetbrains -Force | Out-Null

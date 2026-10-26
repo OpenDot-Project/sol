@@ -10,6 +10,7 @@ path = [
     "eng/llvm-native-dependencies.json",
     "eng/llvm.json",
     "eng/native-package.json",
+    "eng/native-advisories.json",
     "eng/runtime.json",
     "global.json",
     "src/managed/OpenDot.Sol.Analysis/packages.lock.json",
