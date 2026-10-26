@@ -23,9 +23,12 @@ binary feature evidence both match. A missing fix, unknown record, or unavailabl
 blocking result; the report is not a complete SBOM or a general security clearance.
 
 The asset provider tries a bounded upstream MSYS2 mirror list when the primary host fails or returns
-bytes with the wrong digest. Every candidate uses HTTPS and the same pinned SHA-512. Downloads are
-staged in a temporary file; only verified bytes replace the destination. A verification page or an
-exhausted mirror list fails acquisition rather than entering the dependency cache.
+bytes with the wrong digest. For immutable GitHub commit archives, it retries through
+`codeload.github.com` only when the original URL has the exact owner/repository/40-character-commit
+`.tar.gz` form. Every candidate uses HTTPS and the same pinned SHA-512; no fallback changes the
+requested commit or trusted digest. Downloads are staged in a temporary file; only verified bytes
+replace the destination. A verification page or an exhausted mirror list fails acquisition rather
+than entering the dependency cache.
 
 ## Formatting and inspections
 
