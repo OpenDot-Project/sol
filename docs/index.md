@@ -20,5 +20,10 @@ and [path-sensitive flow and checked effects](flow-and-effects.md). The [cleanup
 effects guide](cleanup-construction.md) specifies lexical `defer` behavior and checked effects from
 implicit construction, including the current analysis and native-backend boundaries.
 
+The [array and cursor iteration guide](array-iteration.md) defines dynamic-array `for-in`, item-copy
+semantics, loop transfers, GC obligations, the future cursor protocol, and the verified-FIR/native
+qualification boundary. The corresponding normative contract and fixture matrix are indexed in the
+[source specification](../spec/README.md).
+
 Native compilation and execution are not available in 0.0.1. A successful parse establishes that
 the implemented syntax subset was accepted; it does not resolve names, check types, or run a program.

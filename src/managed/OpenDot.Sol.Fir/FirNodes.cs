@@ -31,6 +31,7 @@ public sealed record FirEvaluate(FirExpression Value, AstOrigin Origin) : FirSta
 public sealed record FirReturn(FirExpression? Value, AstOrigin Origin) : FirStatement(Origin);
 public sealed record FirIf(FirExpression Condition, FirBlock Then, FirBlock? Else, AstOrigin Origin) : FirStatement(Origin);
 public sealed record FirLoop(FirStatement? Initializer, FirExpression? Condition, FirBlock Body, FirStatement? Update, AstOrigin Origin) : FirStatement(Origin);
+public sealed record FirArrayForEach(int ItemSlot, FirExpression Array, FirBlock Body, AstOrigin Origin) : FirStatement(Origin);
 public sealed record FirBreak(AstOrigin Origin) : FirStatement(Origin);
 public sealed record FirContinue(AstOrigin Origin) : FirStatement(Origin);
 

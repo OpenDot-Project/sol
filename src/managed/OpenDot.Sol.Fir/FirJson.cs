@@ -34,6 +34,7 @@ public static class FirJson
                 FirReturn ret => new { value = ret.Value is null ? null : Node(ret.Value) },
                 FirIf conditional => new { condition = Node(conditional.Condition), then = Node(conditional.Then), @else = conditional.Else is null ? null : Node(conditional.Else) },
                 FirLoop loop => new { initializer = loop.Initializer is null ? null : Node(loop.Initializer), condition = loop.Condition is null ? null : Node(loop.Condition), body = Node(loop.Body), update = loop.Update is null ? null : Node(loop.Update) },
+                FirArrayForEach loop => new { itemSlot = loop.ItemSlot, array = Node(loop.Array), body = Node(loop.Body) },
                 FirBreak or FirContinue => new { },
                 _ => throw new InvalidOperationException("Unknown verified FIR node."),
             };
@@ -42,7 +43,7 @@ public static class FirJson
         }
         return JsonSerializer.Serialize(new
         {
-            schema = 2, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
+            schema = 3, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
             functions = program.Program.Functions.Select(f => new { f.Id, f.Name, runtime = f.RuntimeFunction.ToString(),
                 returnType = f.ReturnType.Id, effects = f.Effects.Select(effect => effect.Id).ToArray(),
                 parameters = f.Parameters.Select(p => p.Id).ToArray(),
