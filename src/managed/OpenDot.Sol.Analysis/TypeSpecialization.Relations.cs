@@ -19,37 +19,32 @@ public sealed partial class TypeSpecialization
     /// <summary>Substitutes written bases and supplies the implicit std.core.Object base for classes.</summary>
     public ImmutableArray<ResolvedType> GetDirectBases(ResolvedType type, CancellationToken cancellationToken = default)
     {
-        lock (_gate)
+        using var gate = EnterGate(cancellationToken);
+        ValidateOwnership(type);
+        if (type.Declaration is not { } declaration || type.Kind != ResolvedTypeKind.Nominal) { return []; }
+        var parameters = Analysis.GetTypeParameters(declaration.Parts[0]);
+        var substitutions = parameters.Select((p, index) => (p, type.Arguments[index])).ToDictionary(p => p.p, p => p.Item2);
+        var bases = declaration.Parts.OfType<AstTypeDeclaration>().SelectMany(p => p.Bases)
+            .SelectMany(b => b.Children.OfType<AstType>()).Select(Analysis.GetType)
+            .Select(b => Rewrite(b, substitutions, new(), 0, cancellationToken)).Distinct().ToList();
+        bool referenceClass = declaration.Parts[0].SyntaxKind is NodeKind.ClassDeclaration or NodeKind.ObjectDeclaration;
+        if (referenceClass && !(declaration.ModuleName == "std.core" && declaration.Name == "Object")
+            && !bases.Any(b => b.Declaration?.Parts[0].SyntaxKind == NodeKind.ClassDeclaration)
+            && Analysis.Declarations.Modules.TryGetValue("std.core", out var core))
         {
-            ValidateOwnership(type);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (type.Declaration is not { } declaration || type.Kind != ResolvedTypeKind.Nominal) { return []; }
-            var parameters = Analysis.GetTypeParameters(declaration.Parts[0]);
-            var substitutions = parameters.Select((p, index) => (p, type.Arguments[index])).ToDictionary(p => p.p, p => p.Item2);
-            var bases = declaration.Parts.OfType<AstTypeDeclaration>().SelectMany(p => p.Bases)
-                .SelectMany(b => b.Children.OfType<AstType>()).Select(Analysis.GetType)
-                .Select(b => Rewrite(b, substitutions, new(), 0, cancellationToken)).Distinct().ToList();
-            bool referenceClass = declaration.Parts[0].SyntaxKind is NodeKind.ClassDeclaration or NodeKind.ObjectDeclaration;
-            if (referenceClass && !(declaration.ModuleName == "std.core" && declaration.Name == "Object")
-                && !bases.Any(b => b.Declaration?.Parts[0].SyntaxKind == NodeKind.ClassDeclaration)
-                && Analysis.Declarations.Modules.TryGetValue("std.core", out var core))
-            {
-                var roots = core.Declarations.Where(s => s.Kind == SymbolKind.Type && s.Name == "Object" && s.Arity == 0).Take(2).ToArray();
-                if (roots.Length == 1) { bases.Add(Nominal(roots[0], [])); }
-            }
-            return bases.ToImmutableArray();
+            var roots = core.Declarations.Where(s => s.Kind == SymbolKind.Type && s.Name == "Object" && s.Arity == 0).Take(2).ToArray();
+            if (roots.Length == 1) { bases.Add(Nominal(roots[0], [])); }
         }
+        return bases.ToImmutableArray();
     }
 
     public IntrinsicConversion ClassifyConversion(ResolvedType source, ResolvedType target,
         CancellationToken cancellationToken = default)
     {
-        lock (_gate)
-        {
-            ValidateOwnership(source);
-            ValidateOwnership(target);
-            return Conversion(source, target, new(), 0, cancellationToken);
-        }
+        using var gate = EnterGate(cancellationToken);
+        ValidateOwnership(source);
+        ValidateOwnership(target);
+        return Conversion(source, target, new(), 0, cancellationToken);
     }
 
     private IntrinsicConversion Conversion(ResolvedType source, ResolvedType target,
@@ -62,10 +57,7 @@ public sealed partial class TypeSpecialization
         if (source.Kind == ResolvedTypeKind.Bottom) { return IntrinsicConversion.Reference; }
         if (!visited.Add((source.Id, target.Id))) { return IntrinsicConversion.None; }
         if (source.Kind == ResolvedTypeKind.Function && target.Kind == ResolvedTypeKind.Function
-            && source.ParameterModes.SequenceEqual(target.ParameterModes) && source.Arguments.Length == target.Arguments.Length
-            && source.Arguments.Take(source.Arguments.Length - 1).SequenceEqual(target.Arguments.Take(target.Arguments.Length - 1))
-            && Conversion(source.Arguments[^1], target.Arguments[^1], new(), depth + 1, cancellation) != IntrinsicConversion.None
-            && source.Effects.All(effect => target.Effects.Any(budget => Conversion(effect, budget, new(), depth + 1, cancellation) != IntrinsicConversion.None)))
+            && FunctionShapeConverts(source, target, depth, cancellation))
         { return IntrinsicConversion.Reference; }
         if (target.IsNullable)
         {
@@ -110,73 +102,192 @@ public sealed partial class TypeSpecialization
         return IntrinsicConversion.None;
     }
 
+    private bool FunctionShapeConverts(ResolvedType source, ResolvedType target, int depth,
+        CancellationToken cancellation)
+    {
+        if (source.Arguments.Length == 0 || source.Arguments.Length != target.Arguments.Length
+            || !source.ParameterModes.SequenceEqual(target.ParameterModes)) { return false; }
+
+        int parameterCount = source.ParameterModes.Length;
+        for (int index = 0; index < parameterCount; index++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var sourceParameter = source.Arguments[index];
+            var targetParameter = target.Arguments[index];
+            if (source.ParameterModes[index] is AstPassingMode.Ref or AstPassingMode.Out)
+            {
+                if (!ReferenceEquals(sourceParameter, targetParameter)) { return false; }
+                continue;
+            }
+
+            // A function accepting a broader input can stand in for one accepting a narrower
+            // input. Conversion therefore runs from the target parameter to the source parameter.
+            if (Conversion(targetParameter, sourceParameter, new(), depth + 1, cancellation)
+                == IntrinsicConversion.None) { return false; }
+        }
+
+        if (Conversion(source.Arguments[^1], target.Arguments[^1], new(), depth + 1, cancellation)
+            == IntrinsicConversion.None) { return false; }
+
+        // An actual callable may promise fewer checked failures than its target contract permits,
+        // but it may not introduce an effect that the target type cannot cover.
+        return source.Effects.All(effect => target.Effects.Any(budget =>
+            Conversion(effect, budget, new(), depth + 1, cancellation) != IntrinsicConversion.None));
+    }
+
     public ConstraintCheck CheckConstraints(AstDeclaration definition, IReadOnlyList<ResolvedType> arguments,
         CancellationToken cancellationToken = default)
+        => CheckConstraintsWithSubstitution(definition, arguments, new Dictionary<ResolvedType, ResolvedType>(), cancellationToken);
+
+    /// <summary>
+    /// Checks a declaration's generic bounds after applying substitutions owned by its enclosing
+    /// constructed type. The declaration's own parameters are then bound to <paramref name="arguments"/>.
+    /// </summary>
+    public ConstraintCheck CheckConstraintsWithSubstitution(AstDeclaration definition, IReadOnlyList<ResolvedType> arguments,
+        IReadOnlyDictionary<ResolvedType, ResolvedType> enclosingSubstitution,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(arguments);
-        lock (_gate)
+        ArgumentNullException.ThrowIfNull(enclosingSubstitution);
+        using var gate = EnterGate(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var parameters = Analysis.GetTypeParameters(definition);
+        if (arguments.Count != parameters.Length) { throw new ArgumentException("Generic arity mismatch.", nameof(arguments)); }
+        foreach (var argument in arguments) { ValidateOwnership(argument); }
+        var substitutions = new Dictionary<ResolvedType, ResolvedType>();
+        foreach (var pair in enclosingSubstitution)
+        {
+            ValidateOwnership(pair.Key);
+            ValidateOwnership(pair.Value);
+            if (pair.Key.Kind != ResolvedTypeKind.Parameter)
+            {
+                throw new ArgumentException("Enclosing substitution keys must be generic parameters.", nameof(enclosingSubstitution));
+            }
+            substitutions[pair.Key] = pair.Value;
+        }
+        for (int index = 0; index < parameters.Length; index++)
+        { substitutions[parameters[index]] = arguments[index]; }
+        bool indeterminate = false;
+        for (int index = 0; index < parameters.Length; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var parameters = Analysis.GetTypeParameters(definition);
-            if (arguments.Count != parameters.Length) { throw new ArgumentException("Generic arity mismatch.", nameof(arguments)); }
-            foreach (var argument in arguments) { ValidateOwnership(argument); }
-            var substitutions = parameters.Select((p, index) => (p, arguments[index])).ToDictionary(p => p.p, p => p.Item2);
-            bool indeterminate = false;
-            for (int index = 0; index < parameters.Length; index++)
+            var argument = arguments[index];
+            string name = parameters[index].Name;
+            if (argument.IsError) { indeterminate = true; continue; }
+            if (argument.IsRefLike && !AllowsRefLike(definition, name))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var argument = arguments[index];
-                string name = parameters[index].Name;
-                if (argument.IsError) { indeterminate = true; continue; }
-                if (argument.IsRefLike && !AllowsRefLike(definition, name))
+                return new(ConstraintStatus.Unsatisfied, name, "The argument requires allows ref struct.");
+            }
+            foreach (var syntax in Bounds(definition, index))
+            {
+                var bound = Rewrite(Analysis.GetType(syntax), substitutions, new(), 0, cancellationToken);
+                if (bound.IsError || bound.Kind != ResolvedTypeKind.Nominal) { indeterminate = true; continue; }
+                bool objectConstraint = bound.Declaration is { ModuleName: "std.core", Name: "Object", Arity: 0 };
+                var conversion = Conversion(argument, bound, new(), 0, cancellationToken);
+                // A ref-like value can satisfy an implemented interface without boxing into interface storage.
+                bool constrainedRef = argument.IsRefLike && !objectConstraint
+                    && SatisfiesNominal(argument, bound, new(), 0, cancellationToken);
+                if ((!constrainedRef && conversion == IntrinsicConversion.None)
+                    || objectConstraint && conversion == IntrinsicConversion.Boxing)
                 {
-                    return new(ConstraintStatus.Unsatisfied, name, "The argument requires allows ref struct.");
-                }
-                foreach (var syntax in Bounds(definition, index))
-                {
-                    var bound = Rewrite(Analysis.GetType(syntax), substitutions, new(), 0, cancellationToken);
-                    if (bound.IsError || bound.Kind != ResolvedTypeKind.Nominal) { indeterminate = true; continue; }
-                    bool objectConstraint = bound.Declaration is { ModuleName: "std.core", Name: "Object", Arity: 0 };
-                    var conversion = Conversion(argument, bound, new(), 0, cancellationToken);
-                    // A ref-like value can satisfy an implemented interface without boxing into interface storage.
-                    bool constrainedRef = argument.IsRefLike && !objectConstraint
-                        && SatisfiesNominal(argument, bound, new(), 0, cancellationToken);
-                    if ((!constrainedRef && conversion == IntrinsicConversion.None)
-                        || objectConstraint && conversion == IntrinsicConversion.Boxing)
-                    {
-                        return new(ConstraintStatus.Unsatisfied, name, "The argument does not satisfy " + bound.Name + ".");
-                    }
+                    return new(ConstraintStatus.Unsatisfied, name, "The argument does not satisfy " + bound.Name + ".");
                 }
             }
-            return new(indeterminate ? ConstraintStatus.Indeterminate : ConstraintStatus.Satisfied, null, null);
         }
+        return new(indeterminate ? ConstraintStatus.Indeterminate : ConstraintStatus.Satisfied, null, null);
+    }
+
+    internal bool HasUnsatisfiedClosedConstraints(AstDeclaration definition,
+        IReadOnlyList<ResolvedType> arguments,
+        IReadOnlyDictionary<ResolvedType, ResolvedType> enclosingSubstitution,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(enclosingSubstitution);
+        using var gate = EnterGate(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var parameters = Analysis.GetTypeParameters(definition);
+        if (arguments.Count != parameters.Length)
+        { throw new ArgumentException("Generic arity mismatch.", nameof(arguments)); }
+        var substitutions = new Dictionary<ResolvedType, ResolvedType>();
+        foreach (var pair in enclosingSubstitution)
+        {
+            ValidateOwnership(pair.Key);
+            ValidateOwnership(pair.Value);
+            if (pair.Key.Kind != ResolvedTypeKind.Parameter)
+            { throw new ArgumentException("Enclosing substitution keys must be generic parameters.", nameof(enclosingSubstitution)); }
+            substitutions[pair.Key] = pair.Value;
+        }
+        for (int index = 0; index < parameters.Length; index++)
+        {
+            ValidateOwnership(arguments[index]);
+            substitutions[parameters[index]] = arguments[index];
+        }
+
+        for (int index = 0; index < parameters.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var argument = arguments[index];
+            if (ContainsAnyParameter(argument, cancellationToken)) { continue; }
+            string name = parameters[index].Name;
+            if (argument.IsRefLike && !AllowsRefLike(definition, name)) { return true; }
+            foreach (var syntax in Bounds(definition, index))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var bound = Rewrite(Analysis.GetType(syntax), substitutions, new(), 0, cancellationToken);
+                if (bound.IsError || bound.Kind != ResolvedTypeKind.Nominal
+                    || ContainsAnyParameter(bound, cancellationToken)) { continue; }
+                bool objectConstraint = bound.Declaration is { ModuleName: "std.core", Name: "Object", Arity: 0 };
+                var conversion = Conversion(argument, bound, new(), 0, cancellationToken);
+                bool constrainedRef = argument.IsRefLike && !objectConstraint
+                    && SatisfiesNominal(argument, bound, new(), 0, cancellationToken);
+                if ((!constrainedRef && conversion == IntrinsicConversion.None)
+                    || objectConstraint && conversion == IntrinsicConversion.Boxing) { return true; }
+            }
+        }
+        return false;
+    }
+
+    private static bool ContainsAnyParameter(ResolvedType root, CancellationToken cancellationToken)
+    {
+        var pending = new Stack<ResolvedType>();
+        var visited = new HashSet<int>();
+        pending.Push(root);
+        while (pending.TryPop(out var current))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!visited.Add(current.Id)) { continue; }
+            if (current.Kind == ResolvedTypeKind.Parameter) { return true; }
+            foreach (var child in current.Arguments.Concat(current.Effects)) { pending.Push(child); }
+        }
+        return false;
     }
 
     /// <summary>Checks nominal applications contained in a type; does not instantiate generic bodies.</summary>
     public ConstraintCheck CheckTypeConstraints(ResolvedType type, CancellationToken cancellationToken = default)
     {
-        lock (_gate)
+        using var gate = EnterGate(cancellationToken);
+        ValidateOwnership(type);
+        bool indeterminate = false;
+        var pending = new Stack<ResolvedType>();
+        var visited = new HashSet<int>();
+        pending.Push(type);
+        while (pending.TryPop(out var current))
         {
-            ValidateOwnership(type);
-            bool indeterminate = false;
-            var pending = new Stack<ResolvedType>();
-            var visited = new HashSet<int>();
-            pending.Push(type);
-            while (pending.TryPop(out var current))
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!visited.Add(current.Id)) { continue; }
+            if (current.IsError) { indeterminate = true; continue; }
+            if (current.Kind == ResolvedTypeKind.Nominal && current.Declaration is { } definition)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!visited.Add(current.Id)) { continue; }
-                if (current.IsError) { indeterminate = true; continue; }
-                if (current.Kind == ResolvedTypeKind.Nominal && current.Declaration is { } definition)
-                {
-                    var check = CheckConstraints(definition.Parts[0], current.Arguments, cancellationToken);
-                    if (check.Status == ConstraintStatus.Unsatisfied) { return check; }
-                    indeterminate |= check.Status == ConstraintStatus.Indeterminate;
-                }
-                foreach (var child in current.Arguments.Concat(current.Effects)) { pending.Push(child); }
+                var check = CheckConstraints(definition.Parts[0], current.Arguments, cancellationToken);
+                if (check.Status == ConstraintStatus.Unsatisfied) { return check; }
+                indeterminate |= check.Status == ConstraintStatus.Indeterminate;
             }
-            return new(indeterminate ? ConstraintStatus.Indeterminate : ConstraintStatus.Satisfied, null, null);
+            foreach (var child in current.Arguments.Concat(current.Effects)) { pending.Push(child); }
         }
+        return new(indeterminate ? ConstraintStatus.Indeterminate : ConstraintStatus.Satisfied, null, null);
     }
 
     private bool SatisfiesNominal(ResolvedType source, ResolvedType bound, HashSet<int> visited, int depth, CancellationToken cancellation)

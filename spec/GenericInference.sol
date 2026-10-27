@@ -117,13 +117,18 @@ module source.spec.generic_inference
 // Expected-result matching runs in the opposite direction. If the generic result pattern is
 // `Derived<T>` and the expected result is `Base<String>`, the compiler may project the pattern
 // through `Derived<T>`'s substituted bases to `Base<T>` and infer T as String. It then separately
-// verifies that the specialized result `Derived<String>` converts to the expected type.
+// verifies that the specialized result `Derived<String>` converts to the expected type. An
+// incompatible projection path is discarded while other paths are checked. If multiple compatible
+// paths yield different inference evidence, the expected type does not choose one arbitrarily and
+// contributes no evidence for that projection; other input evidence may still solve the parameters,
+// after which the final result conversion is checked. Without other evidence, inference is unresolved.
 //
 // Arrays, fixed arrays, tuples, nullable wrappers, and nominal generic applications are structurally
 // matched by their constructor and ordered element types. Fixed-array length and function parameter
 // passing modes must also match. Function effect sets are mathematical sets, not ordered lists;
-// inference cannot pair them by enumeration position. A parameter occurring only in an unresolved
-// effect set remains without evidence until set-aware effect inference is available.
+// inference cannot pair them by enumeration position. A parameter occurring only in a top-level
+// callback effect set can be inferred by bounded unordered matching when exactly one complete
+// mapping satisfies constraints. Nested function-type sets and ambiguous mappings remain unresolved.
 //
 // A shape mismatch in a pattern that contains an inferable parameter rejects that candidate. It is
 // not treated as successful “no evidence,” because the candidate cannot later make the structure
@@ -230,13 +235,17 @@ module source.spec.generic_inference
 //
 // Checked effects are part of a function type. An ordinary generic call substitutes written effect
 // types after inference. Effect parameters are not matched positionally because an effect list is
-// an unordered set. Set-aware inference must find a unique bijection or leave the candidate
-// unresolved. RuntimeException and its subtypes remain unchecked and do not add a required effect.
+// an unordered set. Bounded inference accepts one complete relation-aware mapping: an actual
+// callback's effects can be a subset of its formal budget, and a generic result's effects can be a
+// subset of the expected budget. Open effect patterns that remain unmatched still need independent
+// evidence; ambiguity or nested unresolved sets remain deferred.
+// RuntimeException and its subtypes remain unchecked and do not add a required effect.
 //
 // When a generic call returns a function value, the expected function type may constrain the
-// generic result and function parameter/result shapes. Parameter passing modes are exact. A
-// function that may throw a checked exception cannot be inferred into an expected callback whose
-// effect budget excludes it.
+// generic result and function parameter/result shapes. Value parameters are contravariant, results
+// are covariant, and nested function shapes reverse direction at each value-parameter boundary.
+// Parameter passing modes are exact; ref/out storage types are invariant. A function that may throw
+// a checked exception cannot be inferred into an expected callback whose effect budget excludes it.
 //
 // A lambda body can add effects only after its contextual function type is known. Candidate-local
 // lambda analysis must retain separate flow, effects, and diagnostics for each possible target or

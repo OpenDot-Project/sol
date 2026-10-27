@@ -68,36 +68,44 @@ accessible `Main` object method accepting `[]String` and returning `()` for bin 
 compilations have no entry and verify that distinction before lowering.
 
 FIR records resolved type identities, slots, exact callable targets, parameter mappings, passing modes,
-source evaluation order, and declared effects. Its flow graph is an analysis side table rather than
-another intermediate language. The pipeline remains CST → PSI → AST → FIR → LLVM IR.
+source evaluation order, and declared effects. Closed module-level generic free-function calls in the
+first ABI subset produce monomorphic FIR functions. The original declaration origin remains attached;
+function specialization arguments and call-site type arguments are recorded and verified in order.
+Nested instances are interned by declaration identity plus closed type identities. The flow graph is
+an analysis side table rather than another intermediate language. The pipeline remains
+CST → PSI → AST → FIR → LLVM IR.
 
 `FirVerifier` independently checks type workspace ownership, literal domains, slot/call identities,
 parameter modes, return types, checked call budgets, Boolean conditions, and supported operation shapes.
-Each source function is tied back to its AST declaration: name, result, parameter modes/types/names,
-and ordered effect metadata must agree with source analysis. Escaping checked effects must fit that
-declared budget. Each native call is tied back to
-the selected overload and argument-origin mapping, so replacing a call target or swapping same-typed
-named arguments cannot pass verification. Function effect entries must be workspace-owned Throwable
-types without duplicates. The verifier retains explicit unchecked effect metadata while only requiring
-checked effects in caller budgets.
+Each FIR function is tied back to its AST declaration: name, substituted result, parameter
+modes/types/names, and ordered effect metadata must agree with source analysis. A generic instance
+must have a complete closed substitution, satisfy its declaration constraints, and have a unique
+declaration-plus-arguments identity. Each call is tied back to the selected overload, caller-substituted
+type arguments, exact target instance, and argument-origin mapping, so changing the call target or
+swapping same-typed named arguments cannot pass verification. Function effect entries must be
+workspace-owned Throwable types without duplicates. The verifier retains explicit unchecked effect
+metadata while only requiring checked effects in caller budgets.
 Its CFG analysis computes reachable blocks and a fixed point of definite assignment. Branches join
 by intersection; loop backedges participate in convergence. Local declaration resets prevent a previous
 iteration's value from proving initialization in a later iteration. Normal exits must assign every
 out parameter and cannot fall through without a return.
 
 Only the verifier can construct `VerifiedFirProgram`, which is the input to LLVM lowering. `FirJson`
-schema 3 includes functions, slots, type identities, expression trees, and flow reads/writes/kills/edges.
-Each graph identifies its function, and each call-bearing flow block carries target IDs, declared effect
-type IDs and source byte spans. These are conservative call-site effect facts; the current native subset
-does not lower catch or exceptional CFG edges. The JSON contains byte spans but no host source paths.
-IDs are local to this compilation, not stable library ABI IDs. Schema 3 adds the verified dynamic-array
-iteration node and invalidates consumers that assumed schema 2 or earlier; the enclosing `.solib`
-compiler identity changes with the compiler assembly.
+Schema 6 includes functions, slots, type identities, expression trees, ordered call evaluation values,
+call-value references, function references and indirect calls. Function type records include parameter
+modes and checked effects. Flow call entries use a null direct target for indirect calls and preserve
+their declared effect type IDs and source byte spans. These are conservative call-site effect facts;
+the native subset does not lower catch or exceptional CFG edges. The JSON contains byte spans but no
+host source paths. IDs are local to this compilation, not stable library ABI IDs. Schema 6 adds
+function-value nodes and signature metadata; it invalidates consumers that assumed schema 5 or earlier.
+The enclosing `.solib` compiler identity changes with the compiler assembly.
 
 ## Qualified native subset
 
 Supported programs use scalar integer/Boolean/single/double values, empty-tuple function results,
-local val/var bindings, source functions, stateless object methods, named argument reordering,
+local val/var bindings, source functions, closed module-level generic free-function specializations
+whose type arguments lower to supported primitives, String, or one-level arrays of those values,
+stateless object methods, named argument reordering,
 scalar ref/out locations, braced branches, condition/three-clause/infinite loops, break/continue,
 short-circuit Boolean expressions, collectible String concatenation/content equality, and single-level
 array literals/length/index access plus dynamic-array `for-in` for the exact supported scalar and
@@ -117,11 +125,18 @@ operations preserve normal IEEE behavior and do not enable fast math. Runtime bo
 failures report an unhandled error and exit with status 1 in this bootstrap.
 
 The native gate rejects general class construction, nested/value-layout arrays, fixed-array iteration,
-user-defined iterator/cursor iteration, closures, ref-struct borrowing,
-generic body specialization, user default/vararg lowering, custom operators/conversions, exception
+user-defined iterator/cursor iteration, closures, ref-struct borrowing, generic owner/member
+specialization, open generic calls, function-value specialization, unsupported generic ABI types,
+user default/vararg lowering, custom operators/conversions, exception
 handlers, defer cleanup, reflection, and unqualified half/quad operations. Source body analysis may
 understand more of these constructs; that does not make them eligible for native generation.
 Bottom-typed source calls and global/receiver storage initialization also remain outside this first gate.
+
+Generic FIR currently substitutes the already-bound body facts; it does not rerun full source
+overload and body analysis under every concrete type argument. Its verifier checks the concrete
+signature, types, effects, constraints, and call binding before LLVM construction. Generic body
+rebinding and specialization of operators or members that depend on the concrete type remain future
+work, so the feature is a bounded compiler slice rather than full generic semantics.
 
 ## LLVM boundary
 

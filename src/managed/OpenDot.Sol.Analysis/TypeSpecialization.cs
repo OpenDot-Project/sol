@@ -34,6 +34,11 @@ public sealed partial class TypeSpecialization
     private readonly int _instanceLimit;
     private readonly int _depthLimit;
 
+    private readonly struct GateLease(object gate) : IDisposable
+    {
+        public void Dispose() => Monitor.Exit(gate);
+    }
+
     public TypeSpecialization(TypeAnalysis analysis, int instanceLimit = 100000, int depthLimit = 128)
     {
         ArgumentNullException.ThrowIfNull(analysis);
@@ -70,19 +75,33 @@ public sealed partial class TypeSpecialization
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(substitutions);
-        lock (_gate)
+        using var gate = EnterGate(cancellationToken);
+        ValidateOwnership(type);
+        foreach (var pair in substitutions)
         {
-            ValidateOwnership(type);
-            foreach (var pair in substitutions)
+            ValidateOwnership(pair.Key);
+            ValidateOwnership(pair.Value);
+            if (pair.Key.Kind != ResolvedTypeKind.Parameter)
             {
-                ValidateOwnership(pair.Key);
-                ValidateOwnership(pair.Value);
-                if (pair.Key.Kind != ResolvedTypeKind.Parameter)
-                {
-                    throw new ArgumentException("Only generic parameters can be substituted.", nameof(substitutions));
-                }
+                throw new ArgumentException("Only generic parameters can be substituted.", nameof(substitutions));
             }
-            return Rewrite(type, substitutions, new(), 0, cancellationToken);
+        }
+        return Rewrite(type, substitutions, new(), 0, cancellationToken);
+    }
+
+    private GateLease EnterGate(CancellationToken cancellationToken)
+    {
+        while (!Monitor.TryEnter(_gate, millisecondsTimeout: 25))
+        { cancellationToken.ThrowIfCancellationRequested(); }
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new(_gate);
+        }
+        catch
+        {
+            Monitor.Exit(_gate);
+            throw;
         }
     }
 

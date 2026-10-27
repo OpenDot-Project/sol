@@ -86,5 +86,5 @@ func <E: Throwable> nullableEffectValue(error: E?): ! throws E {
 }
 
 // Generic effects are resolved by nominal type identity and substituted into the callable and
-// function type. A solver with only a bounded single-open-pattern capability must report
-// Deferred for an unresolved multi-open set; it may not select the first matching permutation.
+// function type. Bounded recursive matching accepts one complete assignment and reports Deferred
+// when multiple assignments remain; it may not select the first permutation.

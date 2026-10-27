@@ -359,9 +359,10 @@ proofs that are not available. This API does not ship in Sol 0.0.1 and is not ve
 
 The language contract is broader than the implemented subset. In particular, a syntax-checked
 fixture does not prove complete loop fixed points, exhaustive sealed hierarchies, precise
-exceptional assignment for every call, every alias invalidation, generic effect-set inference,
-cleanup action publication, native Windows unwind, garbage-collected roots, or exception
-runtime behavior. These contracts remain requirements until each has semantic regression
+exceptional assignment for every call, every alias invalidation, nested function-type effect
+matching and complete cross-lambda effect fixed points beyond bounded unique top-level matching,
+cleanup action publication, native Windows unwind, garbage-collected roots, or exception runtime
+behavior. These contracts remain requirements until each has semantic regression
 coverage and verified-FIR support.
 
 The source corpus is copied into the test project and parsed through CST, PSI, and AST

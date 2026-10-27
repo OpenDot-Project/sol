@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: syntax fixture; generic function-effect inference remains deferred.
+// Status: syntax fixture; bounded unique top-level callback effect inference is implemented.
 module examples.semantics.function_effect_inference
 
 class ReadFailure(message: String): Exception(message)
@@ -28,8 +28,9 @@ func <E: Throwable> effectOnlyTypeParameter(callback: () -> String throws E): ()
 }
 
 // Type parameters in function argument/result positions can be structurally matched. A generic
-// parameter that occurs only in an unordered effect set requires set-aware inference and remains
-// deferred until that solver exists. Effects are not sorted into positional pairs to force a match.
+// parameter that occurs only in a top-level callback effect set can be inferred when bounded
+// unordered matching proves one complete assignment. Nested function-type sets and ambiguous
+// mappings remain deferred. Effects are not sorted into positional pairs to force a match.
 //
 // Checked effect widening is explicit in the function type. A callback with a wider checked budget
 // cannot be passed to the no-throws apply method. The candidate cannot erase ReadFailure to make

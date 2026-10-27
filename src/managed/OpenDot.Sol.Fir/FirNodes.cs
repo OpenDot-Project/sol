@@ -10,6 +10,10 @@ public abstract record FirNode(AstOrigin Origin);
 public abstract record FirExpression(ResolvedType Type, AstOrigin Origin) : FirNode(Origin);
 public sealed record FirConstant(string Spelling, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirRead(int Slot, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
+/// <summary>A non-capturing, source-resolved function value. The value is a native function pointer.</summary>
+public sealed record FirFunctionReference(int Target, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
+/// <summary>Reads an earlier value captured by the containing call's ordered argument evaluation.</summary>
+public sealed record FirCallValueReference(int EvaluationIndex, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirUnary(string Operation, FirExpression Value, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirBinary(string Operation, FirExpression Left, FirExpression Right, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirArrayLength(FirExpression Array, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
@@ -21,7 +25,14 @@ public sealed record FirIntrinsic(FirIntrinsicKind Operation, ImmutableArray<Fir
     public ImmutableArray<int> ParameterOrder { get; init; } = [];
 }
 public sealed record FirArgument(int Parameter, AstPassingMode Mode, FirExpression Value);
-public sealed record FirCall(int Target, ImmutableArray<FirArgument> Arguments, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
+public sealed record FirCall(int Target, ImmutableArray<FirArgument> Arguments, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin)
+{
+    /// <summary>Closed, declaration-ordered type arguments for a specialized generic target.</summary>
+    public ImmutableArray<ResolvedType> TypeArguments { get; init; } = [];
+}
+/// <summary>Invokes a typed function value indirectly using its resolved function signature.</summary>
+public sealed record FirIndirectCall(FirExpression Function, ImmutableArray<FirArgument> Arguments,
+    ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 
 public abstract record FirStatement(AstOrigin Origin) : FirNode(Origin);
 public sealed record FirBlock(ImmutableArray<FirStatement> Statements, AstOrigin Origin) : FirStatement(Origin);
@@ -41,6 +52,8 @@ public sealed record FirFunction(int Id, string Name, ImmutableArray<FirSlot> Pa
     ResolvedType ReturnType, FirBlock? Body, FirRuntimeFunction RuntimeFunction, ImmutableArray<ResolvedType> Effects, AstOrigin Origin)
 {
     public string? ExportName { get; init; }
+    /// <summary>Closed generic arguments for this monomorphic body; empty for ordinary functions.</summary>
+    public ImmutableArray<ResolvedType> SpecializationArguments { get; init; } = [];
 }
 
 /// <summary>Unverified source FIR; verification is required before code generation.</summary>

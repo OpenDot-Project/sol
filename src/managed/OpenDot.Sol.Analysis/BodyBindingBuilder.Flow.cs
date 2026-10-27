@@ -23,7 +23,8 @@ internal sealed partial class BodyBindingBuilder
             switch (node)
             {
                 case AstExpressionStatement expression:
-                    result = Expression(expression.Expression, state, context, tail ? context.Result : null);
+                    result = Expression(expression.Expression, state, context,
+                        tail && context.Result != Empty ? context.Result : null);
                     if (tail && context.Result is not null && context.Result != Empty) { Require(result, context.Result, node, state); }
                     if (tail && result.Type?.IsRefLike == true) { CheckEscape(result, node, context); }
                     break;
@@ -149,7 +150,8 @@ internal sealed partial class BodyBindingBuilder
         if (compound && location.Type is not null && value.Type is not null)
         {
             string operation = assignment.Operation[..^1];
-            var liftedCompound = LiftNullableBinary(assignment, operation, location, value, state, context);
+            var liftedCompound = LiftNullableBinary(assignment, operation, location, value, state, context,
+                location.Type);
             if (liftedCompound is not null) { assignedValue = liftedCompound; }
             else
             {
@@ -159,7 +161,8 @@ internal sealed partial class BodyBindingBuilder
                     || IsInteger(location.Type) && value.Type == Types.GetPrimitive("int") && operation is ("<<" or ">>")
                     || location.Type == Bool && value.Type == Bool && operation is ("&" or "|" or "^")
                     || operation == "+" && location.Type == Core("String") && value.Type == location.Type;
-                assignedValue = builtin ? new(location.Type) : OperatorCall(assignment, operation, [location, value], state, context);
+                assignedValue = builtin ? new(location.Type)
+                    : OperatorCall(assignment, operation, [location, value], state, context, expected: location.Type);
             }
             Require(assignedValue, location.Type, assignment, state);
         }

@@ -27,9 +27,11 @@ applications through substitution.
 The default depth budget is 128 and the workspace permits 100,000 additional interned types.
 Callers may lower these limits. Resource exhaustion throws `TypeSpecializationException` with
 `ResourceLimit`; invalid constructed storage reports `InvalidType`. The call binder translates these
-failures into source diagnostics. These budgets do not measure compiled generic machine-code instances:
-monomorphization and body specialization have not been implemented. Cancellation is observed during
-substitution, constraint queries, and inheritance traversal.
+failures into source diagnostics. These budgets do not measure compiled generic machine-code
+instances. The verified native subset now has a separate 4,096-instance compilation limit and
+128-level specialization-type limit for closed module-level generic free functions; per-instance
+source rebinding and the full Sol generic contract remain incomplete. Cancellation is observed during
+substitution, constraint queries, inheritance traversal, and FIR instance scheduling.
 
 ## Bases, conversions, and constraints
 
@@ -40,8 +42,10 @@ source distribution. Partial base lists are combined without repeating identical
 `ClassifyConversion` distinguishes identity, intrinsic reference/nullable conversion, boxing, and
 absence of a supported intrinsic conversion. Nominal generic applications remain invariant. Numeric
 variables do not widen. Nullable values cannot silently become non-null values. Bottom converts to
-any value type; nullable bottom represents `null` and converts to nullable targets. This API does not
-search user-defined implicit conversions or implement general function variance/effect conversion.
+any value type; nullable bottom represents `null` and converts to nullable targets. Resolved
+function types support contravariant value parameters, covariant results, exact ref/out storage, and
+checked-effect budget coverage. This API does not search user-defined implicit conversions, and
+function type compatibility alone does not make a function value lowerable to native FIR.
 
 `CheckConstraints` checks one definition's ordered type arguments against inline and `where` bounds.
 Bounds are substituted before checking inherited nominal interfaces and classes. Multiple bounds must
@@ -79,7 +83,14 @@ There is no new Solc command or CLI emission mode for this analysis.
 Supported targets are module-level source functions, unqualified or qualified through imported
 module names/aliases. A local value shadowing a qualifier prevents module lookup. Functions from
 ambiguous imported modules are not silently combined into a new overload set. Member calls,
-constructors, local functions, function values, and compiler intrinsics remain `Deferred`.
+constructors, local functions, function values, and compiler intrinsics remain `Deferred` in this
+narrower `CallAnalysis` API. `BodyAnalysis` resolves an overloaded module-level function value when
+its expected function type uniquely selects a candidate; generic candidates must be fully closed by
+that type, and receiver-bound groups remain deferred. Stateless top-level object methods with no
+receiver state use the same expected-type selection when their declarations meet the source policy.
+Verified FIR lowers exact-signature closed references and indirect calls when parameter modes,
+types, result, and checked effects match the
+target's native signature. Closures and variance adapters remain outside the subset.
 
 Each candidate records the following independently:
 
@@ -105,15 +116,19 @@ nullable normalization. Constructed base projections can infer a parameter from 
 derived argument. Multiple bounds require one unique most-specific candidate; numeric widening is
 not introduced. Constraints are checked after inference for both method-owned and constructed-owner
 parameters. Explicit type arguments bypass evidence collection for those parameters but still pass
-constraint and conversion checks. Generic function-effect inference, complete lambda/array literal
-evidence, and monomorphized body rechecking remain deferred. See
+constraint and conversion checks. Bounded unordered matching can infer multiple top-level callback
+effect patterns when exactly one complete assignment survives; ambiguous and nested function-type
+sets remain deferred. Complete lambda/array literal evidence and monomorphized body rechecking also
+remain deferred. See
 [generic inference](generic-inference.md) for bounds, limits, and examples.
 
 Argument typing currently covers written lexical types, simple literal-initialized locals, typed
 properties, grouping, tuples, and nested bound direct calls. Numeric literals prefer default
 `int`/`double` matches, then other representable contextual targets; integer bounds are checked before
-selection. Binary128 literal rounding is deferred. Unary/operator expressions, array literal inference,
-lambdas, arbitrary property initializers, and full expression-body return inference are not implemented.
+selection. Binary128 literal rounding is deferred. Built-in and supported user-defined unary/binary
+operators bind in body analysis; generic operator arguments can use operand and expected-result
+evidence. Array literal inference, lambdas, arbitrary property initializers, and full expression-body
+return inference remain incomplete.
 A block function without a result annotation supplies `()`; expression-body functions need a written
 result for this binder. Declared effects are substituted and retained, without checked-effect coverage.
 
@@ -150,5 +165,8 @@ readers; further explicit workspace queries may intern additional types.
 Receiver member analysis is available through `BodyAnalysis`, including constructed generic bases,
 inherited overload groups, and method inference. The direct `CallAnalysis` API still cannot consume
 an enclosing expected-result type. Complete protected receiver checks, cross-distribution access,
-all user conversions, checked-effect coverage, smart casts, definite assignment, ref escape, and
-verified FIR remain future stages. See [member resolution](member-resolution.md).
+all user conversions, checked-effect proof for every source construct, smart casts, definite
+assignment, ref escape, and full verified FIR remain future stages. A bounded closed generic
+free-function slice is now carried from `BodyAnalysis` into verified FIR; it does not add a stable
+generic binary ABI or make all body-analysis results executable. See [member resolution](member-resolution.md) and
+[generic FIR lowering](generic-fir-specialization-lowering.md).

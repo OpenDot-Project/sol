@@ -62,7 +62,7 @@ that planned status. It uses the qualified scalar/SolRT bootstrap described in t
 | [Nullable member evaluation](semantics/NullableMemberEvaluation.sol) | One file | Conditional receiver, skipped arguments and branch proof |
 | [Generic lambda evidence transaction](semantics/GenericLambdaEvidenceTransaction.sol) | One file | Lambda evidence replay, candidate-local state and fixed-point dependency |
 | [Generic array call evidence](semantics/GenericArrayCallEvidence.sol) | One file | Literal-to-element inference, contextual recheck and array common types |
-| [Generic effect callback evidence](semantics/GenericEffectCallbackEvidence.sol) | One file | Single-open checked-effect inference and unresolved effect recovery |
+| [Generic effect callback evidence](semantics/GenericEffectCallbackEvidence.sol) | One file | Bounded unique multi-open checked-effect inference and unresolved effect recovery |
 | [Member path hiding routes](semantics/MemberPathHidingRoutes.sol) | One file | Hidden member on one route with a preserved alternate inherited route |
 | [Protected callable receiver matrix](semantics/ProtectedCallableReceiverMatrix.sol) | One file | Protected calls through this, super, derived and base-typed receivers |
 | [Accessor effect visibility routes](semantics/AccessorEffectVisibilityRoutes.sol) | One file | Independent getter/setter access and operation-specific effects |

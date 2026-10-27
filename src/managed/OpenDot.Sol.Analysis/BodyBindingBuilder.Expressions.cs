@@ -27,7 +27,7 @@ internal sealed partial class BodyBindingBuilder
             var value = expression switch
             {
                 AstAtom atom => Atom(atom, state, context, expected, read),
-                AstMember member => Member(member, state, context, read),
+                AstMember member => Member(member, state, context, read, expected),
                 AstCall call => SafeCall(call, state, context, expected),
                 AstOperation operation => Operation(operation, state, context, expected),
                 AstSequence sequence => Sequence(sequence, state, context, expected),
@@ -42,7 +42,14 @@ internal sealed partial class BodyBindingBuilder
             var status = Diagnostics.Count != errors ? BodyBindingStatus.Invalid
                 : value.Type is null || _deferred.Contains(expression) ? BodyBindingStatus.Deferred : BodyBindingStatus.Bound;
             Expressions[expression] = new(expression, value.Type, status, value.Writable, value.Storage,
-                state.Effects.OrderBy(t => t.Id).ToImmutableArray());
+                state.Effects.OrderBy(t => t.Id).ToImmutableArray())
+            {
+                FunctionValueTarget = value.Type?.Kind == ResolvedTypeKind.Function
+                    ? value.Symbol?.Parts[0] as AstFunction : null,
+                FunctionValueTypeArguments = value.Type?.Kind == ResolvedTypeKind.Function
+                    && !value.FunctionValueTypeArguments.IsDefault
+                    ? value.FunctionValueTypeArguments : [],
+            };
             if (value.Type?.Kind == ResolvedTypeKind.Bottom) { state.Reachable = false; }
             return value;
         }
@@ -105,14 +112,19 @@ internal sealed partial class BodyBindingBuilder
             return new(type, local.IsMutable, local.Kind != LocalSymbolKind.ConstructorProperty, local);
         }
         var symbols = lookup.Declarations.Candidates;
-        if (symbols.Length == 1) { return SymbolValue(symbols[0], ContainingType(atom), atom, state, context, read); }
+        if (symbols.Length == 1)
+        { return SymbolValue(symbols[0], ContainingType(atom), atom, state, context, read, expected: expected); }
         if (symbols.IsEmpty && ContainingType(atom) is { } receiver)
         {
             var inherited = FindMembers(receiver, atom.Spelling, atom).ToArray();
             if (inherited.Length == 1) { return SymbolValue(inherited[0].Symbol, inherited[0].DeclaringType, atom, state, context, read); }
+            if (inherited.Length > 1 && inherited.All(member => member.Symbol.Kind == SymbolKind.Function))
+            { Defer(atom); return new(null); }
+            if (inherited.Length > 1) { Report("SOL2212", "Ambiguous inherited value name.", atom); return new(null); }
         }
         if (symbols.IsEmpty) { Report("SOL2211", "Unresolved value name: " + atom.Spelling, atom); }
         else if (symbols.Any(s => s.Kind != SymbolKind.Function)) { Report("SOL2212", "Ambiguous value name.", atom); }
+        else { return OverloadedFunctionValue(atom, symbols, expected); }
         return new(null);
     }
 
@@ -193,7 +205,7 @@ internal sealed partial class BodyBindingBuilder
         {
             if (op == "!!") { return new(left.Type?.IsNullable == true ? left.Type.Arguments[0] : left.Type); }
             if (op is not ("++" or "--") && left.Type?.IsNullable == true
-                && LiftNullableUnary(operation, op, left, state, context) is { } liftedUnary)
+                && LiftNullableUnary(operation, op, left, state, context, expected) is { } liftedUnary)
             { return liftedUnary; }
             if (op == "!" && left.Type == Bool) { return new(Bool); }
             if (op is "+" or "-" && left.Type is not null && IsNumeric(left.Type)) { return new(left.Type); }
@@ -207,7 +219,8 @@ internal sealed partial class BodyBindingBuilder
                 { return liftedIncrement; }
                 if (left.Type is not null && IsNumeric(left.Type)) { return new(left.Type); }
             }
-            return OperatorCall(operation, op, [left], state, context);
+            var unaryExpected = op is "++" or "--" ? left.Type : expected;
+            return OperatorCall(operation, op, [left], state, context, expected: unaryExpected);
         }
         var rightState = state;
         if (op is "&&" or "||" or "?:")
@@ -234,7 +247,7 @@ internal sealed partial class BodyBindingBuilder
             return new(nonnull);
         }
         if (op is not ("&&" or "||") && (left.Type.IsNullable || right.Type.IsNullable)
-            && LiftNullableBinary(operation, op, left, right, state, context) is { } liftedBinary)
+            && LiftNullableBinary(operation, op, left, right, state, context, expected) is { } liftedBinary)
         { return liftedBinary; }
         if (op is "&&" or "||")
         {
@@ -246,10 +259,12 @@ internal sealed partial class BodyBindingBuilder
                 bool hasBitwise = HasDeclaredOperator(bitwiseOperator, left.Type, right.Type);
                 if (hasTruth || hasBitwise)
                 {
-                    var truth = OperatorCall(operation, truthOperator, [left], state, context, exactOperands: true);
+                    var truth = OperatorCall(operation, truthOperator, [left], state, context,
+                        exactOperands: true, expected: Bool);
                     if (truth.Type != Bool)
                     { Report("SOL2207", "Conditional logical truth operators must return bool.", operation); }
-                    var logical = OperatorCall(operation, bitwiseOperator, [left, right], state, context, exactOperands: true);
+                    var logical = OperatorCall(operation, bitwiseOperator, [left, right], state, context,
+                        exactOperands: true, expected: left.Type);
                     if (logical.Type != left.Type)
                     { Report("SOL2207", "Conditional logical bitwise operators must accept and return the same operand type.", operation); }
                     return logical.Type == left.Type ? logical : new(null);
@@ -264,7 +279,7 @@ internal sealed partial class BodyBindingBuilder
             return new(Bool);
         }
         if (op is "==" or "!=" && HasDeclaredOperator(op, left.Type, right.Type))
-        { return OperatorCall(operation, op, [left, right], state, context); }
+        { return OperatorCall(operation, op, [left, right], state, context, expected: Bool); }
         if (op is "==" or "!=" && (Converts(left.Type, right.Type) || Converts(right.Type, left.Type))) { return new(Bool); }
         if (left.Type == right.Type && IsNumeric(left.Type) && (op is "+" or "-" or "*" or "/" or "%" or "<" or ">" or "<=" or ">="
             || IsInteger(left.Type) && op is "&" or "|" or "^"))
@@ -274,7 +289,8 @@ internal sealed partial class BodyBindingBuilder
         if (op is "<<" or ">>" && IsInteger(left.Type) && right.Type == Types.GetPrimitive("int")) { return new(left.Type); }
         if (left.Type == Bool && right.Type == Bool && op is "&" or "|" or "^") { return new(Bool); }
         if (op == "+" && left.Type == Core("String") && right.Type == left.Type) { return new(left.Type); }
-        return OperatorCall(operation, op, [left, right], state, context);
+        var binaryExpected = op is "<" or ">" or "<=" or ">=" ? Bool : expected;
+        return OperatorCall(operation, op, [left, right], state, context, expected: binaryExpected);
     }
 
     private static bool IsNumeric(ResolvedType type) => type.Kind == ResolvedTypeKind.Primitive && type.Name != "bool";
@@ -284,6 +300,12 @@ internal sealed partial class BodyBindingBuilder
     {
         if (expected is null || value.Type is null || expected.IsError || value.Type.IsError) { Defer(node); return; }
         if (!Converts(value.Type, expected) && !(state is not null && UserConversion(value.Type, expected, node, state, true)))
-        { Report("SOL2206", "Expression type is not assignable to the expected type.", node); }
+        {
+            var genericOwner = Ancestors(node).OfType<AstFunction>().FirstOrDefault(function => function.TypeParameters.Any());
+            if (genericOwner is not null && (DependsOnCallableParameter(value.Type, genericOwner)
+                || DependsOnCallableParameter(expected, genericOwner)))
+            { Defer(node); }
+            else { Report("SOL2206", "Expression type is not assignable to the expected type.", node); }
+        }
     }
 }

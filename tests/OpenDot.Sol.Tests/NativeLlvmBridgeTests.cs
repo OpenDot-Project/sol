@@ -40,6 +40,61 @@ public sealed class NativeLlvmBridgeTests
     }
 
     [Fact(Skip = "Runs in required native-backend CI.", SkipUnless = nameof(Enabled), Timeout = 60000)]
+    public void OrcExecutesTypedFunctionValuesAndIndirectRefCalls()
+    {
+        const string source = "import std.stdio\n"
+            + "func increment(value: int): int = value + 1\n"
+            + "func <T> apply(value: T, callback: (T) -> T): T = callback(value)\n"
+            + "func incrementRef(ref value: int): () { value += 1 }\n"
+            + "func terminate(callback: () -> !): ! = callback()\n"
+            + "object Main { func main(args: []String) throws IOException {\n"
+            + "val callback: (int) -> int = increment; var answer = apply(40, callback);\n"
+            + "val step: (ref int) -> () = incrementRef; step(ref answer); println(answer)\n"
+            + "} }";
+        var compilation = FirCompilation.Create([AstTestSources.Parse(source)], TestContext.Current.CancellationToken);
+        var program = Assert.IsType<VerifiedFirProgram>(compilation.Program);
+        using var output = new MemoryStream();
+        using var error = new MemoryStream();
+
+        using (var module = LlvmEmitter.Build(program, Compiler(), TestContext.Current.CancellationToken))
+        {
+            string ir = module.Print();
+            Assert.Contains("call void %", ir, StringComparison.Ordinal);
+            Assert.Equal(new byte[] { 0x42, 0x43, 0xC0, 0xDE }, module.Bitcode()[..4]);
+            Assert.Equal(new byte[] { 0x64, 0x86 }, module.CompileObject()[..2]);
+        }
+
+        int exitCode = OrcExecutor.Execute(program, [], cancellationToken: TestContext.Current.CancellationToken,
+            standardOutput: output, standardError: error);
+        Assert.Equal(0, exitCode);
+        Assert.Equal("42\n", Encoding.UTF8.GetString(output.ToArray()));
+        Assert.Empty(error.ToArray());
+    }
+
+    [Fact(Skip = "Runs in required native-backend CI.", SkipUnless = nameof(Enabled), Timeout = 60000)]
+    public void CppBridgeBuildsAndRejectsMismatchedIndirectCallSignatures()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        cancellationToken.ThrowIfCancellationRequested();
+        using var module = Compiler().CreateModule();
+        long i32 = Apply(module, LlvmOperation.IntegerType, data: 32);
+        long i64 = Apply(module, LlvmOperation.IntegerType, data: 64);
+        long signature = Apply(module, LlvmOperation.FunctionType, i32, [i32]);
+        long function = Apply(module, LlvmOperation.Function, i32, [i32], text: "indirect_target");
+        long block = Apply(module, LlvmOperation.Block, args: [function]);
+        Apply(module, LlvmOperation.Position, args: [block]);
+        long parameter = Apply(module, LlvmOperation.Parameter, args: [function], data: 0);
+        long wrongArgument = Apply(module, LlvmOperation.Integer, i64, text: "1");
+        Assert.Throws<InvalidOperationException>(() => Apply(module, LlvmOperation.IndirectCall,
+            signature, [function, wrongArgument]));
+        long call = Apply(module, LlvmOperation.IndirectCall, signature, [function, parameter]);
+        Apply(module, LlvmOperation.Return, args: [call]);
+
+        module.Verify();
+        Assert.Contains("call i32 ", module.Print(), StringComparison.Ordinal);
+    }
+
+    [Fact(Skip = "Runs in required native-backend CI.", SkipUnless = nameof(Enabled), Timeout = 60000)]
     public async Task SessionsRejectForeignWrongKindCrossThreadAndDisposedHandles()
     {
         var compiler = Compiler(); using var first = compiler.CreateModule(); var second = compiler.CreateModule();

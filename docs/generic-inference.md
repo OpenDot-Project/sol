@@ -57,7 +57,8 @@ The expected type of a call expression is an output bound. If `identity<T>` retu
 is assigned to a `String`, the result context can infer T as String. For a generic nominal result,
 expected-result inference can project the open result type through its base graph before collecting
 invariant nested evidence. The specialized result is still checked against the expected type after
-inference.
+inference. A final expression in a block-bodied callable whose result is `()` is evaluated and
+discarded; it has no return-context type to feed back into generic inference.
 
 Each candidate receives a private copy of its substitutions and evidence. One rejected overload
 cannot alter the inference state, diagnostics, flow, or lambda context of another candidate.
@@ -87,6 +88,13 @@ If one type reaches the same generic base through several paths, every distinct 
 identity contributes evidence. A repeated path to the exact same type identity is deduplicated. If
 the paths imply conflicting type arguments, the candidate is rejected. Invariance prevents a
 projection from changing `Reader<Derived>` into `Reader<Base>`.
+
+Expected-result projection works in the opposite direction. Incompatible routes are ignored while
+the solver checks other constructed bases. If more than one route can satisfy the expected type but
+the routes produce different generic evidence, the expected type does not select a route. It adds no
+evidence at that projection; independent input evidence may still solve the call, and the specialized
+result is then checked for conversion to the expected type. If the remaining parameters have no
+evidence, inference stays unresolved.
 
 Generic bounds may themselves provide projections. For a parameter `T: Reader<String>`, the
 parameter's bound is traversed after its enclosing fixed substitution. Every inline and `where`
@@ -143,10 +151,27 @@ An uncontextualized integer or floating literal contributes the default source t
 target. Literal fitting does not permit an already typed numeric variable to widen implicitly.
 Binary128 literal rounding remains separately deferred.
 
-Function effect sets are unordered. The current candidate binder can infer exactly one open effect
-pattern when the fixed effects match and one actual effect remains. It does not positionally pair
-sets, and it leaves zero-or-many unresolved effect patterns deferred. Declared effects are
-substituted after successful type inference and checked by the separate effect analysis.
+Function effect sets are unordered. Inference uses a bounded relation-aware one-to-one mapping for
+the members that must be covered. An actual callback may use only part of the formal effect budget;
+unused open formal patterns still need independent evidence. A generic returned callback must fit
+inside the expected budget, which may also contain unused effects. The solver never pairs members
+by source position, requires every assigned open pattern to close, and accepts only one complete
+mapping satisfying generic bounds. Matching a constructed effect can expose another function-type
+effect set; the solver recursively matches it under the same state budget. No mapping, multiple
+valid mappings, or incomplete evidence remains deferred or inapplicable as appropriate. Declared
+effects are substituted after successful type inference and checked by the separate effect analysis.
+
+Function values contribute directional evidence through their complete function shape. Value
+parameter positions reverse input and expected-result bounds at every nested function boundary;
+result positions preserve the direction. Ref/out function parameters require exact storage types.
+The specialized function type is checked using contravariant value parameters, covariant results,
+and source checked effects contained by the target effect budget. Nominal generic applications remain
+invariant.
+
+Generic operator candidates use the same structural solver for operand evidence and a surrounding
+expected result. A return-only type parameter can be inferred from an expected type, with the
+operator's declared constraints checked before selection. Missing or contradictory evidence does
+not become an arbitrary type. This does not make operator bodies eligible for FIR/native lowering.
 
 ## Determinism and resource limits
 
@@ -171,8 +196,10 @@ The body call binder now uses the shared structural solver for generic member an
 candidates. It supports input, exact ref/out, expected-result bounds for written returns,
 invariant nested applications, constructed base projections, non-empty array literal evidence, and
 candidate-local lambda parameter/result evidence. Lambda candidates are replayed against updated
-substitutions until the inference map stabilizes or reaches its 128-pass budget. One unique open
-function-effect pattern can be inferred when the remaining set is unambiguous. Constraints are
+substitutions until the inference map stabilizes or reaches its 128-pass budget. Multiple open
+function-effect patterns can be inferred when bounded unordered matching proves one complete
+mapping. The matcher recursively solves nested function-effect sets reached through constructed
+effect identities; ambiguity and incomplete nested evidence remain deferred. Constraints are
 evaluated for both generic methods and constructed type owners. A missing parameter marks the call
 deferred; a conflicting/incompatible candidate is rejected so another independently valid overload
 can remain.
@@ -182,10 +209,12 @@ evidence but cannot infer a method type from an expected result outside the call
 case as deferred when argument evidence is insufficient.
 
 Not yet implemented: every lambda/array-literal shape and complete cross-argument contextual
-inference, multi-open effect-set matching, full common-interface/boxing interactions, generic body
-rechecking for each monomorphized substitution, user-defined conversion inference, checked-effect
-coverage, safe-call lowering, complete flow and borrow verification, FIR generation, or native code
-generation. The open work is also listed in
+inference, all cross-lambda fixed-point interactions, full common-interface/boxing interactions,
+generic body rechecking for each monomorphized substitution, user-defined conversion inference,
+checked-effect coverage, safe-call lowering, and complete flow and borrow verification. A bounded FIR/native slice
+now specializes closed module-level generic free functions over admitted primitive, String, and
+single-level array ABI types. It does not make the complete generic contract executable. The open
+work is also listed in
 [generic calls](generic-calls.md) and the [compiler status](status.md).
 
 ## Candidate-local lambda replay
@@ -313,10 +342,14 @@ Function effect sets have set semantics. Their source display order is not a typ
 solver cannot zip formal and actual effect arrays by index, because reordering either list would
 change the inferred exception.
 
-The current implementation supports one narrow case. The formal effect set must contain exactly
-one open pattern; all fixed effect identities must be present in the actual set; the formal and
-actual set cardinalities must match; and exactly one actual effect must remain. That residual is
-matched exactly against the one open pattern.
+The current implementation performs bounded unordered matching for all open top-level patterns in
+the callback effect set. It removes exact fixed identities, explores complete one-to-one mappings,
+and accepts a result only when one full mapping survives structural matching and owner constraints.
+Closed independent constraints prune invalid partial assignments. The set-member and visited-state
+caps are 256 and 4096; reaching either produces a resource diagnostic rather than a guessed mapping.
+When matching a constructed effect exposes another function-type effect set, the solver recursively
+matches that set with the same root search budget. Nested mappings that remain ambiguous or lack
+required evidence stay deferred.
 
 | Formal effects | Actual effects | Current result |
 |---|---|---|
@@ -324,14 +357,17 @@ matched exactly against the one open pattern.
 | `{E}` | `{IOException}` | infer E as IOException |
 | `{IOException, E}` | `{IOException, TimeoutException}` | infer E as TimeoutException |
 | `{IOException, E}` | `{TimeoutException, IOException}` | same result; order is irrelevant |
-| `{E, F}` | `{IOException, TimeoutException}` | unresolved; no positional pairing |
+| `{ReadFailure<T>, NetworkFailure<U>}` | `{ReadFailure<String>, NetworkFailure<int>}` | infer T=String, U=int; only one complete mapping |
+| `{E, F}` | `{IOException, TimeoutException}` | ambiguous; both complete mappings remain valid |
 | `{IOException, E}` | `{TimeoutException}` | fixed effect missing; reject effect match |
 | `{E}` | `{IOException, TimeoutException}` | cardinality mismatch; unresolved/inapplicable |
 | `{IOException}` | `{TimeoutException}` | no exact set match |
 
-The row with two open effects remains unsupported even if a particular source spelling appears
-obvious. A future matching algorithm must prove a unique set assignment under nested generic effect
-patterns and report ambiguity otherwise. It cannot change current results by source order.
+For multiple open effects, the binder searches complete one-to-one assignments under constructed
+generic effect identities and accepts the candidate only when exactly one assignment satisfies all
+available bounds and owner constraints. The row above remains ambiguous because both permutations
+are valid. A nested set exposed by a constructed effect uses the same recursive matcher; it cannot
+resolve an outer tie by source order. No result changes with source order.
 
 Checked effect inference is not checked-effect verification. After substitution, the call binder
 still validates the resulting declared effect set against the callable budget. Unchecked
@@ -477,7 +513,9 @@ that is itself produced by the selected overload.
 `SourceAnalysis` owns declarations, written types, and lexical scopes. `BodyAnalysis` owns the
 current bounded expression/call facts and completeness markers. `GenericInferenceSolver` is an
 internal analysis service. There is no public `solc` command that prints a solver ledger, no stable
-generic-instantiation object for downstream binaries, and no complete FIR specialization API yet.
+generic-instantiation object for downstream binaries, and no complete FIR specialization API.
+`FirCompilation` internally admits a bounded closed free-function specialization slice, subject to
+its separate native verifier and ABI gate.
 
 Direct `CallAnalysis` does not receive an enclosing expression's expected result. Its candidate
 inputs are therefore narrower than `BodyAnalysis` call sites where the parent expression supplies

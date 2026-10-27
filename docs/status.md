@@ -86,16 +86,19 @@ COFF and a Windows executable. Default dynamic and explicit static SolRT modes a
 Collectible Strings/scalar arrays and selected String/integral math APIs are available in development.
 [Library artifacts](library-artifacts.md) now include scalar C DLL/staticlib output and closed-subset
 Sol containers; external Sol module consumption remains pending. ORC runs in a separate native guest
-process. General objects, source catches/defer/EH, generics, the complete allocator, and full borrowing
-remain gated. The [standard library inventory](standard-library.md) lists implemented and pending modules.
+process. Closed module-level generic functions have a verified FIR/native slice for admitted
+primitive, String, and one-level array ABI types, with per-instance body rebinding and monomorphic
+generic function references. Generic owners/members, broad generic ABI, source catches/defer/EH, the
+complete allocator, and full borrowing remain gated. The [standard library inventory](standard-library.md)
+lists implemented and pending modules.
 
 ### Remaining stages
 
 1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.
-2. Complete receiver visibility/default conflict rules, generic body specialization, generated
-   members, and complete overload/expression typing on top of the new constructed-member resolver.
+2. Complete receiver visibility/default conflict rules, remaining generic body semantic coverage,
+   generated members, and complete overload/expression typing on top of the new constructed-member resolver.
 3. Expand the verified FIR subset with full nullability, checked exception/cleanup CFG, borrowing,
-   closures, generic specialization, and general object layouts.
+   closures, broader generic specialization, and general object layouts.
 4. Qualify complete Windows/ORC exception handling, library consumption and extended native ABI.
 5. Complete and validate the native allocator, Yellow Tea concurrency invariants, and `std.core`;
    expand the standard library with module-level API contracts and tests.

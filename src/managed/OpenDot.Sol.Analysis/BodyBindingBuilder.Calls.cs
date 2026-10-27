@@ -13,8 +13,9 @@ internal sealed partial class BodyBindingBuilder
 {
     private sealed record Target(AstCallable Callable, DeclarationSymbol? Symbol, ResolvedType? Receiver,
         ResolvedType? Constructed = null, ResolvedType? AccessReceiver = null);
-    private sealed record Applicable(Target Target, ArgumentMapping Mapping, ImmutableArray<ResolvedType> Parameters,
-        ResolvedType? Result, ImmutableArray<ResolvedType> Effects, ImmutableArray<int> Ranks, bool Generic);
+    private sealed record Applicable(Target Target, ArgumentMapping Mapping, ImmutableArray<ResolvedType> TypeArguments,
+        ImmutableArray<ResolvedType> Parameters, ResolvedType? Result, ImmutableArray<ResolvedType> Effects,
+        ImmutableArray<int> Ranks, bool Generic);
     private const int MaximumLambdaInferencePasses = 128;
 
     private Value SafeCall(AstCall call, State state, Context context, ResolvedType? expected)
@@ -61,12 +62,23 @@ internal sealed partial class BodyBindingBuilder
         var best = candidates.Where(c => !candidates.Any(other => !ReferenceEquals(c, other) && Better(other, c))).ToArray();
         if (best.Length != 1)
         {
+            bool dependsOnOpenParameter = context.Callable is { } owner && owner.TypeParameters.Any()
+                && (values.OfType<Value>().Any(value => value.Type is { } type && DependsOnCallableParameter(type, owner))
+                    || !explicitTypes.IsDefault && explicitTypes.Any(type => DependsOnCallableParameter(type, owner))
+                    || expected is not null && DependsOnCallableParameter(expected, owner));
+            if (dependsOnOpenParameter)
+            {
+                // Candidate ranking and constraints can change after the enclosing function closes T.
+                Defer(call);
+                return new(null);
+            }
             Report(best.Length == 0 ? "SOL2221" : "SOL2222", best.Length == 0 ? "No applicable callable signature." : "Ambiguous callable signature.", call);
             return new(null);
         }
         var selected = best[0];
-        Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.Parameters,
-            selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults);
+        Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.TypeArguments,
+            selected.Parameters, selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults)
+        { EmptyVarargParameters = selected.Mapping.EmptyVarargs };
         foreach (var parameter in selected.Parameters) { ValidateFunctionEffects(parameter, call); }
         if (selected.Result is not null) { ValidateFunctionEffects(selected.Result, call); }
         if (context.Callable is AstConstructor && targetExpression is AstMember { Receiver: AstAtom { Spelling: "this" } }
@@ -239,6 +251,7 @@ internal sealed partial class BodyBindingBuilder
         }
         inferParameters = inferParameters.Where(parameter => !substitution.ContainsKey(parameter)).ToImmutableArray();
         var inference = ImmutableArray.CreateBuilder<GenericInferenceConstraint>();
+        var arrayLiteralNumericEvidence = ImmutableArray.CreateBuilder<GenericInferenceConstraint>();
         foreach (var entry in mapping.Arguments)
         {
             var actual = values[entry.ArgumentIndex]?.Type;
@@ -263,7 +276,7 @@ internal sealed partial class BodyBindingBuilder
                 var formal = Written(callable.Parameters[entry.ParameterIndex].Type!);
                 bool exactArray = entry.IsArrayArgument || entry.IsSpread;
                 if (exactArray) { formal = Types.GetArray(formal); }
-                if (!AddArrayLiteralEvidence(inference, formal, array, exactArray, state, context,
+                if (!AddArrayLiteralEvidence(inference, arrayLiteralNumericEvidence, formal, array, exactArray, state, context,
                         "argument " + entry.ArgumentIndex, out _)) { return null; }
             }
         }
@@ -272,8 +285,14 @@ internal sealed partial class BodyBindingBuilder
         if (!inferParameters.IsEmpty)
         {
             var genericInference = GenericInference.Solve(inferParameters, substitution, inference);
+            if (genericInference.Status == GenericInferenceStatus.ResourceLimit)
+            {
+                Report("SOL2290", genericInference.Reason ?? "Generic inference exceeded its resource budget.", call);
+                Defer(call);
+                return null;
+            }
             if (genericInference.Status is GenericInferenceStatus.ConflictingEvidence
-                or GenericInferenceStatus.IncompatibleShape or GenericInferenceStatus.ResourceLimit)
+                or GenericInferenceStatus.IncompatibleShape)
             { return null; }
             substitution.Clear();
             foreach (var pair in genericInference.Substitution) { substitution.Add(pair.Key, pair.Value); }
@@ -305,8 +324,14 @@ internal sealed partial class BodyBindingBuilder
                 }
 
                 genericInference = GenericInference.Solve(unresolved, substitution, inference);
+                if (genericInference.Status == GenericInferenceStatus.ResourceLimit)
+                {
+                    Report("SOL2290", genericInference.Reason ?? "Generic lambda inference exceeded its resource budget.", call);
+                    Defer(call);
+                    return null;
+                }
                 if (genericInference.Status is GenericInferenceStatus.ConflictingEvidence
-                    or GenericInferenceStatus.IncompatibleShape or GenericInferenceStatus.ResourceLimit)
+                    or GenericInferenceStatus.IncompatibleShape)
                 { return null; }
                 substitution.Clear();
                 foreach (var pair in genericInference.Substitution) { substitution.Add(pair.Key, pair.Value); }
@@ -326,6 +351,31 @@ internal sealed partial class BodyBindingBuilder
                     Report("SOL2290", "Generic lambda inference exceeded the 128-pass fixed-point budget.", call);
                     Defer(call);
                     return null;
+                }
+            }
+            if (!unresolved.IsEmpty && arrayLiteralNumericEvidence.Count != 0)
+            {
+                // Numeric literal defaults are fallback evidence. Give other arguments, expected
+                // results, and candidate-local lambda facts the chance to select T first so each
+                // array literal can be checked for representability under the completed element type.
+                var fallback = arrayLiteralNumericEvidence.Where(constraint =>
+                    ContainsInferenceParameter(constraint.Template, unresolved)).ToArray();
+                if (fallback.Length != 0)
+                {
+                    inference.AddRange(fallback);
+                    genericInference = GenericInference.Solve(unresolved, substitution, inference);
+                    if (genericInference.Status == GenericInferenceStatus.ResourceLimit)
+                    {
+                        Report("SOL2290", genericInference.Reason ?? "Generic array inference exceeded its resource budget.", call);
+                        Defer(call);
+                        return null;
+                    }
+                    if (genericInference.Status is GenericInferenceStatus.ConflictingEvidence
+                        or GenericInferenceStatus.IncompatibleShape)
+                    { return null; }
+                    substitution.Clear();
+                    foreach (var pair in genericInference.Substitution) { substitution.Add(pair.Key, pair.Value); }
+                    unresolved = genericInference.UnresolvedParameters;
                 }
             }
             if (!unresolved.IsEmpty) { Defer(call); return null; }
@@ -388,7 +438,8 @@ internal sealed partial class BodyBindingBuilder
             : callable.ReturnType is not null ? Types.Substitute(Written(callable.ReturnType), substitution, _cancellation)
                 : CheckBody(callable).ReturnType is { } inferred ? Types.Substitute(inferred, substitution, _cancellation) : null;
         var effects = callable.ThrownTypes.Select(t => Types.Substitute(Written(t), substitution, _cancellation)).ToImmutableArray();
-        return new(target, mapping, types, result, effects, ranks.ToImmutable(), inferParameters.Length != 0);
+        var typeArguments = parameters.Select(parameter => substitution.GetValueOrDefault(parameter, parameter)).ToImmutableArray();
+        return new(target, mapping, typeArguments, types, result, effects, ranks.ToImmutable(), inferParameters.Length != 0);
     }
 
     private void AddLambdaEvidence(ImmutableArray<GenericInferenceConstraint>.Builder constraints,
@@ -400,7 +451,9 @@ internal sealed partial class BodyBindingBuilder
         {
             var written = parameters[index].Children.OfType<AstType>().FirstOrDefault();
             if (written is null || index >= formal.ParameterModes.Length) { continue; }
-            constraints.Add(new(formal.Arguments[index], Written(written), GenericInferenceRelation.Exact,
+            var relation = formal.ParameterModes[index] is AstPassingMode.Ref or AstPassingMode.Out
+                ? GenericInferenceRelation.Exact : GenericInferenceRelation.Expected;
+            constraints.Add(new(formal.Arguments[index], Written(written), relation,
                 "argument " + argumentIndex + " lambda parameter " + index));
         }
 
@@ -415,13 +468,13 @@ internal sealed partial class BodyBindingBuilder
         var marker = Types.GetPrimitive("int");
         var formalEffectSet = Types.GetFunction([], marker, [], formal.Effects);
         var actualEffectSet = Types.GetFunction([], marker, [], actual.Effects);
-        constraints.Add(new(formalEffectSet, actualEffectSet, GenericInferenceRelation.Exact,
+        constraints.Add(new(formalEffectSet, actualEffectSet, GenericInferenceRelation.Input,
             "argument " + argumentIndex + " lambda checked effects"));
     }
 
     private bool AddArrayLiteralEvidence(ImmutableArray<GenericInferenceConstraint>.Builder constraints,
-        ResolvedType template, AstSequence literal, bool exactArray, State state, Context context,
-        string origin, out string? error)
+        ImmutableArray<GenericInferenceConstraint>.Builder numericLiteralEvidence, ResolvedType template,
+        AstSequence literal, bool exactArray, State state, Context context, string origin, out string? error)
     {
         error = null;
         if (template.Kind is not (ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray))
@@ -458,7 +511,7 @@ internal sealed partial class BodyBindingBuilder
             if (element is AstSequence { SyntaxKind: NodeKind.ArrayExpression } nested
                 && elementTemplate.Kind is ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)
             {
-                if (!AddArrayLiteralEvidence(constraints, elementTemplate, nested, false, state, context,
+                if (!AddArrayLiteralEvidence(constraints, numericLiteralEvidence, elementTemplate, nested, false, state, context,
                         elementOrigin, out error)) { return false; }
                 continue;
             }
@@ -467,7 +520,11 @@ internal sealed partial class BodyBindingBuilder
             var value = AnalyzeExpressionCandidate(expression, state, context, out bool invalid);
             if (invalid || value.Type is null)
             { error = "Array literal element typing is incomplete."; return false; }
-            constraints.Add(new(elementTemplate, value.Type, GenericInferenceRelation.Input, elementOrigin));
+            var evidence = new GenericInferenceConstraint(elementTemplate, value.Type,
+                GenericInferenceRelation.Input, elementOrigin);
+            if (value.Literal is not null && value.Type.Kind == ResolvedTypeKind.Primitive)
+            { numericLiteralEvidence.Add(evidence); }
+            else { constraints.Add(evidence); }
         }
         return true;
     }
@@ -478,7 +535,10 @@ internal sealed partial class BodyBindingBuilder
         var parameters = Sources.Types.GetTypeParameters(definition);
         if (parameters.IsEmpty) { return true; }
         var arguments = parameters.Select(parameter => substitution.GetValueOrDefault(parameter, parameter)).ToArray();
-        var check = Types.CheckConstraints(definition, arguments, _cancellation);
+        var parameterSet = parameters.ToHashSet();
+        var enclosingSubstitution = substitution.Where(pair => !parameterSet.Contains(pair.Key))
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
+        var check = Types.CheckConstraintsWithSubstitution(definition, arguments, enclosingSubstitution, _cancellation);
         if (check.Status == ConstraintStatus.Unsatisfied) { return false; }
         if (check.Status == ConstraintStatus.Indeterminate)
         {

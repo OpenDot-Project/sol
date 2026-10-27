@@ -142,7 +142,8 @@ internal sealed partial class BodyBindingBuilder
 
     private sealed record Value(ResolvedType? Type, bool Writable = false, bool Storage = false,
         LocalSymbol? Local = null, DeclarationSymbol? Symbol = null, ResolvedType? Receiver = null,
-        string? Literal = null, bool IsType = false);
+        string? Literal = null, bool IsType = false,
+        ImmutableArray<ResolvedType> FunctionValueTypeArguments = default);
     private sealed record Context(AstCallable? Callable, ResolvedType? Result, AstLambda? Lambda = null,
         ResolvedType? LambdaType = null, int LoopDepth = 0, bool Cleanup = false,
         List<State>? Exits = null, List<State>? Breaks = null, List<State>? Continues = null,
@@ -152,6 +153,7 @@ internal sealed partial class BodyBindingBuilder
     private readonly MemberLookupResolver _memberResolver;
     private readonly GenericInferenceSolver _genericInference;
     private readonly Dictionary<LocalSymbol, ResolvedType> _localTypes = [];
+    private Dictionary<ResolvedType, ResolvedType> _bodySubstitution = [];
     private readonly HashSet<AstCallable> _active = [];
     private readonly HashSet<(AstNode, string)> _reported = [];
     private readonly HashSet<AstNode> _deferred = [];
@@ -161,6 +163,7 @@ internal sealed partial class BodyBindingBuilder
     internal readonly Dictionary<AstCallable, BodySummary> Bodies = new(ReferenceEqualityComparer.Instance);
     internal readonly List<Diagnostic> Diagnostics = [];
     internal readonly Dictionary<AstCall, BodyCallBinding> Calls = new(ReferenceEqualityComparer.Instance);
+    internal readonly Dictionary<AstNode, BodyOperatorBinding> OperatorBindings = new(ReferenceEqualityComparer.Instance);
     internal SourceAnalysis Sources { get; }
     internal TypeSpecialization Types { get; }
     internal MemberLookupResolver MemberResolver => _memberResolver;
@@ -171,14 +174,46 @@ internal sealed partial class BodyBindingBuilder
     private ResolvedType Bool => Types.GetPrimitive("bool");
 
     internal BodyBindingBuilder(SourceAnalysis sources, CancellationToken cancellation)
+        : this(sources, new TypeSpecialization(sources.Types), cancellation) { }
+
+    internal BodyBindingBuilder(SourceAnalysis sources, TypeSpecialization types, CancellationToken cancellation)
     {
-        Sources = sources; Types = new(sources.Types); _cancellation = cancellation;
+        Sources = sources; Types = types; _cancellation = cancellation;
         _memberResolver = new(sources, Types, cancellation);
         _genericInference = new(Types, cancellation);
         foreach (var file in sources.Declarations.Files)
         {
             foreach (var node in file.Nodes) { Files.Add(node, file); }
         }
+    }
+
+    internal SpecializedBodyAnalysis BuildGenericBody(AstFunction function, ImmutableArray<ResolvedType> arguments)
+    {
+        _cancellation.ThrowIfCancellationRequested();
+        var parameters = Sources.Types.GetTypeParameters(function);
+        if (parameters.IsEmpty || parameters.Length != arguments.Length)
+        { throw new ArgumentException("Generic function specialization arity differs from its declaration.", nameof(arguments)); }
+        bool hasTypeOwner = false;
+        for (var parent = Files[function].GetParent(function); parent is not null; parent = Files[function].GetParent(parent))
+        { hasTypeOwner |= parent is AstTypeDeclaration; }
+        if (hasTypeOwner && !GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(function, Sources))
+        { throw new ArgumentException("Only direct generic methods on stateless module-level objects can be rebound for native FIR.", nameof(function)); }
+        _bodySubstitution = [];
+        for (int index = 0; index < parameters.Length; index++)
+        {
+            Types.ValidateOwnership(arguments[index]);
+            _bodySubstitution.Add(parameters[index], arguments[index]);
+        }
+        var constraints = Types.CheckConstraints(function, arguments, _cancellation);
+        if (constraints.Status != ConstraintStatus.Satisfied)
+        {
+            Report("SOL2221", "Generic function constraints are not proven for the closed instance.", function);
+            var rejected = new BodySummary(function, null, true, BodyBindingStatus.Invalid, []);
+            return new(this, function, arguments, rejected);
+        }
+        var summary = CheckBody(function);
+        _cancellation.ThrowIfCancellationRequested();
+        return new(this, function, arguments, summary);
     }
 
     internal void Build()
@@ -291,7 +326,11 @@ internal sealed partial class BodyBindingBuilder
     }
     private IEnumerable<LocalSymbol> OwnLocals(AstNode node) => Sources.Lexical.Scopes.Where(s => ReferenceEquals(s.Owner, node)).SelectMany(s => s.Symbols);
     private AstProperty? ParentProperty(AstNode node) => Ancestors(node).OfType<AstProperty>().FirstOrDefault();
-    private ResolvedType Written(AstType type) => Sources.Types.GetType(type);
+    private ResolvedType Written(AstType type)
+    {
+        var written = Sources.Types.GetType(type);
+        return _bodySubstitution.Count == 0 ? written : Types.Substitute(written, _bodySubstitution, _cancellation);
+    }
     private ResolvedType? Core(string name) => Sources.Declarations.Modules.GetValueOrDefault("std.core")?.Declarations
         .Where(s => s.Kind == SymbolKind.Type && s.Name == name && s.Arity == 0).Select(s => Types.Nominal(s, [])).SingleOrDefault();
     private bool Converts(ResolvedType source, ResolvedType target) => Types.ClassifyConversion(source, target, _cancellation) != IntrinsicConversion.None;

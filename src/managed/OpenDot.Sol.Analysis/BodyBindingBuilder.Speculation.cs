@@ -17,6 +17,7 @@ internal sealed partial class BodyBindingBuilder
         int exceptionalEdgeCount = exceptionSink?.Count ?? 0;
         var expressionSnapshot = Expressions.ToArray();
         var callSnapshot = Calls.ToArray();
+        var operatorSnapshot = OperatorBindings.ToArray();
         var bodySnapshot = Bodies.ToArray();
         var localSnapshot = _localTypes.ToArray();
         var activeSnapshot = _active.ToArray();
@@ -35,6 +36,7 @@ internal sealed partial class BodyBindingBuilder
         {
             Restore(Expressions, expressionSnapshot);
             Restore(Calls, callSnapshot);
+            Restore(OperatorBindings, operatorSnapshot);
             Restore(Bodies, bodySnapshot);
             Restore(_localTypes, localSnapshot);
             Restore(_active, activeSnapshot);

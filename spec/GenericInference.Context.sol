@@ -152,8 +152,10 @@ module source.spec.generic_inference.context
 //
 // The return parameter and callback result refer to the same T identity. The callback's effect
 // contract is checked against the function type and the enclosing `throws` contract. Effect types
-// are an unordered set. If type parameters occur only in the effect set, the inference algorithm
-// needs set-aware constraints; source ordering of `throws` names is not evidence.
+// are an unordered set. If type parameters occur only in a top-level callback effect set, bounded
+// matching can infer them only from one complete assignment after structural matching and owner
+// constraints. Nested sets and multiple valid assignments remain deferred; source ordering of
+// `throws` names is never evidence.
 
 // Candidate-local contextual typing
 // ---------------------------------

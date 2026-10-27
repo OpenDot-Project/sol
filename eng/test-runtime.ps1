@@ -63,6 +63,27 @@ foreach ($mode in @('slot-use-after-free', 'slot-overflow', 'cache-use-after-ret
         }
     } finally { $child.Dispose() }
 }
+foreach ($mode in @('array-bounds', 'array-negative-index', 'array-stride')) {
+    $info = [Diagnostics.ProcessStartInfo]::new($exe)
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardError = $true
+    $info.RedirectStandardOutput = $true
+    $info.ArgumentList.Add($mode)
+    $child = [Diagnostics.Process]::Start($info)
+    try {
+        $errorTask = $child.StandardError.ReadToEndAsync()
+        $outputTask = $child.StandardOutput.ReadToEndAsync()
+        if (-not $child.WaitForExit(30000)) { $child.Kill($true); throw 'Array access rejection timed out.' }
+        $message = $errorTask.GetAwaiter().GetResult()
+        $output = $outputTask.GetAwaiter().GetResult()
+        $expected = if ($mode -eq 'array-stride') { 'bootstrap invariant failed' } else { 'IndexOutOfBoundsException' }
+        if ($child.ExitCode -ne 1 -or $message -notmatch $expected -or
+            $message -match 'AddressSanitizer' -or $output.Length -ne 0) {
+            throw "Invalid reference array access was accepted or reached invalid memory: ${mode}: $message"
+        }
+    } finally { $child.Dispose() }
+}
 foreach ($mode in @('null-offsets', 'header-offset', 'unaligned-offset', 'outside-object', 'descriptor-extent', 'short-array',
                     'negative-length', 'zero-stride', 'oversized-payload', 'element-overlap', 'element-overflow')) {
     $info = [Diagnostics.ProcessStartInfo]::new($exe)

@@ -131,7 +131,8 @@ internal sealed partial class BodyBindingBuilder
         && ReferenceEquals(assignment.Location, location);
 
     private Value SymbolValue(DeclarationSymbol symbol, ResolvedType? receiver, AstNode location,
-        State state, Context context, bool read, ResolvedType? accessReceiver = null)
+        State state, Context context, bool read, ResolvedType? accessReceiver = null,
+        ResolvedType? expected = null)
     {
         bool declarationAccessible = Accessible(symbol, location);
         if (!declarationAccessible) { Report("SOL2214", "The declaration is inaccessible here.", location); }
@@ -201,6 +202,19 @@ internal sealed partial class BodyBindingBuilder
         }
         if (symbol.Parts[0] is AstFunction function)
         {
+            var owner = Ancestors(function).OfType<AstTypeDeclaration>().FirstOrDefault();
+            if (owner is not null && (owner.SyntaxKind != NodeKind.ObjectDeclaration
+                || !GenericMethodSourcePolicy.IsSupportedStatelessObjectMethod(function, Sources)))
+            {
+                // Instance methods and stateful singleton methods need a receiver environment;
+                // never publish their unbound signature as an ordinary code pointer.
+                Defer(location);
+                return new(null, Symbol: symbol, Receiver: receiver);
+            }
+            if (function.TypeParameters.Any())
+            {
+                return OverloadedFunctionValue(location, [symbol], expected);
+            }
             var result = function.ReturnType is null ? CheckBody(function).ReturnType is { } inferred
                 ? Types.Substitute(inferred, Substitution(receiver), _cancellation) : null : Specialize(function.ReturnType, receiver);
             if (result is null || function.Parameters.Any(p => p.Type is null) || symbol.Arity != 0) { return new(null, Symbol: symbol, Receiver: receiver); }
@@ -214,12 +228,18 @@ internal sealed partial class BodyBindingBuilder
         Defer(location); return new(null, Symbol: symbol, Receiver: receiver);
     }
 
-    private Value Member(AstMember member, State state, Context context, bool read)
+    private Value Member(AstMember member, State state, Context context, bool read, ResolvedType? expected = null)
     {
         if (Qualified(member) is { Length: > 0 } qualified)
         {
-            if (qualified.Length != 1) { Report("SOL2212", "Ambiguous qualified value.", member); return new(null); }
-            return SymbolValue(qualified[0], null, member, state, context, read);
+            if (qualified.Length != 1)
+            {
+                if (qualified.All(symbol => symbol.Kind == SymbolKind.Function))
+                { return OverloadedFunctionValue(member, qualified, expected); }
+                Report("SOL2212", "Ambiguous qualified value.", member);
+                return new(null);
+            }
+            return SymbolValue(qualified[0], null, member, state, context, read, expected: expected);
         }
         var receiver = Expression(member.Receiver, state, context);
         if (receiver.Type is null || member.Name is null) { return new(null); }
@@ -259,10 +279,18 @@ internal sealed partial class BodyBindingBuilder
         if (found.Length != 1)
         {
             if (found.Any(m => m.Symbol.Kind != SymbolKind.Function)) { Report("SOL2212", "Ambiguous member.", member); }
+            else if (read)
+            {
+                var overloadedValue = OverloadedFunctionValue(member,
+                    found.Select(candidate => candidate.Symbol).ToImmutableArray(), expected);
+                return member.IsSafe && overloadedValue.Type is not null
+                    ? overloadedValue with { Type = Types.GetNullable(overloadedValue.Type), Writable = false, Storage = false }
+                    : overloadedValue;
+            }
             return new(null);
         }
         var value = SymbolValue(found[0].Symbol, found[0].DeclaringType, member, state, context,
-            read, accessReceiver: type);
+            read, accessReceiver: type, expected: expected);
         return member.IsSafe && value.Type is not null ? value with { Type = Types.GetNullable(value.Type), Writable = false, Storage = false } : value;
     }
 

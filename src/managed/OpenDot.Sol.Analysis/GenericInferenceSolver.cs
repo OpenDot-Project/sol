@@ -51,7 +51,7 @@ internal sealed record GenericInferenceResult(
 /// This component is deliberately a bounded source-analysis service: it does not specialize a
 /// callable body, create FIR, or choose an overload.
 /// </summary>
-internal sealed class GenericInferenceSolver
+internal sealed partial class GenericInferenceSolver
 {
     private const int MaximumDepth = 128;
     private const int MaximumGraphNodes = 4096;
@@ -84,77 +84,90 @@ internal sealed class GenericInferenceSolver
         ArgumentNullException.ThrowIfNull(fixedSubstitution);
         ArgumentNullException.ThrowIfNull(constraints);
 
-        var parameterSet = new HashSet<ResolvedType>();
-        var evidence = new Dictionary<ResolvedType, Evidence>();
-        foreach (var parameter in parameters)
+        try
         {
-            _types.ValidateOwnership(parameter);
-            if (parameter.Kind != ResolvedTypeKind.Parameter || !parameterSet.Add(parameter))
+            var parameterSet = new HashSet<ResolvedType>();
+            var evidence = new Dictionary<ResolvedType, Evidence>();
+            var effectConstraints = new List<EffectSetConstraint>();
+            foreach (var parameter in parameters)
             {
-                throw new ArgumentException("Inference inputs must be unique generic parameters.", nameof(parameters));
+                _types.ValidateOwnership(parameter);
+                if (parameter.Kind != ResolvedTypeKind.Parameter || !parameterSet.Add(parameter))
+                {
+                    throw new ArgumentException("Inference inputs must be unique generic parameters.", nameof(parameters));
+                }
+                evidence.Add(parameter, new Evidence());
             }
-            evidence.Add(parameter, new Evidence());
-        }
-        foreach (var pair in fixedSubstitution)
-        {
-            _types.ValidateOwnership(pair.Key);
-            _types.ValidateOwnership(pair.Value);
-            if (pair.Key.Kind != ResolvedTypeKind.Parameter)
+            foreach (var pair in fixedSubstitution)
             {
-                throw new ArgumentException("Substitution keys must be generic parameters.", nameof(fixedSubstitution));
+                _types.ValidateOwnership(pair.Key);
+                _types.ValidateOwnership(pair.Value);
+                if (pair.Key.Kind != ResolvedTypeKind.Parameter)
+                {
+                    throw new ArgumentException("Substitution keys must be generic parameters.", nameof(fixedSubstitution));
+                }
             }
-        }
 
-        var fixedMap = new Dictionary<ResolvedType, ResolvedType>(fixedSubstitution);
-        var missingShape = false;
-        foreach (var constraint in constraints)
-        {
-            _cancellation.ThrowIfCancellationRequested();
-            _types.ValidateOwnership(constraint.Template);
-            _types.ValidateOwnership(constraint.Actual);
-            var template = fixedMap.Count == 0 ? constraint.Template
-                : _types.Substitute(constraint.Template, fixedMap, _cancellation);
-            var actual = fixedMap.Count == 0 ? constraint.Actual
-                : _types.Substitute(constraint.Actual, fixedMap, _cancellation);
-            if (!Collect(template, actual, constraint.Relation, constraint.Origin,
-                    parameterSet, evidence, fixedMap, 0))
+            var fixedMap = new Dictionary<ResolvedType, ResolvedType>(fixedSubstitution);
+            var missingShape = false;
+            foreach (var constraint in constraints)
             {
-                missingShape = true;
+                _cancellation.ThrowIfCancellationRequested();
+                _types.ValidateOwnership(constraint.Template);
+                _types.ValidateOwnership(constraint.Actual);
+                var template = fixedMap.Count == 0 ? constraint.Template
+                    : _types.Substitute(constraint.Template, fixedMap, _cancellation);
+                var actual = fixedMap.Count == 0 ? constraint.Actual
+                    : _types.Substitute(constraint.Actual, fixedMap, _cancellation);
+                if (!Collect(template, actual, constraint.Relation, constraint.Origin,
+                        parameterSet, evidence, fixedMap, effectConstraints, 0))
+                {
+                    missingShape = true;
+                }
             }
-        }
 
-        var solved = new Dictionary<ResolvedType, ResolvedType>(fixedMap);
-        var unresolved = ImmutableArray.CreateBuilder<ResolvedType>();
-        var conflicts = ImmutableArray.CreateBuilder<ResolvedType>();
-        foreach (var parameter in parameters)
-        {
-            _cancellation.ThrowIfCancellationRequested();
-            var bucket = evidence[parameter];
-            if (!TryChoose(bucket, fixedMap, out var chosen, out bool conflict))
+            ResolveEffectSets(parameters, parameterSet, fixedMap, evidence, effectConstraints);
+
+            var solved = new Dictionary<ResolvedType, ResolvedType>(fixedMap);
+            var unresolved = ImmutableArray.CreateBuilder<ResolvedType>();
+            var conflicts = ImmutableArray.CreateBuilder<ResolvedType>();
+            foreach (var parameter in parameters)
             {
-                if (conflict) { conflicts.Add(parameter); }
-                else { unresolved.Add(parameter); }
-                continue;
+                _cancellation.ThrowIfCancellationRequested();
+                var bucket = evidence[parameter];
+                if (!TryChoose(bucket, fixedMap, out var chosen, out bool conflict))
+                {
+                    if (conflict) { conflicts.Add(parameter); }
+                    else { unresolved.Add(parameter); }
+                    continue;
+                }
+                solved.Add(parameter, chosen!);
             }
-            solved.Add(parameter, chosen!);
-        }
 
-        if (conflicts.Count != 0)
-        {
-            return Result(GenericInferenceStatus.ConflictingEvidence, solved, unresolved, conflicts, evidence,
-                "The argument and expected-result bounds do not have one most-specific type.");
+            if (conflicts.Count != 0)
+            {
+                return Result(GenericInferenceStatus.ConflictingEvidence, solved, unresolved, conflicts, evidence,
+                    "The argument and expected-result bounds do not have one most-specific type.");
+            }
+            if (missingShape)
+            {
+                return Result(GenericInferenceStatus.IncompatibleShape, solved, unresolved, conflicts, evidence,
+                    "A nested generic type shape could not be matched invariantly.");
+            }
+            if (unresolved.Count != 0)
+            {
+                return Result(GenericInferenceStatus.MissingEvidence, solved, unresolved, conflicts, evidence,
+                    "At least one generic parameter has no argument or expected-result evidence.");
+            }
+            return Result(GenericInferenceStatus.Solved, solved, unresolved, conflicts, evidence, null);
         }
-        if (missingShape)
+        catch (TypeSpecializationException error) when (error.Failure == SpecializationFailure.ResourceLimit)
         {
-            return Result(GenericInferenceStatus.IncompatibleShape, solved, unresolved, conflicts, evidence,
-                "A nested generic type shape could not be matched invariantly.");
+            // Resource exhaustion is a normal bounded-inference outcome. Do not let a deep
+            // projection/effect graph escape as an exception or publish partial substitutions.
+            return new(GenericInferenceStatus.ResourceLimit, ImmutableDictionary<ResolvedType, ResolvedType>.Empty,
+                parameters, [], [], error.Message);
         }
-        if (unresolved.Count != 0)
-        {
-            return Result(GenericInferenceStatus.MissingEvidence, solved, unresolved, conflicts, evidence,
-                "At least one generic parameter has no argument or expected-result evidence.");
-        }
-        return Result(GenericInferenceStatus.Solved, solved, unresolved, conflicts, evidence, null);
     }
 
     private GenericInferenceResult Result(GenericInferenceStatus status,
@@ -176,7 +189,8 @@ internal sealed class GenericInferenceSolver
 
     private bool Collect(ResolvedType template, ResolvedType actual, GenericInferenceRelation relation,
         string origin, HashSet<ResolvedType> parameters, Dictionary<ResolvedType, Evidence> buckets,
-        IReadOnlyDictionary<ResolvedType, ResolvedType> fixedMap, int depth)
+        IReadOnlyDictionary<ResolvedType, ResolvedType> fixedMap,
+        List<EffectSetConstraint> effectConstraints, int depth)
     {
         _cancellation.ThrowIfCancellationRequested();
         if (depth > MaximumDepth) { throw new TypeSpecializationException(SpecializationFailure.ResourceLimit,
@@ -188,12 +202,19 @@ internal sealed class GenericInferenceSolver
             AddEvidence(buckets[template], template, relation, actual, origin);
             return true;
         }
-        if (!ContainsInferenceParameter(template, parameters)) { return true; }
+        if (!ContainsInferenceParameter(template, parameters))
+        {
+            // Exact relations also constrain portions of an invariant generic shape that do
+            // not contain an inference variable. Treating those portions as evidence-free can
+            // make an incompatible base projection look applicable.
+            return relation != GenericInferenceRelation.Exact || template == actual;
+        }
 
         if (template.IsNullable)
         {
             var payload = actual.IsNullable ? actual.Arguments[0] : actual;
-            return Collect(template.Arguments[0], payload, relation, origin, parameters, buckets, fixedMap, depth + 1);
+            return Collect(template.Arguments[0], payload, relation, origin, parameters, buckets,
+                fixedMap, effectConstraints, depth + 1);
         }
         if (actual.IsNullable) { return false; }
 
@@ -208,6 +229,11 @@ internal sealed class GenericInferenceSolver
                 ? Project(template, projectionTarget, fixedMap)
                 : Project(actual, projectionTarget, fixedMap);
             if (projections.IsEmpty) { return false; }
+            if (relation == GenericInferenceRelation.Expected)
+            {
+                return CollectExpectedProjection(template, actual, projections, origin, parameters, buckets,
+                    fixedMap, effectConstraints, depth);
+            }
             foreach (var projection in projections)
             {
                 var left = relation == GenericInferenceRelation.Expected ? projection : template;
@@ -218,7 +244,7 @@ internal sealed class GenericInferenceSolver
                     // Nominal applications are invariant. Projection changes only the nominal
                     // constructor; it never turns T in Box<T> into a covariant bound.
                     if (!Collect(left.Arguments[index], right.Arguments[index], GenericInferenceRelation.Exact,
-                            origin, parameters, buckets, fixedMap, depth + 1)) { return false; }
+                            origin, parameters, buckets, fixedMap, effectConstraints, depth + 1)) { return false; }
                 }
             }
             return true;
@@ -234,35 +260,102 @@ internal sealed class GenericInferenceSolver
 
         for (int index = 0; index < template.Arguments.Length; index++)
         {
-            if (!Collect(template.Arguments[index], actual.Arguments[index], GenericInferenceRelation.Exact,
-                    origin, parameters, buckets, fixedMap, depth + 1)) { return false; }
+            GenericInferenceRelation nestedRelation;
+            if (template.Kind == ResolvedTypeKind.Function && index < template.ParameterModes.Length)
+            {
+                nestedRelation = template.ParameterModes[index] is AstPassingMode.Ref or AstPassingMode.Out
+                    ? GenericInferenceRelation.Exact
+                    : ReverseFunctionParameterRelation(relation);
+            }
+            else
+            {
+                nestedRelation = template.Kind == ResolvedTypeKind.Function
+                    ? relation
+                    : GenericInferenceRelation.Exact;
+            }
+
+            if (!Collect(template.Arguments[index], actual.Arguments[index], nestedRelation,
+                    origin, parameters, buckets, fixedMap, effectConstraints, depth + 1)) { return false; }
         }
 
-        return CollectEffectEvidence(template.Effects, actual.Effects, relation, origin,
-            parameters, buckets, fixedMap, depth + 1);
+        if (template.Effects.IsEmpty && actual.Effects.IsEmpty) { return true; }
+        if (effectConstraints.Count >= MaximumGraphNodes)
+        {
+            throw new TypeSpecializationException(SpecializationFailure.ResourceLimit,
+                "Generic inference exceeds the 4096 nested effect-relation budget.");
+        }
+        effectConstraints.Add(new(template.Effects, actual.Effects, relation, origin, depth + 1));
+        return true;
     }
 
-    private bool CollectEffectEvidence(ImmutableArray<ResolvedType> templates,
-        ImmutableArray<ResolvedType> actuals, GenericInferenceRelation relation, string origin,
-        HashSet<ResolvedType> parameters, Dictionary<ResolvedType, Evidence> buckets,
-        IReadOnlyDictionary<ResolvedType, ResolvedType> fixedMap, int depth)
+    private static GenericInferenceRelation ReverseFunctionParameterRelation(GenericInferenceRelation relation) => relation switch
     {
-        // Effect sets are unordered. Infer the single open effect pattern only when every fixed
-        // member has an exact counterpart and exactly one actual member remains. Otherwise leave
-        // effect-only parameters unresolved; a positional guess could bind the wrong exception.
-        var open = templates.Where(effect => ContainsInferenceParameter(effect, parameters)).ToArray();
-        if (open.Length != 1 || templates.Length != actuals.Length) { return true; }
+        GenericInferenceRelation.Input => GenericInferenceRelation.Expected,
+        GenericInferenceRelation.Expected => GenericInferenceRelation.Input,
+        GenericInferenceRelation.Exact => GenericInferenceRelation.Exact,
+        _ => throw new ArgumentOutOfRangeException(nameof(relation)),
+    };
 
-        var remaining = actuals.ToList();
-        foreach (var fixedEffect in templates.Where(effect => !ContainsInferenceParameter(effect, parameters)))
+    private bool CollectExpectedProjection(ResolvedType template, ResolvedType actual,
+        ImmutableArray<ResolvedType> projections, string origin, HashSet<ResolvedType> parameters,
+        Dictionary<ResolvedType, Evidence> buckets,
+        IReadOnlyDictionary<ResolvedType, ResolvedType> fixedMap,
+        List<EffectSetConstraint> effectConstraints, int depth)
+    {
+        var orderedParameters = parameters.OrderBy(parameter => parameter.Id).ToImmutableArray();
+        var matches = new List<(Dictionary<ResolvedType, Evidence> Evidence, List<EffectSetConstraint> Effects)>();
+        foreach (var projection in projections)
         {
-            int index = remaining.FindIndex(actual => ReferenceEquals(actual, fixedEffect));
-            if (index < 0) { return true; }
-            remaining.RemoveAt(index);
+            _cancellation.ThrowIfCancellationRequested();
+            if (projection.Declaration != actual.Declaration || projection.Arguments.Length != actual.Arguments.Length)
+            { continue; }
+
+            var candidateEvidence = CloneEvidence(buckets, orderedParameters);
+            var candidateEffects = new List<EffectSetConstraint>(effectConstraints);
+            bool matchesExpected = true;
+            for (int index = 0; index < projection.Arguments.Length; index++)
+            {
+                // A projected return is a candidate path. A mismatch on one base route must not
+                // erase valid evidence from a different route; test each route transactionally.
+                if (!Collect(projection.Arguments[index], actual.Arguments[index], GenericInferenceRelation.Exact,
+                        origin, parameters, candidateEvidence, fixedMap, candidateEffects, depth + 1))
+                { matchesExpected = false; break; }
+            }
+            if (matchesExpected) { matches.Add((candidateEvidence, candidateEffects)); }
         }
-        if (remaining.Count != 1) { return true; }
-        return Collect(open[0], remaining[0], GenericInferenceRelation.Exact, origin,
-            parameters, buckets, fixedMap, depth);
+
+        if (matches.Count == 0) { return false; }
+        var selected = matches[0];
+        for (int index = 1; index < matches.Count; index++)
+        {
+            if (!SameEvidence(selected.Evidence, matches[index].Evidence, orderedParameters)
+                || !SameEffectConstraints(selected.Effects, matches[index].Effects))
+            {
+                // The expected type does not identify one route. It contributes no inference
+                // fact here; independent input evidence can still close the call, after which
+                // the specialized result is checked for conversion to the expected type.
+                return true;
+            }
+        }
+
+        MergeEvidence(buckets, selected.Evidence, orderedParameters);
+        effectConstraints.AddRange(selected.Effects.Skip(effectConstraints.Count));
+        return true;
+    }
+
+    private static bool SameEvidence(Dictionary<ResolvedType, Evidence> left,
+        Dictionary<ResolvedType, Evidence> right, ImmutableArray<ResolvedType> parameters) => parameters.All(parameter =>
+            left[parameter].Lower.OrderBy(type => type.Id).SequenceEqual(right[parameter].Lower.OrderBy(type => type.Id))
+            && left[parameter].Exact.OrderBy(type => type.Id).SequenceEqual(right[parameter].Exact.OrderBy(type => type.Id))
+            && left[parameter].Upper.OrderBy(type => type.Id).SequenceEqual(right[parameter].Upper.OrderBy(type => type.Id)));
+
+    private static bool SameEffectConstraints(List<EffectSetConstraint> left, List<EffectSetConstraint> right)
+    {
+        static string Key(EffectSetConstraint constraint) => constraint.Relation + "|" + constraint.Origin + "|" + constraint.Depth + "|"
+            + string.Join(",", constraint.Templates.Select(type => type.Id).Order()) + "|"
+            + string.Join(",", constraint.Actuals.Select(type => type.Id).Order());
+        return left.Select(Key).OrderBy(key => key, StringComparer.Ordinal)
+            .SequenceEqual(right.Select(Key).OrderBy(key => key, StringComparer.Ordinal), StringComparer.Ordinal);
     }
 
     private static void AddEvidence(Evidence evidence, ResolvedType parameter,

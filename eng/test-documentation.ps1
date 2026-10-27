@@ -11,7 +11,10 @@ $files = @(Get-Item (Join-Path $root 'README.md'), (Join-Path $root 'CONTRIBUTIN
 $count = 0
 foreach ($file in $files) {
     $text = Get-Content -LiteralPath $file.FullName -Raw
-    foreach ($match in [regex]::Matches($text, '\[[^\]]+\]\(([^)]+)\)')) {
+    # Inline code often contains Sol indexing followed by a call, such as
+    # `callbacks[i](value)`. Do not interpret that source syntax as a Markdown link.
+    $linkText = [regex]::Replace($text, '`[^`]*`', '')
+    foreach ($match in [regex]::Matches($linkText, '\[[^\]]+\]\(([^)]+)\)')) {
         $target = $match.Groups[1].Value
         if ($target -match '^(https?://|mailto:|#)') { continue }
         $path = Join-Path $file.DirectoryName ($target -split '#')[0]

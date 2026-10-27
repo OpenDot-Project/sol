@@ -154,14 +154,15 @@ module source.spec.generic_inference.lambda_candidates
 // catches remove covered effects. RuntimeException and its descendants do not require a checked
 // budget. An effect set on the formal function type is checked after candidate substitution.
 //
-// If exactly one open effect pattern remains after fixed effects match and exactly one actual
-// checked effect remains, the candidate may infer that one effect parameter by exact constructed
-// identity. The inferred effect must satisfy Throwable and every declared generic constraint.
+// After fixed effects match, the candidate may infer multiple open effect parameters only when a
+// bounded unordered search finds exactly one complete one-to-one mapping to actual checked effects.
+// Matching uses exact constructed identity and the inferred arguments must satisfy Throwable and
+// every declared generic constraint.
 //
-// If fixed effects do not match, the candidate is inapplicable. If there are multiple open effect
-// patterns, multiple remaining actual effects, or multiple possible pattern mappings, the candidate
-// is indeterminate until a complete set-matching proof exists. Sorting by qualified name, source
-// order, hash order, or diagnostic order is never a tie-break.
+// If fixed effects do not match, the candidate is inapplicable. If no complete mapping exists,
+// multiple mappings survive, or nested function-type effect matching is required, the candidate
+// remains indeterminate. Sorting by qualified name, source order, hash order, or diagnostic order is
+// never a tie-break.
 //
 // A lambda with no checked effects cannot infer a required effect parameter as RuntimeException,
 // Throwable, or an empty type. The type parameter remains missing unless another valid source gives
@@ -271,7 +272,7 @@ module source.spec.generic_inference.lambda_candidates
 // - infer an owner parameter from a constructed receiver and a distinct method parameter from the
 //   callback result;
 // - use two lower results with one unique common base where the callback signature permits it;
-// - infer one open checked effect after exact matching of all fixed effects;
+// - infer multiple open checked effects when exactly one complete constructed-type mapping remains;
 // - map a trailing lambda to a function parameter after a middle vararg without changing order;
 // - use an expected call result as an independent upper bound for a generic callback result;
 // - recheck the chosen lambda against its closed result and effect contract;
@@ -295,10 +296,11 @@ module source.spec.generic_inference.lambda_candidates
 // ------------------------
 //
 // BodyAnalysis currently performs candidate-local replay for a bounded set of generic calls whose
-// unresolved type facts occur in callback parameters/results/effects. It supports only effect-set
-// cases with a unique single open effect pattern. It also performs bounded array-literal evidence
-// collection for call candidates. The direct CallAnalysis API has no enclosing flow context and
-// remains narrower.
+// unresolved type facts occur in callback parameters/results/effects. For top-level callback effect
+// sets it supports bounded unordered matching when exactly one complete assignment survives. It
+// also performs bounded array-literal evidence collection for call candidates. Nested function-type
+// effect sets remain deferred. The direct CallAnalysis API has no enclosing flow context and remains
+// narrower.
 //
 // These source-analysis facts do not prove generic bodies for every substitution. Complete body
 // specialization, flow joins, borrow/escape proof, verified FIR, code generation, and runtime
