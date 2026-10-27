@@ -285,8 +285,14 @@ internal sealed partial class BodyBindingBuilder
         if (!inferParameters.IsEmpty)
         {
             var genericInference = GenericInference.Solve(inferParameters, substitution, inference);
+            if (genericInference.Status == GenericInferenceStatus.ResourceLimit)
+            {
+                Report("SOL2290", genericInference.Reason ?? "Generic inference exceeded its resource budget.", call);
+                Defer(call);
+                return null;
+            }
             if (genericInference.Status is GenericInferenceStatus.ConflictingEvidence
-                or GenericInferenceStatus.IncompatibleShape or GenericInferenceStatus.ResourceLimit)
+                or GenericInferenceStatus.IncompatibleShape)
             { return null; }
             substitution.Clear();
             foreach (var pair in genericInference.Substitution) { substitution.Add(pair.Key, pair.Value); }
@@ -318,8 +324,14 @@ internal sealed partial class BodyBindingBuilder
                 }
 
                 genericInference = GenericInference.Solve(unresolved, substitution, inference);
+                if (genericInference.Status == GenericInferenceStatus.ResourceLimit)
+                {
+                    Report("SOL2290", genericInference.Reason ?? "Generic lambda inference exceeded its resource budget.", call);
+                    Defer(call);
+                    return null;
+                }
                 if (genericInference.Status is GenericInferenceStatus.ConflictingEvidence
-                    or GenericInferenceStatus.IncompatibleShape or GenericInferenceStatus.ResourceLimit)
+                    or GenericInferenceStatus.IncompatibleShape)
                 { return null; }
                 substitution.Clear();
                 foreach (var pair in genericInference.Substitution) { substitution.Add(pair.Key, pair.Value); }
@@ -352,8 +364,14 @@ internal sealed partial class BodyBindingBuilder
                 {
                     inference.AddRange(fallback);
                     genericInference = GenericInference.Solve(unresolved, substitution, inference);
+                    if (genericInference.Status == GenericInferenceStatus.ResourceLimit)
+                    {
+                        Report("SOL2290", genericInference.Reason ?? "Generic array inference exceeded its resource budget.", call);
+                        Defer(call);
+                        return null;
+                    }
                     if (genericInference.Status is GenericInferenceStatus.ConflictingEvidence
-                        or GenericInferenceStatus.IncompatibleShape or GenericInferenceStatus.ResourceLimit)
+                        or GenericInferenceStatus.IncompatibleShape)
                     { return null; }
                     substitution.Clear();
                     foreach (var pair in genericInference.Substitution) { substitution.Add(pair.Key, pair.Value); }

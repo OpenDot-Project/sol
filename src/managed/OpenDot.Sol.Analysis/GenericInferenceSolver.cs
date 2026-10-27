@@ -84,80 +84,90 @@ internal sealed partial class GenericInferenceSolver
         ArgumentNullException.ThrowIfNull(fixedSubstitution);
         ArgumentNullException.ThrowIfNull(constraints);
 
-        var parameterSet = new HashSet<ResolvedType>();
-        var evidence = new Dictionary<ResolvedType, Evidence>();
-        var effectConstraints = new List<EffectSetConstraint>();
-        foreach (var parameter in parameters)
+        try
         {
-            _types.ValidateOwnership(parameter);
-            if (parameter.Kind != ResolvedTypeKind.Parameter || !parameterSet.Add(parameter))
+            var parameterSet = new HashSet<ResolvedType>();
+            var evidence = new Dictionary<ResolvedType, Evidence>();
+            var effectConstraints = new List<EffectSetConstraint>();
+            foreach (var parameter in parameters)
             {
-                throw new ArgumentException("Inference inputs must be unique generic parameters.", nameof(parameters));
+                _types.ValidateOwnership(parameter);
+                if (parameter.Kind != ResolvedTypeKind.Parameter || !parameterSet.Add(parameter))
+                {
+                    throw new ArgumentException("Inference inputs must be unique generic parameters.", nameof(parameters));
+                }
+                evidence.Add(parameter, new Evidence());
             }
-            evidence.Add(parameter, new Evidence());
-        }
-        foreach (var pair in fixedSubstitution)
-        {
-            _types.ValidateOwnership(pair.Key);
-            _types.ValidateOwnership(pair.Value);
-            if (pair.Key.Kind != ResolvedTypeKind.Parameter)
+            foreach (var pair in fixedSubstitution)
             {
-                throw new ArgumentException("Substitution keys must be generic parameters.", nameof(fixedSubstitution));
+                _types.ValidateOwnership(pair.Key);
+                _types.ValidateOwnership(pair.Value);
+                if (pair.Key.Kind != ResolvedTypeKind.Parameter)
+                {
+                    throw new ArgumentException("Substitution keys must be generic parameters.", nameof(fixedSubstitution));
+                }
             }
-        }
 
-        var fixedMap = new Dictionary<ResolvedType, ResolvedType>(fixedSubstitution);
-        var missingShape = false;
-        foreach (var constraint in constraints)
-        {
-            _cancellation.ThrowIfCancellationRequested();
-            _types.ValidateOwnership(constraint.Template);
-            _types.ValidateOwnership(constraint.Actual);
-            var template = fixedMap.Count == 0 ? constraint.Template
-                : _types.Substitute(constraint.Template, fixedMap, _cancellation);
-            var actual = fixedMap.Count == 0 ? constraint.Actual
-                : _types.Substitute(constraint.Actual, fixedMap, _cancellation);
-            if (!Collect(template, actual, constraint.Relation, constraint.Origin,
-                    parameterSet, evidence, fixedMap, effectConstraints, 0))
+            var fixedMap = new Dictionary<ResolvedType, ResolvedType>(fixedSubstitution);
+            var missingShape = false;
+            foreach (var constraint in constraints)
             {
-                missingShape = true;
+                _cancellation.ThrowIfCancellationRequested();
+                _types.ValidateOwnership(constraint.Template);
+                _types.ValidateOwnership(constraint.Actual);
+                var template = fixedMap.Count == 0 ? constraint.Template
+                    : _types.Substitute(constraint.Template, fixedMap, _cancellation);
+                var actual = fixedMap.Count == 0 ? constraint.Actual
+                    : _types.Substitute(constraint.Actual, fixedMap, _cancellation);
+                if (!Collect(template, actual, constraint.Relation, constraint.Origin,
+                        parameterSet, evidence, fixedMap, effectConstraints, 0))
+                {
+                    missingShape = true;
+                }
             }
-        }
 
-        ResolveEffectSets(parameters, parameterSet, fixedMap, evidence, effectConstraints);
+            ResolveEffectSets(parameters, parameterSet, fixedMap, evidence, effectConstraints);
 
-        var solved = new Dictionary<ResolvedType, ResolvedType>(fixedMap);
-        var unresolved = ImmutableArray.CreateBuilder<ResolvedType>();
-        var conflicts = ImmutableArray.CreateBuilder<ResolvedType>();
-        foreach (var parameter in parameters)
-        {
-            _cancellation.ThrowIfCancellationRequested();
-            var bucket = evidence[parameter];
-            if (!TryChoose(bucket, fixedMap, out var chosen, out bool conflict))
+            var solved = new Dictionary<ResolvedType, ResolvedType>(fixedMap);
+            var unresolved = ImmutableArray.CreateBuilder<ResolvedType>();
+            var conflicts = ImmutableArray.CreateBuilder<ResolvedType>();
+            foreach (var parameter in parameters)
             {
-                if (conflict) { conflicts.Add(parameter); }
-                else { unresolved.Add(parameter); }
-                continue;
+                _cancellation.ThrowIfCancellationRequested();
+                var bucket = evidence[parameter];
+                if (!TryChoose(bucket, fixedMap, out var chosen, out bool conflict))
+                {
+                    if (conflict) { conflicts.Add(parameter); }
+                    else { unresolved.Add(parameter); }
+                    continue;
+                }
+                solved.Add(parameter, chosen!);
             }
-            solved.Add(parameter, chosen!);
-        }
 
-        if (conflicts.Count != 0)
-        {
-            return Result(GenericInferenceStatus.ConflictingEvidence, solved, unresolved, conflicts, evidence,
-                "The argument and expected-result bounds do not have one most-specific type.");
+            if (conflicts.Count != 0)
+            {
+                return Result(GenericInferenceStatus.ConflictingEvidence, solved, unresolved, conflicts, evidence,
+                    "The argument and expected-result bounds do not have one most-specific type.");
+            }
+            if (missingShape)
+            {
+                return Result(GenericInferenceStatus.IncompatibleShape, solved, unresolved, conflicts, evidence,
+                    "A nested generic type shape could not be matched invariantly.");
+            }
+            if (unresolved.Count != 0)
+            {
+                return Result(GenericInferenceStatus.MissingEvidence, solved, unresolved, conflicts, evidence,
+                    "At least one generic parameter has no argument or expected-result evidence.");
+            }
+            return Result(GenericInferenceStatus.Solved, solved, unresolved, conflicts, evidence, null);
         }
-        if (missingShape)
+        catch (TypeSpecializationException error) when (error.Failure == SpecializationFailure.ResourceLimit)
         {
-            return Result(GenericInferenceStatus.IncompatibleShape, solved, unresolved, conflicts, evidence,
-                "A nested generic type shape could not be matched invariantly.");
+            // Resource exhaustion is a normal bounded-inference outcome. Do not let a deep
+            // projection/effect graph escape as an exception or publish partial substitutions.
+            return new(GenericInferenceStatus.ResourceLimit, ImmutableDictionary<ResolvedType, ResolvedType>.Empty,
+                parameters, [], [], error.Message);
         }
-        if (unresolved.Count != 0)
-        {
-            return Result(GenericInferenceStatus.MissingEvidence, solved, unresolved, conflicts, evidence,
-                "At least one generic parameter has no argument or expected-result evidence.");
-        }
-        return Result(GenericInferenceStatus.Solved, solved, unresolved, conflicts, evidence, null);
     }
 
     private GenericInferenceResult Result(GenericInferenceStatus status,

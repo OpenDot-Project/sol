@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System.Linq;
+using System.Text;
 using OpenDot.Sol.Analysis;
 using Xunit;
 
@@ -59,5 +60,22 @@ public sealed class GenericInferenceExpectedResultTests
 
         Assert.DoesNotContain(analysis.Calls, binding => binding.Target.Name == "make");
         Assert.True(analysis.HasErrors || !analysis.IsComplete);
+    }
+
+    [Fact]
+    public void ProjectionDepthBudgetReturnsAnInferenceFailureInsteadOfThrowing()
+    {
+        var source = new StringBuilder("interface Root<T> {}\nopen class Layer0<T>: Root<T> {}\n");
+        for (int index = 1; index <= 130; index++)
+        {
+            source.Append("open class Layer").Append(index).Append("<T>: Layer").Append(index - 1)
+                .Append("<T> {}\n");
+        }
+        source.Append("func <T> make(): Layer130<T> = throw RuntimeException()\n")
+            .Append("func use(): Root<String> = make()");
+
+        var analysis = Analyze(source.ToString());
+
+        Assert.Contains(analysis.Diagnostics, diagnostic => diagnostic.Code == "SOL2290");
     }
 }
