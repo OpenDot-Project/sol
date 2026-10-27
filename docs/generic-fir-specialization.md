@@ -11,9 +11,12 @@ from behavior that the current implementation can execute.
 
 Source analysis can bind generic calls, solve the currently supported inference evidence, select one
 overload, and retain the selected type arguments in declaration order. The FIR builder can turn a
-directly called, module-level generic free function into a closed, monomorphic function instance.
-An outer specialization is applied to nested call arguments and the resulting instances enter a
-bounded work queue. The verifier then checks that each instance agrees with its source declaration,
+directly called module-level generic free function, or an eligible method on a stateless top-level
+`object`, into a closed, monomorphic function instance. Object methods use direct singleton
+qualification or an unqualified call from the same object; the native function ABI has no receiver
+slot. Eligible omitted defaults use the same pure, non-vararg call-plan rules as generic free
+functions. An outer specialization is applied to nested call arguments and the resulting instances enter
+a bounded work queue. The verifier then checks that each instance agrees with its source declaration,
 type arguments, constraints, selected call bindings, substituted expressions, parameter types,
 return type, effects and exact target identity.
 
@@ -34,7 +37,7 @@ as a future requirement in the specification.
 
 | Concern | Detailed reference | Current status |
 |---|---|---|
-| End-to-end specialization and admission | [Normative specialization contract](../spec/GenericFirSpecialization.sol) | A bounded module-level generic free-function slice is implemented. |
+| End-to-end specialization and admission | [Normative specialization contract](../spec/GenericFirSpecialization.sol) | Closed free functions and the stateless top-level object-method subset are implemented. |
 | Source examples and expected outcomes | [Specialization case matrix](../spec/GenericFirSpecializationCases.sol) | Examples annotate source binding separately from FIR/native admission. |
 | Limits, termination and budgets | [Resource limits](../spec/GenericFirSpecializationLimits.sol), [Instantiation graph](../spec/GenericFirInstantiationGraph.sol) | The builder enforces instance, body-node and nested-type bounds; the full cache contract is normative. |
 | Cache identity and determinism | [Cache and determinism](generic-fir-specialization/CacheAndDeterminism.md) | Reuse is compilation-local; there is no persistent or parallel generic FIR cache. |
@@ -50,7 +53,7 @@ as a future requirement in the specification.
 | Recursion and termination | [Recursion and limits](generic-fir-specialization/RecursionAndLimits.md) | Exact keys are reused; distinct keys consume bounded resources. |
 | JSON and diagnostics | [JSON and diagnostic contract](generic-fir-specialization/JsonAndDiagnostics.md) | Documents schema 5 metadata, source identity, origins, and phase-specific diagnostics. |
 | Artifact and runtime boundaries | [Artifact contract](generic-fir-specialization/Artifacts.md), [native artifacts](library-artifacts.md) | The generic slice does not create C ABI or external `.solib` generic exports. |
-| Generic owners and members | [Owner/member contract](generic-fir-specialization/OwnersAndMembers.md), [member resolution](member-resolution.md) | Source member binding is broader than verified generic member FIR. |
+| Generic owners and members | [Owner/member contract](generic-fir-specialization/OwnersAndMembers.md), [member resolution](member-resolution.md) | Only methods on stateless, non-generic top-level objects enter generic FIR; other members remain outside it. |
 | Storage, arrays and GC roots | [Storage and root contract](generic-fir-specialization/StorageAndRoots.md), [Yellow Tea ABI](yellow-tea/compiler-runtime-abi.md) | Generic collections, spans, nullable layouts and full per-instance root maps remain outside the slice. |
 | Function values, lambdas and closures | [Function-value contract](generic-fir-specialization/FunctionValues.md) | Source analysis covers some contextual values; generic indirect FIR and closure lowering remain unsupported. |
 | Runtime and collectors | [Yellow Tea](yellow-tea/index.md), [runtime ABI](yellow-tea/compiler-runtime-abi.md) | This specialization slice does not broaden runtime layouts or GC root rules. |

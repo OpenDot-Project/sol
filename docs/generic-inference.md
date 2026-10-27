@@ -57,7 +57,8 @@ The expected type of a call expression is an output bound. If `identity<T>` retu
 is assigned to a `String`, the result context can infer T as String. For a generic nominal result,
 expected-result inference can project the open result type through its base graph before collecting
 invariant nested evidence. The specialized result is still checked against the expected type after
-inference.
+inference. A final expression in a block-bodied callable whose result is `()` is evaluated and
+discarded; it has no return-context type to feed back into generic inference.
 
 Each candidate receives a private copy of its substitutions and evidence. One rejected overload
 cannot alter the inference state, diagnostics, flow, or lambda context of another candidate.

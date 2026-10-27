@@ -517,6 +517,16 @@ public static partial class FirVerifier
 
         private void MatchCall(FirCall actual, AstCall source, BodyCallBinding binding)
         {
+            if (binding.Target is AstFunction genericMethod && genericMethod.TypeParameters.Any()
+                && GenericMethodSourcePolicy.DirectOwner(genericMethod, program.Analysis.Sources) is not null)
+            {
+                var caller = program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
+                    .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, _function.Origin.Element));
+                if (caller is null || !GenericMethodSourcePolicy.IsSupportedGenericMethodCall(source, caller,
+                        genericMethod, binding, program.Analysis.Sources))
+                { Fail("Generic method call receiver is not a direct verified singleton reference.", actual.Origin); }
+            }
+
             bool adapter = actual.Target >= 0 && actual.Target < program.Functions.Length
                 && program.Functions[actual.Target].RuntimeFunction != FirRuntimeFunction.None;
             if (adapter)

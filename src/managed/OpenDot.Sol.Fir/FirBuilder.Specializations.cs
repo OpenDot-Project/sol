@@ -60,8 +60,9 @@ internal sealed partial class FirBuilder
             if (_functions.TryGetValue(function, out int ordinary)) { return ordinary; }
             Unsupported(call, "Unregistered native function target"); return -1;
         }
-        if (Ancestors(function).OfType<AstTypeDeclaration>().Any())
-        { Unsupported(call, "Generic member specialization"); return -1; }
+        bool hasTypeOwner = Ancestors(function).OfType<AstTypeDeclaration>().Any();
+        if (hasTypeOwner && !GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(function, _analysis.Sources))
+        { Unsupported(call, "Generic member specialization outside the stateless-object method subset"); return -1; }
         if (function.Body.Kind == AstBodyKind.Missing || function.ReturnsByReference)
         { Unsupported(call, "Generic specialization requires a source body and value return"); return -1; }
 

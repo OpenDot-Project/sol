@@ -117,12 +117,16 @@ internal sealed partial class FirBuilder
             return new(id, function.Name!, [], [], result, null, runtime, function.ThrownTypes.Select(_analysis.Sources.Types.GetType).Select(Specialize).ToImmutableArray(), function.Origin);
         }
         var owner = Ancestors(function).OfType<AstTypeDeclaration>().FirstOrDefault();
-        if (function.TypeParameters.Any() && (owner is not null || specializationArguments.Length != function.TypeParameters.Count())
+        bool supportedGenericMethod = owner is not null
+            && GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(function, _analysis.Sources);
+        if (function.TypeParameters.Any() && ((owner is not null && !supportedGenericMethod)
+                || specializationArguments.Length != function.TypeParameters.Count())
             || !function.TypeParameters.Any() && !specializationArguments.IsEmpty
             || function.ReturnsByReference || function.Body.Kind == AstBodyKind.Missing
             || owner is not null && (owner.SyntaxKind != NodeKind.ObjectDeclaration
                 || _analysis.Sources.Types.GetTypeParameters(owner).Length != 0
-                || owner.Members.Any(m => m is not AstFunction)))
+                || owner.Members.Any(m => m is not AstFunction)
+                || function.TypeParameters.Any() && !supportedGenericMethod))
         { Unsupported(function, "Generic, unimplemented, ref-return, or stateful receiver body"); }
         var parameters = ImmutableArray.CreateBuilder<FirSlot>();
         foreach (var parameter in function.Parameters)

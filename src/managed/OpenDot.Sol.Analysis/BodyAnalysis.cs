@@ -178,7 +178,14 @@ public sealed class BodyAnalysis
         }
         string ids = string.Join(",", typeArguments.Select(argument => argument.Id.ToString(CultureInfo.InvariantCulture)));
         var key = new GenericBodyKey(function, ids);
-        lock (_genericBodyGate)
+        // Binding a closed body is intentionally single-flight so concurrent requests cannot
+        // duplicate its resource-bounded work. A monitor's ordinary lock acquisition cannot
+        // observe cancellation while queued, so acquire in bounded waits instead.
+        while (!Monitor.TryEnter(_genericBodyGate, millisecondsTimeout: 25))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        try
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (_genericBodies.TryGetValue(key, out var cached)) { return cached; }
@@ -190,6 +197,7 @@ public sealed class BodyAnalysis
             { _genericBodies.Add(key, result); }
             return result;
         }
+        finally { Monitor.Exit(_genericBodyGate); }
     }
 
     private static bool ContainsTypeParameter(ResolvedType type)

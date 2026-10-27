@@ -63,6 +63,10 @@ internal sealed partial class FirBuilder
                     return new FirIntrinsic(intrinsic, inputs.ToImmutable(), type, call.Origin) { ParameterOrder = order.ToImmutable() };
                 }
                 var typeArguments = selected.TypeArguments.Select(Specialize).ToImmutableArray();
+                if (selected.Target is AstFunction genericMethod && genericMethod.TypeParameters.Any()
+                    && GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(genericMethod, _analysis.Sources)
+                    && !IsSupportedGenericMethodCall(call, genericMethod, selected))
+                { Unsupported(call, "Generic object method receiver is not a direct, verified singleton reference"); return Invalid(call); }
                 int target = SpecializationTarget(selected.Target, typeArguments, call);
                 if (target < 0) { return Invalid(call); }
                 if (!selected.DefaultParameters.IsEmpty)

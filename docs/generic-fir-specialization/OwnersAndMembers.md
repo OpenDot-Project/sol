@@ -15,12 +15,22 @@ base edges, collect candidate-local inference evidence, and check nominal constr
 answers source questions such as which member is selected for a `Box<String>` receiver and whether
 its declared signature is applicable.
 
-Verified generic FIR has a narrower scope. The current slice specializes closed, directly called,
-module-level generic free functions over admitted type shapes. It does not emit a generic class,
-struct, ref struct, object or companion layout, nor generic constructors, methods, accessors,
-indexers, operators, virtual slots or generic runtime descriptors. A source-selected member that
-falls outside the FIR slice receives an explicit native-admission rejection. The compiler must not
-substitute a similarly named free function or a lower-ranked overload.
+Verified generic FIR has a narrower scope. It specializes closed, directly called module-level
+generic free functions and generic methods declared by a stateless, non-generic, module-level
+`object`, provided the source call directly names that singleton or is an unqualified call within
+the same object. Eligible object parts contain only implemented functions; they have no bases,
+initialization, constructors, properties, or other state. Eligible methods have no virtual or
+operator dispatch, annotations, ref return, or `this`/`super` use. The method body is emitted with a
+receiver-free ABI, and both the builder and verifier validate the source receiver shape. A
+local/computed receiver is rejected even when source analysis can bind it. Omitted defaults use the
+existing pure, non-vararg call-plan rules: explicit values are evaluated once in source order and a
+default may read only an earlier value parameter captured by the call. Defaults after `ref`/`out`
+parameters remain outside FIR.
+
+This does not emit generic class, struct, ref struct or companion layouts, nor generic constructors,
+properties, accessors, indexers, operators, virtual slots, or generic runtime descriptors. A
+source-selected member outside the FIR slice receives an explicit native-admission rejection. The
+compiler must not substitute a similarly named free function or a lower-ranked overload.
 
 Substituting the declared types in an already analyzed member body is not enough for a future member
 implementation. A closed owner can change overload applicability, property and accessor selection,

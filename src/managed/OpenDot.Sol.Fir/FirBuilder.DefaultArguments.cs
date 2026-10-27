@@ -19,9 +19,11 @@ internal sealed partial class FirBuilder
         ImmutableArray<ResolvedType> typeArguments, ResolvedType resultType)
     {
         if (selected.Target is not AstFunction function
-            || Ancestors(function).Any(parent => parent is AstFunction or AstTypeDeclaration)
+            || Ancestors(function).Any(parent => parent is AstFunction)
+            || Ancestors(function).Any(parent => parent is AstTypeDeclaration)
+                && !GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(function, _analysis.Sources)
             || function.Parameters.Any(parameter => parameter.PassingMode == AstPassingMode.Vararg))
-        { return Reject(call, "Default lowering is limited to non-vararg module-level functions"); }
+        { return Reject(call, "Default lowering is limited to non-vararg module functions and eligible stateless-object methods"); }
 
         var locals = ParameterLocals(function);
         var parameterOrdinals = locals.ToDictionary(pair => pair.Value, pair => pair.Key);

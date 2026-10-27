@@ -191,11 +191,11 @@ internal sealed partial class BodyBindingBuilder
         var parameters = Sources.Types.GetTypeParameters(function);
         if (parameters.IsEmpty || parameters.Length != arguments.Length)
         { throw new ArgumentException("Generic function specialization arity differs from its declaration.", nameof(arguments)); }
+        bool hasTypeOwner = false;
         for (var parent = Files[function].GetParent(function); parent is not null; parent = Files[function].GetParent(parent))
-        {
-            if (parent is AstTypeDeclaration)
-            { throw new ArgumentException("Only module-level generic functions can be rebound for native FIR.", nameof(function)); }
-        }
+        { hasTypeOwner |= parent is AstTypeDeclaration; }
+        if (hasTypeOwner && !GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(function, Sources))
+        { throw new ArgumentException("Only direct generic methods on stateless module-level objects can be rebound for native FIR.", nameof(function)); }
         _bodySubstitution = [];
         for (int index = 0; index < parameters.Length; index++)
         {

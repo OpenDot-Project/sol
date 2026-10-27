@@ -165,8 +165,9 @@ public static partial class FirVerifier
             {
                 var sourceFile = program.Analysis.Sources.Declarations.Files.Single(file => file.Nodes.OfType<AstFunction>()
                     .Any(function => ReferenceEquals(function.Origin.Element, source.Origin.Element)));
-                if (HasTypeOwner(sourceFile, source))
-                { Fail("Only module-level generic functions can appear in verified FIR.", _function.Origin); }
+                if (HasTypeOwner(sourceFile, source)
+                    && !GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(source, program.Analysis.Sources))
+                { Fail("Generic member FIR is outside the stateless-object method subset.", _function.Origin); }
                 for (int index = 0; index < genericParameters.Length; index++)
                 {
                     var argument = _function.SpecializationArguments[index];
@@ -359,6 +360,7 @@ public static partial class FirVerifier
                 if (!reachable.Contains(function.Id))
                 { Fail("Generic FIR instance is not reachable from a nongeneric source function.", function.Origin); }
             }
+            CheckGenericMethodOwnerInstanceGraph();
         }
 
         private void Statement(FirStatement statement, int loops)

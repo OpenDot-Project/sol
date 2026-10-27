@@ -13,10 +13,12 @@ module source.spec.generic_fir_owners_and_members
 //
 // The active implementation can bind generic member calls in source analysis, substitute
 // constructed receivers for lookup, collect candidate-local inference evidence, and check nominal
-// constraints. The first closed generic FIR/native slice is restricted to directly called,
-// module-level generic free functions. A generic owner or generic member cannot be emitted as a
-// verified native FIR instance by that slice. This difference is intentional and must be preserved
-// until per-instance semantic rebinding, layouts, dispatch, runtime metadata, and ABI rules exist.
+// constraints. Verified FIR accepts directly called module-level generic free functions and a
+// bounded receiver-free subset of generic methods on stateless, non-generic module-level objects.
+// Generic methods on stateful, nested, companion, inherited, generic, or virtual owners remain
+// outside FIR, as do computed receivers, constructors, properties, accessors, indexers, and
+// operators. Full owner/member specialization still requires broader per-instance semantic
+// rebinding, layouts, dispatch, runtime metadata, and ABI rules.
 
 // 1. Generic parameter identity belongs to a declaration
 // ------------------------------------------------------
@@ -527,16 +529,26 @@ module source.spec.generic_fir_owners_and_members
 // source effects. Those facts are useful to analysis clients and do not certify a native body.
 //
 // The current native FIR specialization slice accepts closed module-level generic free functions
-// when their argument types and body operations fit the verified native subset. It records ordered
-// type arguments, emits one function instance per selected source function/type tuple, applies
-// substitution to bound signatures and body expression types, limits expansion, verifies call
-// identity/effects/origins, and only then allows the existing backend to consume the verified graph.
+// and directly called methods on stateless, non-generic, module-level objects when their argument
+// types and body operations fit the verified native subset. Object methods are emitted without a
+// receiver slot. Their call must use a direct singleton qualifier or an unqualified same-owner
+// reference; a local or computed receiver is rejected. The object must have no bases, initialization,
+// constructors, properties, or non-function members. Methods must have bodies, value returns, no
+// operator/virtual dispatch, annotations, or this/super use. Omitted defaults follow the pure,
+// non-vararg call-plan rules and may capture only earlier value arguments. Partial
+// object parts are admitted only when the canonical owner satisfies the same restrictions.
 //
-// It does not emit a generic class/struct/object layout, a generic member or constructor body, a
-// generic property/indexer/operator, an open owner body, a virtual generic dispatch slot, a generic
-// closure, a generic exported symbol, or a runtime reified type descriptor. Owner/member native
-// requests must receive an explicit unsupported-native-source diagnostic. They must not create an
-// empty body, replace a selected member with a free function, or fall back to a different overload.
+// FIR records ordered method type arguments, emits one function instance per selected source
+// declaration/type tuple, applies substitution to bound signatures and body expression types,
+// limits expansion, verifies call identity/effects/origins/receiver syntax, and only then allows the
+// existing backend to consume the verified graph.
+//
+// It does not emit a generic class/struct/ref-struct layout, a generic constructor, stateful or
+// nested/companion owner method, generic property/indexer/operator, open owner body, virtual generic
+// dispatch slot, generic closure, generic exported symbol, or runtime reified type descriptor.
+// Unsupported owner/member native requests must receive an explicit diagnostic. They must not
+// create an empty body, replace a selected member with a free function, or fall back to a different
+// overload.
 
 // 22. Required order for future implementation
 // ---------------------------------------------

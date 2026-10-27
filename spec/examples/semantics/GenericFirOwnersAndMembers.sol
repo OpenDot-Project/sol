@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative source and FIR-boundary examples; generic member native emission remains unsupported.
+// Status: normative source and FIR-boundary examples; only stateless top-level object methods have a bounded native slice.
 module source.spec.examples.semantics.generic_fir_owners_and_members
 
 // Generic owner/member specialization case matrix
@@ -10,7 +10,7 @@ module source.spec.examples.semantics.generic_fir_owners_and_members
 // `Source: Bound` expectation means the example has one resolved declaration and a determinate
 // constructed owner/method substitution under the stated rules. It does not prove that the analyzer
 // has executed this fixture. `FIR: Rejected(SOL2400)` means the current native source-admission
-// boundary must reject a shape that cannot be represented by the verified free-function slice.
+// boundary must reject a shape that cannot be represented by the verified generic-function slice.
 // `FIR: Planned` marks future owner/member specialization requirements.
 //
 // The contract is detailed in `spec/GenericFirOwnersAndMembers.sol`. Generic call argument mapping,
@@ -546,9 +546,22 @@ class OpenRunner<T>(val value: T) {
 
 // 54. Current capability and future contract remain separate.
 
-// Supported today: source binding facts for selected generic members and verified FIR/native
-// specialization for a bounded set of closed module-level generic free functions.
-// Not thereby supported: generic owner layouts, generic constructors/methods/properties/indexers/
-// operators, open owner bodies, virtual/interface generic dispatch, or external generic exports.
+// Supported today: closed module-level generic free functions and generic methods on stateless,
+// non-generic top-level objects. Object method calls directly name the singleton or are unqualified
+// within that same object; no receiver slot is emitted. This does not support local/computed object
+// receivers, stateful or nested/companion owners, generic owner layouts, constructors, properties,
+// accessors, indexers, operators, open owner bodies, virtual/interface dispatch, or external exports.
+
+// 55. Bounded receiver-free object method specialization.
+// -------------------------------------------------------
+object GenericMethodFixture {
+    func <T> identity(value: T): T = value
+    func <T> relay(value: T): T = identity<T>(value)
+}
+
+// Source: Bound; FIR: Verified when closed type arguments and body operations are admitted.
+// Calls such as GenericMethodFixture.relay<String>(value) and the unqualified nested identity<T>
+// call are statically tied to the object declarations. The existing pure omitted-default plan may
+// capture earlier value arguments. No `this`, object state or dynamic dispatch enters the function ABI.
 
 // expect: status | Source: Explicit | FIR: A current `SOL2400` rejection is not a language-level rejection.

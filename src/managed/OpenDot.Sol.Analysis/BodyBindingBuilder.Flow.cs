@@ -23,7 +23,8 @@ internal sealed partial class BodyBindingBuilder
             switch (node)
             {
                 case AstExpressionStatement expression:
-                    result = Expression(expression.Expression, state, context, tail ? context.Result : null);
+                    result = Expression(expression.Expression, state, context,
+                        tail && context.Result != Empty ? context.Result : null);
                     if (tail && context.Result is not null && context.Result != Empty) { Require(result, context.Result, node, state); }
                     if (tail && result.Type?.IsRefLike == true) { CheckEscape(result, node, context); }
                     break;

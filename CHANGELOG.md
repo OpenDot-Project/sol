@@ -66,9 +66,12 @@ The published Sol 0.0.1 assets remain immutable.
   `--emit=fir`/`--emit=llvm-ir`, and a qualified LLVM 23.1.3 AOT executable path.
 - Closed module-level generic free-function FIR specialization with declaration-ordered type
   arguments, bounded instance/body expansion, source-origin and selected-target verification, and
-  FIR JSON schema 5 metadata. Pure free-function defaults now evaluate after explicit arguments in
-  parameter order and can read earlier captured values. Effectful/unsupported defaults, per-instance
-  semantic rebinding, generic owners/members, broader layouts and external generic exports remain pending.
+  FIR JSON schema 5 metadata. A receiver-free subset now covers generic methods on stateless,
+  non-generic top-level objects, including partial declarations, direct singleton qualification,
+  same-owner calls, method constraints, varargs, ref/out, and pure omitted defaults. The native ORC
+  integration path exercises method calls across collection safepoints. Computed receivers, generic
+  owner layouts, constructors/properties/operators/virtual dispatch, and external generic exports
+  remain outside this subset.
 - C++20/CLI LLVM bridge with native RAII, pre/post-pass verification, and COFF object generation.
 - Provisional native SolRT with dynamic/static linking, UTF-8 arguments, scalar/String output,
   checked arithmetic/bounds failures, native execution/import tests, and an ASan ABI harness.

@@ -46,10 +46,12 @@ public static partial class FirVerifier
 
             var file = program.Analysis.Sources.Declarations.Files.SingleOrDefault(candidate =>
                 candidate.Nodes.OfType<AstFunction>().Any(source => ReferenceEquals(source.Origin.Element, function.Origin.Element)));
-            if (file is null || HasTypeOwner(file, function)
+            bool hasTypeOwner = file is not null && HasTypeOwner(file, function);
+            if (file is null
+                || hasTypeOwner && !GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(function, program.Analysis.Sources)
                 || HasFunctionOwner(file, function)
                 || function.Parameters.Any(parameter => parameter.PassingMode == AstPassingMode.Vararg))
-            { Fail("Native default arguments require a non-vararg module-level function.", call.Origin); return null; }
+            { Fail("Native default arguments require a non-vararg module function or eligible stateless-object method.", call.Origin); return null; }
 
             var defaults = program.Analysis.Sources.Defaults.GetDefaults(function);
             if (!defaults.IsComplete || defaults.Parameters.Length != function.Parameters.Length
