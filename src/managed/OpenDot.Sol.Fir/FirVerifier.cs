@@ -45,12 +45,16 @@ public static class FirVerifier
         private readonly HashSet<int> _genericInstanceRoots = [];
         private readonly Dictionary<int, HashSet<int>> _genericInstanceEdges = [];
         private readonly Dictionary<object, ExpressionBinding> _sourceExpressions = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<object, AstAssignment> _sourceAssignments = new(ReferenceEqualityComparer.Instance);
         private int _depth;
 
         internal void Check()
         {
             foreach (var binding in program.Analysis.Expressions)
             { _sourceExpressions.TryAdd(binding.Expression.Origin.Element, binding); }
+            foreach (var assignment in program.Analysis.Sources.Declarations.Files
+                .SelectMany(file => file.Nodes).OfType<AstAssignment>())
+            { _sourceAssignments.TryAdd(assignment.Origin.Element, assignment); }
             if (program.IsLibrary ? program.Entry != -1 : program.Entry < 0 || program.Entry >= program.Functions.Length)
             { throw new ArgumentException("FIR entry index is invalid.", nameof(program)); }
             for (int index = 0; index < program.Functions.Length; index++)
@@ -414,9 +418,19 @@ public static class FirVerifier
             try
             {
                 CheckType(expression.Type, expression.Origin);
-                if (!_sourceExpressions.TryGetValue(expression.Origin.Element, out var sourceExpression)
+                bool syntheticCompoundAssignment = expression is FirBinary compound
+                    && _sourceAssignments.TryGetValue(expression.Origin.Element, out var assignment)
+                    && assignment.Location is { } location
+                    && assignment.Value is { } value
+                    && assignment.Operation.Length > 1
+                    && assignment.Operation[^1] == '='
+                    && compound.Operation == assignment.Operation[..^1]
+                    && ReferenceEquals(compound.Left.Origin.Element, location.Origin.Element)
+                    && ReferenceEquals(compound.Right.Origin.Element, value.Origin.Element);
+                if (!syntheticCompoundAssignment
+                    && (!_sourceExpressions.TryGetValue(expression.Origin.Element, out var sourceExpression)
                     || sourceExpression.Status != BodyBindingStatus.Bound || sourceExpression.Type is null
-                    || Substitute(sourceExpression.Type) != expression.Type)
+                    || Substitute(sourceExpression.Type) != expression.Type))
                 { Fail("FIR expression type or source binding differs from the selected generic instance.", expression.Origin); }
                 switch (expression)
                 {

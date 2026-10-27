@@ -54,7 +54,7 @@ try {
     & $launcher $nativeSample --emit=fir -o $firSmoke
     if ($LASTEXITCODE -ne 0) { throw 'Packaged FIR smoke failed.' }
     $fir = Get-Content -LiteralPath $firSmoke -Raw | ConvertFrom-Json
-    if ($fir.schema -ne 3 -or -not $fir.verified) { throw 'Packaged FIR content mismatch.' }
+    if ($fir.schema -ne 4 -or -not $fir.verified) { throw 'Packaged FIR content mismatch.' }
     Remove-Item -LiteralPath $firSmoke
     # This component contains the frontend and private CLR, without native dependencies.
     # An installed development backend must not make the frontend package smoke pass.

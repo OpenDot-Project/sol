@@ -189,9 +189,7 @@ func mutualRoot(value: int): int = left<int>(value, 10)
 // 12. Distinct growing keys are not collapsed into exact recursion.
 
 // Scenario group: expanding_recursion
-class Box<T>(val value: T)
-
-}
+class Box<T>(val value: T) {}
 
 func <T> grow(value: T): () {
     grow<Box<T>>(Box<T>(value))
