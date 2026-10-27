@@ -18,6 +18,7 @@ public sealed class LexicalAnalysis
     private readonly Dictionary<AstAtom, NameBinding> _bindings;
     private readonly Dictionary<AstNode, AstSnapshot> _files;
     private readonly Dictionary<AstLambda, ImmutableArray<LambdaCapture>> _capturesByLambda;
+    private readonly ImmutableHashSet<LocalSymbol> _capturedLocals;
 
     private LexicalAnalysis(LexicalBuilder builder)
     {
@@ -46,6 +47,8 @@ public sealed class LexicalAnalysis
         IEqualityComparer<AstLambda> lambdaComparer = ReferenceEqualityComparer.Instance;
         _capturesByLambda = LambdaCaptures.GroupBy(capture => capture.Lambda, lambdaComparer)
             .ToDictionary(group => group.Key, group => group.ToImmutableArray(), lambdaComparer);
+        _capturedLocals = _bindings.Values.Where(binding => binding.CapturesOuterLocal)
+            .SelectMany(binding => binding.Lookup.Locals).ToImmutableHashSet();
         Diagnostics = diagnostics.OrderBy(d => d.Source.Path, StringComparer.Ordinal).ThenBy(d => d.Span.Start).ToImmutableArray();
     }
 
@@ -64,6 +67,8 @@ public sealed class LexicalAnalysis
         if (!_scopeOf.ContainsKey(lambda)) { throw new ArgumentException("The lambda belongs to another lexical snapshot.", nameof(lambda)); }
         return _capturesByLambda.GetValueOrDefault(lambda, []);
     }
+
+    internal bool IsCaptured(LocalSymbol local) => _capturedLocals.Contains(local);
 
     public static LexicalAnalysis Create(AnalysisSession declarations, CancellationToken cancellationToken = default)
     {

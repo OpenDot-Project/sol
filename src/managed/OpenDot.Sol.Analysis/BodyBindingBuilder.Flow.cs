@@ -218,7 +218,7 @@ internal sealed partial class BodyBindingBuilder
         if (atom is not { SyntaxKind: NodeKind.NameExpression }) { return; }
         var locals = Sources.Lexical.Lookup(atom, atom.Spelling).Locals;
         if (locals is not [var local] || !state.Assigned.Contains(local)) { return; }
-        bool captured = Sources.Lexical.Bindings.Any(b => b.CapturesOuterLocal && b.Lookup.Locals.Contains(local));
+        bool captured = Sources.Lexical.IsCaptured(local);
         if (local.IsMutable && captured) { return; }
         if (operation.TargetType is not null && operation.SyntaxKind == NodeKind.TypeTestExpression)
         {
