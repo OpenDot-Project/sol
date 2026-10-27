@@ -38,9 +38,14 @@ internal sealed partial class FirBuilder
     {
         if (_typeSubstitution.Count == 0) { return type; }
         try { return _analysis.Types.Substitute(type, _typeSubstitution, _cancellation); }
-        catch (TypeSpecializationException error)
+        catch (TypeSpecializationException error) when (error.Failure == SpecializationFailure.ResourceLimit)
         {
             Error("SOL2403", "Generic body type specialization exceeded its resource limit: " + error.Message, _current);
+            return type;
+        }
+        catch (TypeSpecializationException error)
+        {
+            Unsupported(_current, "Generic body substitution produced a type outside the verified native subset: " + error.Message);
             return type;
         }
     }
