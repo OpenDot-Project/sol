@@ -19,6 +19,15 @@ internal sealed partial class FirBuilder
         if (type is null || binding!.Status != BodyBindingStatus.Bound) { return Invalid(expression); }
         switch (expression)
         {
+            case AstAtom { SyntaxKind: NodeKind.PositionalExpression } atom:
+                if (_activeLambda is { Form: AstLambdaForm.Positional }
+                    && int.TryParse(atom.Spelling.AsSpan(1), out int position)
+                    && (uint)position < (uint)_activeLambdaParameters.Length)
+                {
+                    var parameter = _activeLambdaParameters[position];
+                    return new FirRead(parameter.Id, parameter.Type, atom.Origin);
+                }
+                return Invalid(atom);
             case AstAtom { SyntaxKind: NodeKind.LiteralExpression } atom:
                 return new FirConstant(atom.Spelling, type, atom.Origin);
             case AstAtom { SyntaxKind: NodeKind.NameExpression } atom:
@@ -34,6 +43,8 @@ internal sealed partial class FirBuilder
                 return Invalid(atom);
             case AstMember member when binding.FunctionValueTarget is { } functionTarget:
                 return FunctionReference(member, functionTarget, type);
+            case AstLambda lambda:
+                return LambdaReference(lambda, type);
             case AstSequence { IsGrouping: true } grouping when grouping.Elements.SingleOrDefault() is { } inner:
                 return Expression(inner);
             case AstSequence { SyntaxKind: NodeKind.ArrayExpression } array:

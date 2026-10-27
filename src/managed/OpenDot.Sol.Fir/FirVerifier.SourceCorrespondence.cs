@@ -21,9 +21,14 @@ public static partial class FirVerifier
         {
             _sourceCallMatches.Clear();
             _sourceOperatorMatches.Clear();
-            var source = program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
-                .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, _function.Origin.Element));
-            if (source?.Body.Node is not { } sourceBody)
+            var lambda = _function.LambdaSource;
+            var sourceFunction = lambda is null
+                ? program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
+                    .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, _function.Origin.Element))
+                : null;
+            AstNode? sourceRoot = lambda is not null ? lambda : sourceFunction;
+            AstNode? sourceBody = lambda is not null ? lambda : sourceFunction?.Body.Node;
+            if (sourceRoot is null || sourceBody is null)
             {
                 Fail("FIR body has no source body to correspond to.", _function.Origin);
                 return;
@@ -32,11 +37,15 @@ public static partial class FirVerifier
             if (!Enter(_function.Body!)) { return; }
             try
             {
-                if (sourceBody is AstBlock sourceBlock)
+                if (lambda is not null)
+                {
+                    MatchLambdaBlock(_function.Body!, lambda);
+                }
+                else if (sourceBody is AstBlock sourceBlock)
                 {
                     MatchFunctionBlock(_function.Body!, sourceBlock);
                 }
-                else if (sourceBody is AstExpression expression && source.Body.Kind == AstBodyKind.Expression)
+                else if (sourceBody is AstExpression expression && sourceFunction?.Body.Kind == AstBodyKind.Expression)
                 {
                     if (!ReferenceEquals(_function.Body!.Origin.Element, _function.Origin.Element))
                     { Fail("Expression-bodied FIR wrapper differs from its source declaration.", _function.Body.Origin); }
@@ -55,14 +64,19 @@ public static partial class FirVerifier
             }
             finally { Leave(_function.Body!); }
 
+            var sourceFile = program.Analysis.Sources.Declarations.Files.Single(candidate =>
+                ReferenceEquals(candidate.Psi, sourceRoot.Origin.Element.Snapshot));
             var expectedCalls = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            if (sourceBody is AstCall rootCall) { expectedCalls.Add(rootCall.Origin.Element); }
-            foreach (var call in sourceBody.Descendants().OfType<AstCall>()) { expectedCalls.Add(call.Origin.Element); }
+            if (sourceBody is AstCall rootCall && BelongsToSourceBody(rootCall, sourceRoot, sourceFile))
+            { expectedCalls.Add(rootCall.Origin.Element); }
+            foreach (var call in sourceBody.Descendants().OfType<AstCall>()
+                .Where(call => BelongsToSourceBody(call, sourceRoot, sourceFile)))
+            { expectedCalls.Add(call.Origin.Element); }
             foreach (var call in expectedCalls)
             {
                 if (!_sourceCallMatches.TryGetValue(call, out int count) || count == 0)
-                { Fail("A source-bound call is absent from FIR.", source.Origin); }
-                else if (count != 1) { Fail("A source-bound call is represented more than once in FIR.", source.Origin); }
+                { Fail("A source-bound call is absent from FIR.", sourceRoot.Origin); }
+                else if (count != 1) { Fail("A source-bound call is represented more than once in FIR.", sourceRoot.Origin); }
             }
             foreach (var call in _sourceCallMatches.Keys)
             {
@@ -70,16 +84,19 @@ public static partial class FirVerifier
             }
 
             var expectedOperators = new HashSet<object>(ReferenceEqualityComparer.Instance);
-            if (sourceBody is AstOperation or AstAssignment && GetSourceOperator(sourceBody.Origin.Element) is not null)
+            if ((sourceBody is AstOperation or AstAssignment)
+                && BelongsToSourceBody(sourceBody, sourceRoot, sourceFile)
+                && GetSourceOperator(sourceBody.Origin.Element) is not null)
             { expectedOperators.Add(sourceBody.Origin.Element); }
             foreach (var site in sourceBody.Descendants().Where(node => node is AstOperation or AstAssignment)
-                .Where(node => GetSourceOperator(node.Origin.Element) is not null))
+                .Where(node => BelongsToSourceBody(node, sourceRoot, sourceFile)
+                    && GetSourceOperator(node.Origin.Element) is not null))
             { expectedOperators.Add(site.Origin.Element); }
             foreach (var site in expectedOperators)
             {
                 if (!_sourceOperatorMatches.TryGetValue(site, out int count) || count == 0)
-                { Fail("A source-bound operator is absent from FIR.", source.Origin); }
-                else if (count != 1) { Fail("A source-bound operator is represented more than once in FIR.", source.Origin); }
+                { Fail("A source-bound operator is absent from FIR.", sourceRoot.Origin); }
+                else if (count != 1) { Fail("A source-bound operator is represented more than once in FIR.", sourceRoot.Origin); }
             }
             foreach (var site in _sourceOperatorMatches.Keys)
             {
@@ -334,6 +351,12 @@ public static partial class FirVerifier
 
                 switch (source)
                 {
+                    case AstLambda lambda when actual is FirFunctionReference reference:
+                        MatchFunctionReference(reference, lambda);
+                        break;
+                    case AstAtom { SyntaxKind: NodeKind.PositionalExpression } positional when actual is FirRead read:
+                        MatchPositionalRead(read, positional);
+                        break;
                     case AstAtom { SyntaxKind: NodeKind.NameExpression } name when actual is FirFunctionReference reference:
                         MatchFunctionReference(reference, name);
                         break;

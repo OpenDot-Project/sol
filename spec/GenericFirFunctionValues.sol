@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative function-value boundary; direct generic FIR calls are implemented in a bounded slice.
+// Status: normative function-value boundary; bounded direct generic FIR calls and exact-ABI
+// noncapturing lambda values are implemented.
 module source.spec.generic_fir_function_values
 
 // Generic declarations, function types, lambdas, and closure conversion
@@ -26,14 +27,19 @@ module source.spec.generic_fir_function_values
 //   evidence and then analyze the selected lambda normally.
 // - Direct calls to closed module-level generic free functions can produce verified monomorphic FIR
 //   instances for the admitted native type/body subset.
-// - FIR has `FirFunctionReference` and `FirIndirectCall` nodes for eligible module-level functions
-//   and stateless top-level object methods whose native signature matches exactly, including closed
-//   generic instances, ref/out modes, and checked effects. The LLVM C++ bridge lowers them as typed
-//   function pointers and indirect calls. Stateless object methods have no instance storage,
+// - FIR has `FirFunctionReference` and `FirIndirectCall` nodes for eligible module-level functions,
+//   stateless top-level object methods, and a bounded set of noncapturing lambdas whose native
+//   function signature matches exactly. Lambda forms admitted by this slice are named headers
+//   (including exact `ref`/`out` modes with a proven `out` assignment), positional `$n` references
+//   with value parameters, and headerless zero-parameter bodies. Each is tied to its source lambda
+//   and represented by a synthetic FIR function with the ordinary typed function-pointer ABI; it
+//   has no closure environment. The LLVM C++ bridge lowers references as typed function pointers
+//   and invocations as indirect calls. Stateless object methods have no instance storage,
 //   constructor, base, initializer, virtual dispatch, `this`, or `super` use.
-//   Lambdas, captures, receiver-bound references, nullable callbacks, and arrays of closure values
-//   remain outside native FIR; a source function type alone does not prove closure layout, ABI
-//   compatibility, escape safety, or GC ownership.
+// - Capturing lambdas, receiver/member-bound access, generic enclosing function bodies, open or
+//   otherwise unsupported generic targets from a lambda body, nullable callbacks, and any value
+//   needing a variance or effect adapter remain outside native FIR. A source function type alone
+//   does not prove closure layout, ABI compatibility, escape safety, or GC ownership.
 // - A generic function value records the ordered type arguments selected by expected-type inference.
 //   FIR verifies that the reference points to that exact closed instance and includes it in the
 //   specialization reachability graph. Generic bodies are rebound under closed arguments before FIR.
@@ -295,8 +301,9 @@ func <T> mapOne(value: T, transform: (T) -> T): T = transform(value)
 func contextualLambdaAtGenericCall(): String = mapOne("ab") { text -> text }
 
 // expect: Candidate-local replay may derive callback evidence where the implementation supports
-// it. Selected lambda analysis is a separate body-binding result; native generic specialization
-// still rejects the indirect function-value call today.
+// it. The selected noncapturing lambda can use the existing function-pointer representation when
+// its closed contextual signature is exact; the generic callee's indirect call must independently
+// pass generic FIR verification.
 
 func nestedLambdaScopes(): () {
     val nest: (int) -> (int) -> int = { outer -> { inner -> outer + inner } }
@@ -305,8 +312,9 @@ func nestedLambdaScopes(): () {
 // Nested lambdas own separate parameter scopes. A nested `$0` starts from the inner lambda's
 // positional namespace. A generic parameter from the enclosing function is not a lambda parameter.
 //
-// The current FIR builder has no closure/environment nodes. Source analysis can retain contextual
-// facts without authorizing closure allocation or native code generation.
+// This nested value reads `outer`, so the inner lambda captures an outer parameter and remains
+// FIR-rejected. A nested lambda that reads only its own parameters can be lifted independently when
+// it meets the same exact-signature and noncapturing conditions.
 
 // 9. Lambda forms must converge on one function-value contract
 // ------------------------------------------------------------
@@ -337,8 +345,9 @@ func nestedLambdaScopes(): () {
 
 func <T> returnContextual(value: T): (T) -> T = { item -> item }
 
-// expect: Source may contextually type this identity body as T -> T. FIR/native closure result:
-// Rejected(SOL2400); no closure environment or generic function-value ABI exists.
+// expect: Source may contextually type this identity body as T -> T. FIR rejects this occurrence
+// because its enclosing function is generic; the bounded native lambda slice does not emit open
+// generic-parent bodies or instantiate lambdas per specialization.
 
 // A future generic lambda proposal must also define whether type parameters are inferred each time
 // the value is called, fixed when the lambda is created, or reified at runtime. These options have
@@ -455,6 +464,10 @@ func <T> forbiddenCapture(value: T): () -> T where T: allows ref struct {
 //
 // A closed generic instance may invoke a supported function-typed parameter through
 // `FirIndirectCall`; each concrete specialization must pass signature and effect verification.
+// A noncapturing lambda body may also call or reference a generic function when source binding has
+// selected every closed type argument and the specialized target is in the verified native subset.
+// Its FIR call/reference is a normal specialization-graph edge. An open or unsupported target is
+// rejected; the lambda path does not invent an instantiation or a fallback overload.
 // Lambda-created closure values, receiver-bound methods, and non-identity function adapters remain
 // outside the native subset until their environment, ABI, and GC contracts exist. An array can hold
 // a non-null function value when that value has the existing receiver-free code-pointer ABI. Its

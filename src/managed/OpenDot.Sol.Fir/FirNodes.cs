@@ -52,6 +52,8 @@ public sealed record FirFunction(int Id, string Name, ImmutableArray<FirSlot> Pa
     ResolvedType ReturnType, FirBlock? Body, FirRuntimeFunction RuntimeFunction, ImmutableArray<ResolvedType> Effects, AstOrigin Origin)
 {
     public string? ExportName { get; init; }
+    /// <summary>The source lambda represented by this synthetic, non-capturing function.</summary>
+    public AstLambda? LambdaSource { get; init; }
     /// <summary>Closed generic arguments for this monomorphic body; empty for ordinary functions.</summary>
     public ImmutableArray<ResolvedType> SpecializationArguments { get; init; } = [];
 }

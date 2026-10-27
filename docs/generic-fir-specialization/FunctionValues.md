@@ -7,11 +7,15 @@ closure. These forms can share the same visible parameter and result types, but 
 selection, lifetime, execution, and ABI requirements.
 
 The current implementation has bounded native FIR paths for selected module-level generic free
-function calls and for monomorphic values of generic module-level functions or methods on eligible
-stateless top-level `object` declarations. It does not have a native representation for closure
-environments, receiver-bound method values, or lambda closures.
-Source body analysis can understand additional function-value and lambda shapes, but source analysis
-alone does not authorize native emission.
+function calls, monomorphic values of generic module-level functions or methods on eligible stateless
+top-level `object` declarations, and noncapturing lambdas whose contextual function type exactly
+matches the native function-pointer ABI. A lambda body may call or reference a generic function when
+source analysis selected a complete supported closed target. An admitted lambda becomes a synthetic
+source-linked FIR function and uses the same typed code-pointer representation; it does not allocate
+a closure environment. Capturing lambdas, receiver-bound member access, lambdas in generic enclosing
+function bodies, open/unsupported generic targets, and signatures that need an ABI adapter remain
+outside native FIR. Source body analysis can understand additional function-value and lambda shapes,
+but source analysis alone does not authorize native emission.
 
 The normative examples are in [GenericFirFunctionValues.sol](../../spec/GenericFirFunctionValues.sol)
 and [the semantic case matrix](../../spec/examples/semantics/GenericFirFunctionValues.sol). This page
@@ -26,7 +30,8 @@ listed scenarios have been executed.
 | Direct generic call | One selected declaration and one ordered, closed type-argument list | Bounded monomorphic FIR specialization is implemented. |
 | Generic function value | A generic declaration closed to one concrete function type at the value site | Bounded monomorphic FIR specialization is implemented for eligible free functions and stateless singleton methods. |
 | Function value with an environment | A callable value with a receiver or captured lexical storage | No verified FIR node or native ABI. |
-| Lambda or anonymous function | A source expression with contextual parameter/result types, effects, flow and captures | Partial source body analysis; native closure conversion is rejected. |
+| Lambda | A source expression with contextual parameter/result types, effects, flow and captures | Noncapturing, exact-ABI lambdas have a bounded synthetic-function FIR path; captured or adapted values are rejected. |
+| Anonymous function | A callable source expression with its own parameter list, effects, flow and possible captures | Partial source analysis; native emission is not admitted. |
 
 The distinctions are observable. A direct call executes a selected function now. A function value
 can be stored, returned, passed to another function, or invoked after the expression that created
@@ -163,18 +168,18 @@ function type's declared effect set. The LLVM 23.1.3 C++ bridge creates a `Funct
 resolved AST bindings before verified FIR is returned.
 
 The native ABI admits monomorphic function values as locals, parameters, return values,
-direct-call arguments, and indirect-call targets, including references to closed generic instances.
-It also admits non-null arrays of those values. A function array stores the raw code pointer at
+direct-call arguments, and indirect-call targets, including references to closed generic instances
+and eligible noncapturing lambdas. It also admits non-null arrays of those values. A function array stores the raw code pointer at
 pointer width; the Yellow Tea element descriptor has no reference scan shape. `[]((int) -> int)`
-can therefore hold a direct reference or an eligible closed generic reference, and `callbacks[i](x)`
-loads the exact signature before an indirect call. Nested arrays use a normal traced array reference at
+can therefore hold a direct reference, an eligible closed generic reference, or an admitted
+noncapturing lambda, and `callbacks[i](x)` loads the exact signature before an indirect call. Nested arrays use a normal traced array reference at
 each outer level and retain the scalar/no-scan function-pointer descriptor at the leaf. Empty arrays
 require the function element type.
 The array object itself remains a managed root during allocation and initialization, but code
 addresses are never passed to the collector as `Header*` references.
 
-Receiver-bound method values, variance adapters, nullable function values, and lambda/anonymous-
-function closures remain outside the subset. A source-valid function reference conversion may still
+Receiver-bound method values, variance adapters, nullable function values, capturing lambda
+closures, and anonymous-function values remain outside the subset. A source-valid function reference conversion may still
 be rejected by FIR when its signature is not exact; no ABI cast is used as a substitute for an
 adapter. A capturing lambda cannot be stored merely because its source type matches a function
 array. Closures need their own environment layout, escape and thread-transfer rules, and GC tracing
@@ -226,9 +231,49 @@ analysis state. New facts from the lambda are added in bounded rounds; failed or
 must restore temporary expressions, locals, flow facts, diagnostics, and effects. The selected
 lambda is then analyzed under the final selected type substitution.
 
-This candidate-local source analysis does not mean the lambda can be emitted inside a generic FIR
-instance. A closed generic instance may invoke a supported function-typed parameter through
-`FirIndirectCall`; creating a lambda or closure remains outside the native subset.
+This candidate-local source analysis does not by itself admit a lambda to native FIR. The current
+native slice can lift a noncapturing lambda when its contextual signature is closed, supported, and
+identical to the emitted function type, and when the enclosing function is non-generic. A closed
+generic call can carry that function reference when its callback parameter has the exact resolved
+signature. A lambda written inside a generic enclosing body is still rejected by this slice, even if
+one call site could specialize that body.
+
+### Bounded noncapturing-lambda FIR path
+
+The current path admits named-header lambdas such as `{ value -> value + 1 }`, positional forms such
+as `{ $0 + 1 }`, and headerless zero-parameter bodies such as `{ 42 }`. Each needs a closed contextual
+function type from a typed local, a mapped callback argument (including a trailing lambda), a typed
+array element, or another supported source context. A headerless body is valid only when the
+contextual function type has no parameters. A positional body can use only value parameters; its
+`$n` reads map to the corresponding synthetic parameter slots. Named parameter count and passing
+modes must match the context. Named `ref` and `out` parameters preserve their exact storage ABI;
+source analysis must prove every `out` parameter is assigned on each normal lambda exit. Any
+explicitly written parameter type must match exactly.
+
+The enclosing function must not be generic. A stateless top-level `object` method is eligible only
+when it has no receiver-dependent behavior. Every local referenced by the lambda must belong to the
+lambda's own lexical scope: outer `val`/`var`, `this`, `super`, implicit member lookup, and local
+function captures are rejected. A generic call or function reference from the lambda body is
+eligible only when source analysis selected a complete closed argument list and the resulting
+specialization has a supported native signature. The independent verifier checks the selected
+arguments against the emitted target and adds it to the specialization graph. Native AOT and ORC
+tests cover both `identity(value)` and a returned reference to `identity` from inside a lambda.
+Nested lambdas can be lifted independently only when each is itself noncapturing; an inner lambda
+that reads an outer lambda parameter is a capture and is rejected.
+
+The builder adds a synthetic `FirFunction` and a `FirFunctionReference` at the original lambda
+source site. The FIR verifier checks that the source analysis belongs to the same snapshot, the
+synthetic function has the exact contextual parameter/result/effect signature, parameter slots and
+positional reads match source identities, and capture/generic-body obligations are absent. The
+function pointer is a scalar non-null code address; it does not own managed locals or a Yellow Tea
+environment. Existing function-pointer array storage remains valid for an admitted lambda because
+it stores only that same code address.
+
+Source-valid lambda forms remain FIR-rejected when their signature would require variance/effect
+adaptation, their enclosing body is generic, they capture any local or receiver, or a selected member
+or generic target lacks the required native proof. No alternate overload is selected to avoid the
+rejection. This is not general closure conversion and does not qualify mutable-cell identity,
+escape, stack borrowing, thread transfer, nullable callbacks, or closure GC roots.
 
 ## Generic lambdas versus contextually typed lambdas
 

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: syntax/lexical capture candidates; expected typing and escape checking remain planned.
+// Status: source contextual typing is implemented. Verified FIR/native lowering accepts closed,
+// exact-ABI noncapturing lambdas; capture escape analysis and closure environments remain planned.
 module source.lambdas.rules
 
 val named: (int, int) -> int = { x, y -> x + y }

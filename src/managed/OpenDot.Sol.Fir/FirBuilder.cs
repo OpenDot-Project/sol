@@ -19,6 +19,7 @@ internal sealed partial class FirBuilder
     private readonly ImmutableArray<AstSnapshot> _input;
     private readonly CancellationToken _cancellation;
     private readonly Dictionary<AstCallable, int> _functions = [];
+    private readonly Dictionary<AstLambda, int> _lambdaFunctions = [];
     private readonly Dictionary<SpecializationKey, int> _specializedFunctions = [];
     private readonly Queue<PendingSpecialization> _pendingSpecializations = [];
     private readonly Dictionary<int, FirFunction> _builtFunctions = [];
@@ -28,6 +29,8 @@ internal sealed partial class FirBuilder
     private long _specializedBodyNodeCount;
     private readonly Dictionary<AstNode, AstSnapshot> _files = [];
     private readonly Dictionary<LocalSymbol, FirSlot> _slots = [];
+    private AstLambda? _activeLambda;
+    private ImmutableArray<FirSlot> _activeLambdaParameters = [];
     private readonly Dictionary<AstCall, BodyCallBinding> _calls;
     private readonly Dictionary<AstNode, BodyOperatorBinding> _operators;
     private AstCallable _current = null!;

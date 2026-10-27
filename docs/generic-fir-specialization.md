@@ -54,7 +54,7 @@ instance whose required source or ABI proof is outside that implemented surface.
 | Artifact and runtime boundaries | [Artifact contract](generic-fir-specialization/Artifacts.md), [native artifacts](library-artifacts.md) | The generic slice does not create C ABI or external `.solib` generic exports. |
 | Generic owners and members | [Owner/member contract](generic-fir-specialization/OwnersAndMembers.md), [member resolution](member-resolution.md) | Only methods on stateless, non-generic top-level objects enter generic FIR; other members remain outside it. |
 | Storage, arrays and GC roots | [Storage and root contract](generic-fir-specialization/StorageAndRoots.md), [Yellow Tea ABI](yellow-tea/compiler-runtime-abi.md) | Generic collections, spans, nullable layouts and full per-instance root maps remain outside the slice. |
-| Function values, lambdas and closures | [Function-value contract](generic-fir-specialization/FunctionValues.md) | FIR/LLVM support exact-signature free-function and stateless-object references, including closed generic references; closures, adapters, and captures remain gated. |
+| Function values, lambdas and closures | [Function-value contract](generic-fir-specialization/FunctionValues.md) | FIR/LLVM support exact-signature free-function and stateless-object references, including closed generic references and noncapturing lambdas; adapters, captures, and closure environments remain gated. |
 | Runtime and collectors | [Yellow Tea](yellow-tea/index.md), [runtime ABI](yellow-tea/compiler-runtime-abi.md) | This specialization slice does not broaden runtime layouts or GC root rules. |
 
 ## Pipeline and invariants

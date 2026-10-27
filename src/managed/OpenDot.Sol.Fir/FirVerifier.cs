@@ -149,6 +149,8 @@ public static partial class FirVerifier
         private void CheckExport()
         {
             if (_function.ExportName is null) { return; }
+            if (_function.LambdaSource is not null)
+            { Fail("A synthetic lambda cannot be exported as a source function.", _function.Origin); return; }
             var file = program.Analysis.Sources.Declarations.Files.SingleOrDefault(f => f.Nodes.OfType<AstFunction>()
                 .Any(n => ReferenceEquals(n.Origin.Element, _function.Origin.Element)));
             var source = file?.Nodes.OfType<AstFunction>().SingleOrDefault(n => ReferenceEquals(n.Origin.Element, _function.Origin.Element));
@@ -160,6 +162,12 @@ public static partial class FirVerifier
 
         private void CheckSourceContract()
         {
+            if (_function.LambdaSource is { } lambda)
+            {
+                CheckLambdaSourceContract(lambda);
+                return;
+            }
+
             var source = program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
                 .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, _function.Origin.Element));
             if (source is null)
