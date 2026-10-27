@@ -29,6 +29,7 @@ internal sealed partial class FirBuilder
     private readonly Dictionary<AstNode, AstSnapshot> _files = [];
     private readonly Dictionary<LocalSymbol, FirSlot> _slots = [];
     private readonly Dictionary<AstCall, BodyCallBinding> _calls;
+    private readonly Dictionary<AstNode, BodyOperatorBinding> _operators;
     private AstCallable _current = null!;
     private SpecializedBodyAnalysis? _specializedBody;
     private readonly bool _library;
@@ -41,6 +42,9 @@ internal sealed partial class FirBuilder
     private BodyCallBinding? BoundCall(AstCall call) => _specializedBody is { } specialized
         ? specialized.GetCall(call) : _calls.GetValueOrDefault(call);
 
+    private BodyOperatorBinding? BoundOperator(AstNode site) => _specializedBody is { } specialized
+        ? specialized.GetOperator(site) : _operators.GetValueOrDefault(site);
+
     private BodySummary? BoundBody(AstCallable callable) => _specializedBody is { } specialized
         ? specialized.GetBody(callable) : _analysis.GetBody(callable);
 
@@ -51,6 +55,7 @@ internal sealed partial class FirBuilder
     {
         _analysis = analysis; _catalog = catalog; _input = input; _cancellation = cancellation; _library = library;
         _calls = analysis.Calls.ToDictionary(c => c.Call);
+        _operators = analysis.OperatorBindings.ToDictionary(binding => binding.Site);
         foreach (var file in analysis.Sources.Declarations.Files) { foreach (var node in file.Nodes) { _files.Add(node, file); } }
     }
 

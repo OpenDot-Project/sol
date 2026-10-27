@@ -78,10 +78,11 @@ module source.spec.generic_inference.lambda_fixed_point
 // candidate; the solver cannot hide a body error by choosing whichever branch has a convenient
 // conversion.
 //
-// The lambda's checked effects are an unordered set. Exactly one open effect pattern may be
-// inferred when all fixed effects match exactly and exactly one actual effect remains. Multiple
-// open patterns, duplicate ambiguities, and unmatched fixed effects contribute no guessed bound.
-// They remain unresolved or reject the candidate according to final effect applicability.
+// The lambda's checked effects are an unordered set. Multiple open effect patterns may be inferred
+// when all fixed effects match exactly and one complete assignment satisfies every structural
+// relation and owner constraint. Ambiguous mappings, nested function-type sets, and unmatched fixed
+// effects contribute no guessed bound. They remain unresolved or reject the candidate according to
+// final effect applicability.
 //
 // Evidence facts preserve their source argument index, lambda parameter/result/effect origin, and
 // bound relation. Replaying a source lambda does not overwrite ordinary facts or facts from a
@@ -134,7 +135,8 @@ module source.spec.generic_inference.lambda_fixed_point
 // | open T | T=String and T=Int exact | conflict | Reject this candidate |
 // | open T | `Box<T>` versus incompatible Box shape | shape failure | Reject this candidate |
 // | open T | one effect pattern, one unmatched actual | solved | Close that effect parameter |
-// | open E,F | two effect patterns, two actual effects | ambiguous matching | Keep unresolved |
+// | open E,F | two symmetric patterns, two actual effects | multiple complete mappings | Keep unresolved |
+// | open E,F | two constructed patterns, one valid assignment | unique complete mapping | Close both parameters |
 // | open T | new lambda body diagnostic | invalid candidate | Restore all speculative state |
 // | open T | substitution changed | missing remains | Start another whole round |
 // | open T | substitution unchanged | open set unchanged | Defer at the fixed point |

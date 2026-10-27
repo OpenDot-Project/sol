@@ -55,17 +55,17 @@ module source.spec.generic_inference.effect_candidates
 // 5. recheck the complete closed set after substitution; and
 // 6. prove that only one mapping is valid.
 //
-// If there is one open pattern and one remaining actual effect after all fixed members are matched,
-// the actual constructed type is exact evidence for the open pattern. This is the bounded case
-// supported by current body analysis.
+// After fixed members are matched, bounded body analysis searches complete one-to-one mappings for
+// all open patterns. A unique assignment supplies exact constructed-type evidence for each pattern;
+// owner constraints are checked before evidence is published.
 //
 // If there are no remaining effects for one open pattern, that variable is missing. An empty actual
 // set does not infer `E = !`, Object, Throwable, RuntimeException, or a zero-member effect type.
 //
-// If there are two open patterns and one actual effect, there are multiple assignments or one
-// missing variable unless other constraints uniquely disambiguate them. If two open patterns and
-// two actual effects can pair in multiple ways, the candidate is ambiguous/deferred until a complete
-// set solver proves one map. Source order cannot break the tie.
+// If there are two open patterns and one actual effect, a required parameter is missing. If two open
+// patterns and two actual effects can pair in multiple ways, the candidate is ambiguous/deferred.
+// Structural constructors and constraints may leave only one complete mapping; only that unique map
+// is accepted. Source order cannot break a tie.
 //
 // A pattern such as `Failure<T>` can still be open because T is unresolved even if the outer set
 // contains one item. The nested generic argument is solved under the same structural matching and
@@ -177,7 +177,7 @@ module source.spec.generic_inference.effect_candidates
 // ------------------------
 //
 // - one fixed effect and one matching actual;
-// - one open E and one remaining actual after exact fixed matches;
+// - multiple open patterns with one complete constructed-type assignment after exact fixed matches;
 // - nested `Failure<T>` where T is fixed by an ordinary callback result;
 // - nested `Failure<T>` where T is inferred from the exact effect identity;
 // - unchecked RuntimeException alongside one checked actual;
@@ -204,8 +204,15 @@ module source.spec.generic_inference.effect_candidates
 // Current boundary
 // ----------------
 //
-// GenericInferenceSolver recognizes one unambiguous open effect pattern in a function-type set.
-// BodyAnalysis can feed effects discovered during bounded candidate-local lambda replay into that
-// relation. Multiple open patterns, complete flow/catch replay, separate-binary effect metadata,
-// generic body specialization, and verified FIR effect coverage remain open. A source binding is
-// not evidence that runtime exception unwinding or native cleanup has been implemented.
+// GenericInferenceSolver recognizes a unique complete unordered assignment for multiple open
+// effect patterns in a function-type set. When matching a constructed effect identity recursively
+// exposes another function-type effect set, that set uses the same bounded matcher and search
+// budget. Ambiguous or incomplete nested mappings remain open. Complete flow/catch replay,
+// separate-binary effect metadata, generic body specialization, and verified FIR effect coverage
+// also remain open. A source binding is not evidence that runtime exception unwinding or native
+// cleanup has been implemented.
+//
+// A matching attempt is bounded to 256 distinct effects and 4096 visited search states. Closed
+// independent constraints may reject an assignment prefix before the full tuple is chosen. If the
+// state budget is exhausted before uniqueness is proved, report SOL2290 and leave the call
+// unselected; do not reinterpret exhaustion as no effects or as a unique mapping.

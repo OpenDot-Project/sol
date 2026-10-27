@@ -35,12 +35,12 @@ Do not link this entire corpus as one application: several examples intentionall
 | [GenericInference.Flow.sol](GenericInference.Flow.sol) | Smart-cast evidence, mutation invalidation and flow snapshots per overload |
 | [GenericInference.Literals.sol](GenericInference.Literals.sol) | Exact literal data, array/fixed-array and contextual lambda evidence |
 | [GenericInference.Lambdas.sol](GenericInference.Lambdas.sol) | Candidate-isolated lambda context, modes, results and effects |
-| [GenericInference.Effects.sol](GenericInference.Effects.sol) | Unordered checked-effect substitution and pending set inference |
+| [GenericInference.Effects.sol](GenericInference.Effects.sol) | Unordered checked-effect substitution, bounded unique top-level matching, and remaining deferred cases |
 | [GenericInference.Overloads.sol](GenericInference.Overloads.sol) | Candidate-local evidence, applicability, ranking and deferral |
 | [GenericInference.Validation.sol](GenericInference.Validation.sol) | Constraints, ownership, budgets, diagnostics and FIR boundary |
 | [GenericInference.LambdaCandidates.sol](GenericInference.LambdaCandidates.sol) | Candidate-local lambda parameter, body-result and checked-effect evidence |
 | [GenericInference.ArrayCandidates.sol](GenericInference.ArrayCandidates.sol) | Array literal evidence, common element type, fixed length and nested shape |
-| [GenericInference.EffectCandidates.sol](GenericInference.EffectCandidates.sol) | Unordered effect matching and the single-open-pattern limit |
+| [GenericInference.EffectCandidates.sol](GenericInference.EffectCandidates.sol) | Unordered effect matching, unique multi-open mapping, ambiguity and resource limits |
 | [GenericInference.CandidateTransactions.sol](GenericInference.CandidateTransactions.sol) | Speculative state ownership, rollback and selected-candidate publication |
 | [GenericInference.LambdaResultBounds.sol](GenericInference.LambdaResultBounds.sol) | Lambda result joins, expected bounds and completion paths |
 | [GenericInference.LambdaModesCapture.sol](GenericInference.LambdaModesCapture.sol) | Lambda parameter modes, capture and ref-like escape |
@@ -304,7 +304,7 @@ syntax whose semantic or backend support is still pending.
   subset bind arguments, receiver members, inherited overload groups, generic input/exact/expected
   bounds, constructed base projections, and nominal constraints.
 - Complete cross-distribution access validation, interface-default conflict resolution,
-  candidate-local inference for every lambda/array form, multi-open generic effect inference,
+  candidate-local inference for every lambda/array form, nested function-type effect matching,
   monomorphized body checking, checked effect coverage, smart casts, definite assignment, ref escape,
   constant evaluation, and generated data/delegation members remain incomplete.
 - Default-expression origins and evaluation order are represented by the analysis API. Actual
@@ -315,8 +315,9 @@ syntax whose semantic or backend support is still pending.
   initial CST frontend.
 
 The current body-analysis delta adds bounded candidate-local lambda replay, generic array-literal
-evidence, one-open-effect matching, per-path hiding/override recovery, protected method receiver
-checks, and accessor visibility/effect checks. These are source-analysis facts only; the contracts
+evidence, unique top-level matching for multiple open effects, generic operator result evidence,
+per-path hiding/override recovery, protected method receiver checks, and accessor visibility/effect
+checks. These are source-analysis facts only; the contracts
 above intentionally include broader requirements that remain pending.
 
 The corpus is syntax-checked separately from semantic tests. Syntax validation does not supply

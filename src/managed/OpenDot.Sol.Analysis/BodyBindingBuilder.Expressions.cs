@@ -193,7 +193,7 @@ internal sealed partial class BodyBindingBuilder
         {
             if (op == "!!") { return new(left.Type?.IsNullable == true ? left.Type.Arguments[0] : left.Type); }
             if (op is not ("++" or "--") && left.Type?.IsNullable == true
-                && LiftNullableUnary(operation, op, left, state, context) is { } liftedUnary)
+                && LiftNullableUnary(operation, op, left, state, context, expected) is { } liftedUnary)
             { return liftedUnary; }
             if (op == "!" && left.Type == Bool) { return new(Bool); }
             if (op is "+" or "-" && left.Type is not null && IsNumeric(left.Type)) { return new(left.Type); }
@@ -207,7 +207,8 @@ internal sealed partial class BodyBindingBuilder
                 { return liftedIncrement; }
                 if (left.Type is not null && IsNumeric(left.Type)) { return new(left.Type); }
             }
-            return OperatorCall(operation, op, [left], state, context);
+            var unaryExpected = op is "++" or "--" ? left.Type : expected;
+            return OperatorCall(operation, op, [left], state, context, expected: unaryExpected);
         }
         var rightState = state;
         if (op is "&&" or "||" or "?:")
@@ -234,7 +235,7 @@ internal sealed partial class BodyBindingBuilder
             return new(nonnull);
         }
         if (op is not ("&&" or "||") && (left.Type.IsNullable || right.Type.IsNullable)
-            && LiftNullableBinary(operation, op, left, right, state, context) is { } liftedBinary)
+            && LiftNullableBinary(operation, op, left, right, state, context, expected) is { } liftedBinary)
         { return liftedBinary; }
         if (op is "&&" or "||")
         {
@@ -246,10 +247,12 @@ internal sealed partial class BodyBindingBuilder
                 bool hasBitwise = HasDeclaredOperator(bitwiseOperator, left.Type, right.Type);
                 if (hasTruth || hasBitwise)
                 {
-                    var truth = OperatorCall(operation, truthOperator, [left], state, context, exactOperands: true);
+                    var truth = OperatorCall(operation, truthOperator, [left], state, context,
+                        exactOperands: true, expected: Bool);
                     if (truth.Type != Bool)
                     { Report("SOL2207", "Conditional logical truth operators must return bool.", operation); }
-                    var logical = OperatorCall(operation, bitwiseOperator, [left, right], state, context, exactOperands: true);
+                    var logical = OperatorCall(operation, bitwiseOperator, [left, right], state, context,
+                        exactOperands: true, expected: left.Type);
                     if (logical.Type != left.Type)
                     { Report("SOL2207", "Conditional logical bitwise operators must accept and return the same operand type.", operation); }
                     return logical.Type == left.Type ? logical : new(null);
@@ -264,7 +267,7 @@ internal sealed partial class BodyBindingBuilder
             return new(Bool);
         }
         if (op is "==" or "!=" && HasDeclaredOperator(op, left.Type, right.Type))
-        { return OperatorCall(operation, op, [left, right], state, context); }
+        { return OperatorCall(operation, op, [left, right], state, context, expected: Bool); }
         if (op is "==" or "!=" && (Converts(left.Type, right.Type) || Converts(right.Type, left.Type))) { return new(Bool); }
         if (left.Type == right.Type && IsNumeric(left.Type) && (op is "+" or "-" or "*" or "/" or "%" or "<" or ">" or "<=" or ">="
             || IsInteger(left.Type) && op is "&" or "|" or "^"))
@@ -274,7 +277,8 @@ internal sealed partial class BodyBindingBuilder
         if (op is "<<" or ">>" && IsInteger(left.Type) && right.Type == Types.GetPrimitive("int")) { return new(left.Type); }
         if (left.Type == Bool && right.Type == Bool && op is "&" or "|" or "^") { return new(Bool); }
         if (op == "+" && left.Type == Core("String") && right.Type == left.Type) { return new(left.Type); }
-        return OperatorCall(operation, op, [left, right], state, context);
+        var binaryExpected = op is "<" or ">" or "<=" or ">=" ? Bool : expected;
+        return OperatorCall(operation, op, [left, right], state, context, expected: binaryExpected);
     }
 
     private static bool IsNumeric(ResolvedType type) => type.Kind == ResolvedTypeKind.Primitive && type.Name != "bool";

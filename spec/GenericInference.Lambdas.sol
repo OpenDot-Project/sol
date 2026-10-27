@@ -87,9 +87,10 @@ module source.spec.generic_inference.lambdas
 // Effects
 // -------
 // A lambda body can throw checked exceptions. Its contextual function type provides an effect
-// budget; the enclosing callable must handle or declare the escaping effect. Effects form a set,
-// so generic effect variables require a set-aware solver. Parameter enumeration order cannot map
-// two throw lists.
+// budget; the enclosing callable must handle or declare the escaping effect. Effects form a set.
+// Bounded matching can infer multiple top-level variables only from one complete assignment;
+// parameter enumeration order cannot map two throw lists. Nested function-type effect matching
+// remains deferred.
 
 // Incomplete support
 // ------------------

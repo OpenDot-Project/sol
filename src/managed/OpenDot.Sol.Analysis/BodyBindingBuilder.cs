@@ -162,6 +162,7 @@ internal sealed partial class BodyBindingBuilder
     internal readonly Dictionary<AstCallable, BodySummary> Bodies = new(ReferenceEqualityComparer.Instance);
     internal readonly List<Diagnostic> Diagnostics = [];
     internal readonly Dictionary<AstCall, BodyCallBinding> Calls = new(ReferenceEqualityComparer.Instance);
+    internal readonly Dictionary<AstNode, BodyOperatorBinding> OperatorBindings = new(ReferenceEqualityComparer.Instance);
     internal SourceAnalysis Sources { get; }
     internal TypeSpecialization Types { get; }
     internal MemberLookupResolver MemberResolver => _memberResolver;

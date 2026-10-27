@@ -122,8 +122,9 @@ module source.spec.generic_inference
 // Arrays, fixed arrays, tuples, nullable wrappers, and nominal generic applications are structurally
 // matched by their constructor and ordered element types. Fixed-array length and function parameter
 // passing modes must also match. Function effect sets are mathematical sets, not ordered lists;
-// inference cannot pair them by enumeration position. A parameter occurring only in an unresolved
-// effect set remains without evidence until set-aware effect inference is available.
+// inference cannot pair them by enumeration position. A parameter occurring only in a top-level
+// callback effect set can be inferred by bounded unordered matching when exactly one complete
+// mapping satisfies constraints. Nested function-type sets and ambiguous mappings remain unresolved.
 //
 // A shape mismatch in a pattern that contains an inferable parameter rejects that candidate. It is
 // not treated as successful “no evidence,” because the candidate cannot later make the structure
@@ -230,8 +231,9 @@ module source.spec.generic_inference
 //
 // Checked effects are part of a function type. An ordinary generic call substitutes written effect
 // types after inference. Effect parameters are not matched positionally because an effect list is
-// an unordered set. Set-aware inference must find a unique bijection or leave the candidate
-// unresolved. RuntimeException and its subtypes remain unchecked and do not add a required effect.
+// an unordered set. Bounded top-level inference accepts a unique complete bijection after
+// structural matching and constraints; ambiguous or nested function-type sets remain unresolved.
+// RuntimeException and its subtypes remain unchecked and do not add a required effect.
 //
 // When a generic call returns a function value, the expected function type may constrain the
 // generic result and function parameter/result shapes. Parameter passing modes are exact. A

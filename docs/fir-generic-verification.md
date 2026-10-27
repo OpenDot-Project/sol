@@ -26,6 +26,7 @@ body support.
 | Generic methods and generic owners | May be analyzed in source-level contexts | Rejected by the verified native subset |
 | Native type support | Broader than the native backend | Limited by `FirVerifier.Supported` and the selected ABI slice |
 | Generic function values and closure capture | Analysis may retain facts or defer | Not admitted by this specialization path |
+| User-defined operator target | `BodyAnalysis` retains the selected overload and closed signature | Direct `FirCall` form is limited to nongeneric, non-lifted operators with exact operands and supported native layouts; nominal value types still stop with `SOL2400` |
 | Constraints | Checked during candidate selection | Rechecked when an instance is built and when FIR is verified |
 | Resource limits | Analysis and type interning have their own budgets | 4,096 instances, 16,000,000 specialized body nodes, and 128 type levels |
 
@@ -104,6 +105,22 @@ evidence, arrays, or expected result types.
 The binder must finish inference and constraint checking before constructing `BodyCallBinding`.
 FIR is not a second overload resolver. `FirBuilder` consumes the one selected target and its
 substituted facts; the verifier later confirms those facts still agree with the original binding.
+
+Operator selection follows the same rule through `BodyOperatorBinding`. It is anchored to the
+original `AstOperation` or compound `AstAssignment` and stores the selected function, generic
+arguments, substituted parameter/result types, effects, and whether nullable lifting was used.
+Speculative candidate analysis snapshots this table with calls and expressions so a rejected
+overload cannot leave a stale target behind. When the native builder admits an operator, it emits an
+ordinary `FirCall`; source correspondence checks the selected declaration and each operand, and the
+call verifier checks its closed signature and effects. There is no operator dispatch at runtime.
+
+Current FIR admission is deliberately narrower than source binding: only nongeneric, non-nullable,
+value-parameter calls with exact operand types and already supported native layouts can become a
+`FirCall`. User-defined operators require an owner type, and nominal value layouts are not yet in the
+verified native type set, so those programs still stop with `SOL2400`. Nullable lifting, implicit
+conversions, checked/generic operator targets, and logical `true`/`false` plus `&`/`|` lowering do not
+cross this boundary. A selected source overload must never be replaced with a built-in FIR unary or
+binary operation merely because that operation has a convenient backend implementation.
 
 Defaults, expanded varargs, safe calls, and other forms that do not have a qualified native lowering
 remain independently rejectable by the native subset. Preserving generic arguments in a call binding
@@ -336,9 +353,10 @@ Do not erase an effect because the specialized body currently contains no throwi
 Function effect metadata is part of the source contract and the call graph. It controls legality at
 the call site even if a particular body has no observed throw.
 
-When a generic effect parameter or multi-open effect-set inference is added, it needs a dedicated
-ordered substitution and canonical set representation. It must not rely on a string name or the
-iteration order of an unordered effect set.
+Source analysis now has bounded inference for multiple top-level open effect patterns when it proves
+one complete assignment. Verified FIR still needs dedicated ordered substitution for the generic
+argument tuple and canonical set representation for effects. Nested function-type sets, ambiguous
+assignments and effect verification must not rely on display names or unordered iteration order.
 
 ## Supported native type boundary
 

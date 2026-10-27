@@ -466,7 +466,7 @@ specialization:
 - type-argument-driven reflection, runtime dictionaries, reified metadata, or dynamic code loading;
 - unimplemented source body forms such as unsupported defaults, varargs, member storage, cleanup,
   exception propagation, and operations not represented by verified FIR;
-- generic effect-set inference patterns that source analysis still defers;
+- nested or ambiguous generic effect-set patterns that source analysis still defers;
 - a persistent cross-build specialization cache or stable symbol mangling scheme.
 
 When adding one of these, define its source typing, lifetime and layout, verifier invariants, GC

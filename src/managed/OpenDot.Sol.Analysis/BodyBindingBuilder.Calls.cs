@@ -251,6 +251,7 @@ internal sealed partial class BodyBindingBuilder
         }
         inferParameters = inferParameters.Where(parameter => !substitution.ContainsKey(parameter)).ToImmutableArray();
         var inference = ImmutableArray.CreateBuilder<GenericInferenceConstraint>();
+        var arrayLiteralNumericEvidence = ImmutableArray.CreateBuilder<GenericInferenceConstraint>();
         foreach (var entry in mapping.Arguments)
         {
             var actual = values[entry.ArgumentIndex]?.Type;
@@ -275,7 +276,7 @@ internal sealed partial class BodyBindingBuilder
                 var formal = Written(callable.Parameters[entry.ParameterIndex].Type!);
                 bool exactArray = entry.IsArrayArgument || entry.IsSpread;
                 if (exactArray) { formal = Types.GetArray(formal); }
-                if (!AddArrayLiteralEvidence(inference, formal, array, exactArray, state, context,
+                if (!AddArrayLiteralEvidence(inference, arrayLiteralNumericEvidence, formal, array, exactArray, state, context,
                         "argument " + entry.ArgumentIndex, out _)) { return null; }
             }
         }
@@ -338,6 +339,25 @@ internal sealed partial class BodyBindingBuilder
                     Report("SOL2290", "Generic lambda inference exceeded the 128-pass fixed-point budget.", call);
                     Defer(call);
                     return null;
+                }
+            }
+            if (!unresolved.IsEmpty && arrayLiteralNumericEvidence.Count != 0)
+            {
+                // Numeric literal defaults are fallback evidence. Give other arguments, expected
+                // results, and candidate-local lambda facts the chance to select T first so each
+                // array literal can be checked for representability under the completed element type.
+                var fallback = arrayLiteralNumericEvidence.Where(constraint =>
+                    ContainsInferenceParameter(constraint.Template, unresolved)).ToArray();
+                if (fallback.Length != 0)
+                {
+                    inference.AddRange(fallback);
+                    genericInference = GenericInference.Solve(unresolved, substitution, inference);
+                    if (genericInference.Status is GenericInferenceStatus.ConflictingEvidence
+                        or GenericInferenceStatus.IncompatibleShape or GenericInferenceStatus.ResourceLimit)
+                    { return null; }
+                    substitution.Clear();
+                    foreach (var pair in genericInference.Substitution) { substitution.Add(pair.Key, pair.Value); }
+                    unresolved = genericInference.UnresolvedParameters;
                 }
             }
             if (!unresolved.IsEmpty) { Defer(call); return null; }
@@ -433,8 +453,8 @@ internal sealed partial class BodyBindingBuilder
     }
 
     private bool AddArrayLiteralEvidence(ImmutableArray<GenericInferenceConstraint>.Builder constraints,
-        ResolvedType template, AstSequence literal, bool exactArray, State state, Context context,
-        string origin, out string? error)
+        ImmutableArray<GenericInferenceConstraint>.Builder numericLiteralEvidence, ResolvedType template,
+        AstSequence literal, bool exactArray, State state, Context context, string origin, out string? error)
     {
         error = null;
         if (template.Kind is not (ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray))
@@ -471,7 +491,7 @@ internal sealed partial class BodyBindingBuilder
             if (element is AstSequence { SyntaxKind: NodeKind.ArrayExpression } nested
                 && elementTemplate.Kind is ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)
             {
-                if (!AddArrayLiteralEvidence(constraints, elementTemplate, nested, false, state, context,
+                if (!AddArrayLiteralEvidence(constraints, numericLiteralEvidence, elementTemplate, nested, false, state, context,
                         elementOrigin, out error)) { return false; }
                 continue;
             }
@@ -480,7 +500,11 @@ internal sealed partial class BodyBindingBuilder
             var value = AnalyzeExpressionCandidate(expression, state, context, out bool invalid);
             if (invalid || value.Type is null)
             { error = "Array literal element typing is incomplete."; return false; }
-            constraints.Add(new(elementTemplate, value.Type, GenericInferenceRelation.Input, elementOrigin));
+            var evidence = new GenericInferenceConstraint(elementTemplate, value.Type,
+                GenericInferenceRelation.Input, elementOrigin);
+            if (value.Literal is not null && value.Type.Kind == ResolvedTypeKind.Primitive)
+            { numericLiteralEvidence.Add(evidence); }
+            else { constraints.Add(evidence); }
         }
         return true;
     }

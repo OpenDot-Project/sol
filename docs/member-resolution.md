@@ -340,7 +340,7 @@ or execute the bound target. The following remain open:
 - all generated data-class members and complete inherited property/indexer merge rules;
 - candidate-local contextual typing for every lambda and array literal shape, including complex
   cross-argument dependencies beyond the bounded replay currently implemented;
-- multi-open generic function-effect set inference;
+- nested function-type effect-set matching and ambiguous top-level effect assignments;
 - executable safe-call, virtual/interface dispatch, ref/out, and checked-effect lowering;
 - ownership/borrow and escape proof for all ref-like generic receiver paths;
 - complete FIR generation and native backend support.

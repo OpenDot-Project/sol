@@ -39,6 +39,15 @@ internal sealed partial class FirBuilder
                 if (operation.Operation == "-" && values is [AstAtom { SyntaxKind: NodeKind.LiteralExpression } literal])
                 { return new FirConstant("-" + literal.Spelling, type, operation.Origin); }
                 if (operation.TargetType is not null || operation.Operation is "++" or "--" or "!!" or "?:") { return Invalid(operation); }
+                if (BoundOperator(operation) is { } selectedOperator)
+                {
+                    if (!IsSupportedOperator(operation.Operation, values.Length)
+                        || selectedOperator.Operator != operation.Operation
+                        || values.Any(value => value is not AstExpression))
+                    { Unsupported(operation, "Operator syntax is outside the verified direct-call subset"); return Invalid(operation); }
+                    var operands = values.Cast<AstExpression>().Select(Expression).ToArray();
+                    return LowerOperator(operation, operation.Operation, operands, type, operation.Origin) ?? Invalid(operation);
+                }
                 if (values.Length == 1) { return new FirUnary(operation.Operation, Expression(values[0]), type, operation.Origin); }
                 if (values.Length == 2) { return new FirBinary(operation.Operation, Expression(values[0]), Expression(values[1]), type, operation.Origin); }
                 return Invalid(operation);
@@ -176,7 +185,17 @@ internal sealed partial class FirBuilder
                 var value = Expression(assignment.Value);
                 if (assignment.Operation != "=")
                 {
-                    value = new FirBinary(assignment.Operation[..^1], new FirRead(stored.Id, stored.Type, location.Origin), value, stored.Type, node.Origin);
+                    string operation = assignment.Operation[..^1];
+                    if (BoundOperator(assignment) is { } selectedOperator)
+                    {
+                        if (selectedOperator.Operator != operation || !IsSupportedOperator(operation, 2))
+                        { Unsupported(assignment, "Compound operator syntax is outside the verified direct-call subset"); return null; }
+                        value = LowerOperator(assignment, operation,
+                            [new FirRead(stored.Id, stored.Type, location.Origin), value], stored.Type, node.Origin)
+                            ?? Invalid(assignment);
+                    }
+                    else
+                    { value = new FirBinary(operation, new FirRead(stored.Id, stored.Type, location.Origin), value, stored.Type, node.Origin); }
                 }
                 return new FirStore(stored.Id, value, node.Origin);
             case AstReturn ret:

@@ -15,10 +15,12 @@ public static partial class FirVerifier
     private sealed partial class Checker
     {
         private readonly Dictionary<object, int> _sourceCallMatches = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<object, int> _sourceOperatorMatches = new(ReferenceEqualityComparer.Instance);
 
         private void CheckSourceCorrespondence()
         {
             _sourceCallMatches.Clear();
+            _sourceOperatorMatches.Clear();
             var source = program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
                 .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, _function.Origin.Element));
             if (source?.Body.Node is not { } sourceBody)
@@ -65,6 +67,23 @@ public static partial class FirVerifier
             foreach (var call in _sourceCallMatches.Keys)
             {
                 if (!expectedCalls.Contains(call)) { Fail("FIR contains a call outside the source function body.", _function.Origin); }
+            }
+
+            var expectedOperators = new HashSet<object>(ReferenceEqualityComparer.Instance);
+            if (sourceBody is AstOperation or AstAssignment && GetSourceOperator(sourceBody.Origin.Element) is not null)
+            { expectedOperators.Add(sourceBody.Origin.Element); }
+            foreach (var site in sourceBody.Descendants().Where(node => node is AstOperation or AstAssignment)
+                .Where(node => GetSourceOperator(node.Origin.Element) is not null))
+            { expectedOperators.Add(site.Origin.Element); }
+            foreach (var site in expectedOperators)
+            {
+                if (!_sourceOperatorMatches.TryGetValue(site, out int count) || count == 0)
+                { Fail("A source-bound operator is absent from FIR.", source.Origin); }
+                else if (count != 1) { Fail("A source-bound operator is represented more than once in FIR.", source.Origin); }
+            }
+            foreach (var site in _sourceOperatorMatches.Keys)
+            {
+                if (!expectedOperators.Contains(site)) { Fail("FIR contains an operator call outside the source function body.", _function.Origin); }
             }
         }
 
@@ -197,6 +216,16 @@ public static partial class FirVerifier
             if (source.Operation == "=")
             {
                 MatchExpression(actual.Value, sourceValue);
+                return;
+            }
+
+            if (GetSourceOperator(source.Origin.Element) is { } operatorBinding)
+            {
+                string selectedOperation = source.Operation.Length > 1 && source.Operation[^1] == '='
+                    ? source.Operation[..^1] : "";
+                if (actual.Value is not FirCall operatorCall || operatorBinding.Operator != selectedOperation)
+                { Fail("FIR compound store does not call the selected source operator.", actual.Origin); return; }
+                MatchOperatorCall(operatorCall, source, selectedOperation, [location, sourceValue]);
                 return;
             }
 
@@ -337,6 +366,11 @@ public static partial class FirVerifier
                         MatchExpression(binary.Left, left);
                         MatchExpression(binary.Right, right);
                         break;
+                    case AstOperation operation when actual is FirCall call
+                        && GetSourceOperator(operation.Origin.Element) is { } operatorBinding:
+                        MatchOperatorCall(call, operation, operation.Operation,
+                            operation.Operands.OfType<AstExpression>().ToArray());
+                        break;
                     case AstMember { Name: "length", Receiver: not null, IsSafe: false } member when actual is FirArrayLength length:
                         MatchExpression(length.Array, member.Receiver);
                         break;
@@ -418,6 +452,28 @@ public static partial class FirVerifier
             else if (intrinsic is null && actual is FirCall call)
             { MatchCall(call, source, binding); }
             else { Fail("FIR call lowering kind differs from the selected source target.", actual.Origin); }
+        }
+
+        private void MatchOperatorCall(FirCall actual, AstNode site, string operation,
+            IReadOnlyList<AstExpression> sourceOperands)
+        {
+            _sourceOperatorMatches[site.Origin.Element] = _sourceOperatorMatches.GetValueOrDefault(site.Origin.Element) + 1;
+            var binding = GetSourceOperator(site.Origin.Element);
+            if (binding is null)
+            { Fail("FIR operator call has no source-bound overload selection.", site.Origin); return; }
+            if (binding.Operator != operation || sourceOperands.Count != binding.ParameterTypes.Length
+                || actual.Arguments.Length != sourceOperands.Count)
+            { Fail("FIR operator operands differ from source overload resolution.", actual.Origin); }
+            int common = Math.Min(actual.Arguments.Length, sourceOperands.Count);
+            for (int index = 0; index < common; index++)
+            {
+                var argument = actual.Arguments[index];
+                if (argument.Parameter != index || argument.Mode != AstPassingMode.Value
+                    || index >= binding.ParameterTypes.Length
+                    || Substitute(binding.ParameterTypes[index]) != argument.Value.Type)
+                { Fail("FIR operator argument mapping differs from its selected signature.", actual.Origin); }
+                MatchExpression(argument.Value, sourceOperands[index]);
+            }
         }
 
         private DefaultCallPlan? ValidateCallArguments(FirCall call, BodyCallBinding sourceBinding)

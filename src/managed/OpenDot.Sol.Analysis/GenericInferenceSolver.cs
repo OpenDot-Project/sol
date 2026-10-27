@@ -51,7 +51,7 @@ internal sealed record GenericInferenceResult(
 /// This component is deliberately a bounded source-analysis service: it does not specialize a
 /// callable body, create FIR, or choose an overload.
 /// </summary>
-internal sealed class GenericInferenceSolver
+internal sealed partial class GenericInferenceSolver
 {
     private const int MaximumDepth = 128;
     private const int MaximumGraphNodes = 4096;
@@ -86,6 +86,7 @@ internal sealed class GenericInferenceSolver
 
         var parameterSet = new HashSet<ResolvedType>();
         var evidence = new Dictionary<ResolvedType, Evidence>();
+        var effectConstraints = new List<EffectSetConstraint>();
         foreach (var parameter in parameters)
         {
             _types.ValidateOwnership(parameter);
@@ -117,11 +118,13 @@ internal sealed class GenericInferenceSolver
             var actual = fixedMap.Count == 0 ? constraint.Actual
                 : _types.Substitute(constraint.Actual, fixedMap, _cancellation);
             if (!Collect(template, actual, constraint.Relation, constraint.Origin,
-                    parameterSet, evidence, fixedMap, 0))
+                    parameterSet, evidence, fixedMap, effectConstraints, 0))
             {
                 missingShape = true;
             }
         }
+
+        ResolveEffectSets(parameters, parameterSet, fixedMap, evidence, effectConstraints);
 
         var solved = new Dictionary<ResolvedType, ResolvedType>(fixedMap);
         var unresolved = ImmutableArray.CreateBuilder<ResolvedType>();
@@ -176,7 +179,8 @@ internal sealed class GenericInferenceSolver
 
     private bool Collect(ResolvedType template, ResolvedType actual, GenericInferenceRelation relation,
         string origin, HashSet<ResolvedType> parameters, Dictionary<ResolvedType, Evidence> buckets,
-        IReadOnlyDictionary<ResolvedType, ResolvedType> fixedMap, int depth)
+        IReadOnlyDictionary<ResolvedType, ResolvedType> fixedMap,
+        List<EffectSetConstraint> effectConstraints, int depth)
     {
         _cancellation.ThrowIfCancellationRequested();
         if (depth > MaximumDepth) { throw new TypeSpecializationException(SpecializationFailure.ResourceLimit,
@@ -193,7 +197,8 @@ internal sealed class GenericInferenceSolver
         if (template.IsNullable)
         {
             var payload = actual.IsNullable ? actual.Arguments[0] : actual;
-            return Collect(template.Arguments[0], payload, relation, origin, parameters, buckets, fixedMap, depth + 1);
+            return Collect(template.Arguments[0], payload, relation, origin, parameters, buckets,
+                fixedMap, effectConstraints, depth + 1);
         }
         if (actual.IsNullable) { return false; }
 
@@ -218,7 +223,7 @@ internal sealed class GenericInferenceSolver
                     // Nominal applications are invariant. Projection changes only the nominal
                     // constructor; it never turns T in Box<T> into a covariant bound.
                     if (!Collect(left.Arguments[index], right.Arguments[index], GenericInferenceRelation.Exact,
-                            origin, parameters, buckets, fixedMap, depth + 1)) { return false; }
+                            origin, parameters, buckets, fixedMap, effectConstraints, depth + 1)) { return false; }
                 }
             }
             return true;
@@ -235,34 +240,17 @@ internal sealed class GenericInferenceSolver
         for (int index = 0; index < template.Arguments.Length; index++)
         {
             if (!Collect(template.Arguments[index], actual.Arguments[index], GenericInferenceRelation.Exact,
-                    origin, parameters, buckets, fixedMap, depth + 1)) { return false; }
+                    origin, parameters, buckets, fixedMap, effectConstraints, depth + 1)) { return false; }
         }
 
-        return CollectEffectEvidence(template.Effects, actual.Effects, relation, origin,
-            parameters, buckets, fixedMap, depth + 1);
-    }
-
-    private bool CollectEffectEvidence(ImmutableArray<ResolvedType> templates,
-        ImmutableArray<ResolvedType> actuals, GenericInferenceRelation relation, string origin,
-        HashSet<ResolvedType> parameters, Dictionary<ResolvedType, Evidence> buckets,
-        IReadOnlyDictionary<ResolvedType, ResolvedType> fixedMap, int depth)
-    {
-        // Effect sets are unordered. Infer the single open effect pattern only when every fixed
-        // member has an exact counterpart and exactly one actual member remains. Otherwise leave
-        // effect-only parameters unresolved; a positional guess could bind the wrong exception.
-        var open = templates.Where(effect => ContainsInferenceParameter(effect, parameters)).ToArray();
-        if (open.Length != 1 || templates.Length != actuals.Length) { return true; }
-
-        var remaining = actuals.ToList();
-        foreach (var fixedEffect in templates.Where(effect => !ContainsInferenceParameter(effect, parameters)))
+        if (template.Effects.IsEmpty && actual.Effects.IsEmpty) { return true; }
+        if (effectConstraints.Count >= MaximumGraphNodes)
         {
-            int index = remaining.FindIndex(actual => ReferenceEquals(actual, fixedEffect));
-            if (index < 0) { return true; }
-            remaining.RemoveAt(index);
+            throw new TypeSpecializationException(SpecializationFailure.ResourceLimit,
+                "Generic inference exceeds the 4096 nested effect-relation budget.");
         }
-        if (remaining.Count != 1) { return true; }
-        return Collect(open[0], remaining[0], GenericInferenceRelation.Exact, origin,
-            parameters, buckets, fixedMap, depth);
+        effectConstraints.Add(new(template.Effects, actual.Effects, origin, depth + 1));
+        return true;
     }
 
     private static void AddEvidence(Evidence evidence, ResolvedType parameter,

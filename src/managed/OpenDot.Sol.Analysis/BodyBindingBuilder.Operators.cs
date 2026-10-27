@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using OpenDot.Sol.Ast;
 
@@ -20,7 +21,8 @@ internal sealed partial class BodyBindingBuilder
     private bool HasDeclaredOperator(string name, params ResolvedType[] operands) => operands.Distinct()
         .SelectMany(type => Operators(type, name)).Any();
 
-    private Value? LiftNullableUnary(AstNode location, string name, Value operand, State state, Context context)
+    private Value? LiftNullableUnary(AstNode location, string name, Value operand, State state, Context context,
+        ResolvedType? expected = null)
     {
         if (operand.Type?.IsNullable != true || !IsLiftableValueType(operand.Type!.Arguments[0])) { return null; }
         var underlying = operand with { Type = operand.Type.Arguments[0] };
@@ -29,11 +31,13 @@ internal sealed partial class BodyBindingBuilder
         if (name is ("++" or "--") && IsNumeric(underlying.Type!)) { return new(operand.Type); }
         if (name == "!" && underlying.Type == Bool) { return new(Types.GetNullable(Bool)); }
         if (!HasDeclaredOperator(name, underlying.Type!)) { return null; }
-        var result = OperatorCall(location, name, [underlying], state, context);
+        var result = OperatorCall(location, name, [underlying], state, context, expected: NullablePayload(expected),
+            usesNullableLifting: true);
         return result.Type is null ? new(null) : new(Types.GetNullable(result.Type));
     }
 
-    private Value? LiftNullableBinary(AstNode location, string name, Value left, Value right, State state, Context context)
+    private Value? LiftNullableBinary(AstNode location, string name, Value left, Value right, State state,
+        Context context, ResolvedType? expected = null)
     {
         if (left.Type?.IsNullable != true && right.Type?.IsNullable != true) { return null; }
         if (left.Type?.IsNullable == true && !IsLiftableValueType(left.Type.Arguments[0])
@@ -46,7 +50,9 @@ internal sealed partial class BodyBindingBuilder
         bool booleanResult = name is "==" or "!=" or "<" or ">" or "<=" or ">=";
         if (HasDeclaredOperator(name, leftType, rightType))
         {
-            var result = OperatorCall(location, name, [unwrappedLeft, unwrappedRight], state, context);
+            var operatorExpected = booleanResult ? Bool : NullablePayload(expected);
+            var result = OperatorCall(location, name, [unwrappedLeft, unwrappedRight], state, context,
+                expected: operatorExpected, usesNullableLifting: true);
             return booleanResult ? new(Bool)
                 : result.Type is null ? new(null) : new(Types.GetNullable(result.Type));
         }
@@ -65,6 +71,9 @@ internal sealed partial class BodyBindingBuilder
         { return new(Types.GetNullable(leftType)); }
         return null;
     }
+
+    private static ResolvedType? NullablePayload(ResolvedType? type) =>
+        type?.IsNullable == true ? type.Arguments[0] : type;
 
     private static bool IsLiftableValueType(ResolvedType type) => type.Kind is (ResolvedTypeKind.Primitive
         or ResolvedTypeKind.Tuple or ResolvedTypeKind.FixedArray)
@@ -107,21 +116,33 @@ internal sealed partial class BodyBindingBuilder
     }
 
     private Value OperatorCall(AstNode location, string name, Value[] operands, State state, Context context,
-        bool exactOperands = false)
+        bool exactOperands = false, ResolvedType? expected = null, bool usesNullableLifting = false)
     {
         if (operands.Any(v => v.Type is null)) { return new(null); }
-        var candidates = operands.Select(v => v.Type!).Distinct().SelectMany(t => Operators(t, name)).Distinct()
-            .Where(p => p.Function.Parameters.Length == operands.Length && p.Function.Parameters.All(a => a.Type is not null)
-                && p.Function.Parameters.Select((parameter, index) => exactOperands
-                    ? operands[index].Type == Written(parameter.Type!)
-                    : ConversionRank(operands[index].Type!, Written(parameter.Type!)) >= 0).All(b => b)).ToArray();
+        var declared = operands.Select(v => v.Type!).Distinct().SelectMany(t => Operators(t, name)).Distinct()
+            .Where(candidate => candidate.Function.Parameters.Length == operands.Length
+                && candidate.Function.Parameters.All(parameter => parameter.Type is not null)).ToArray();
+        var candidates = new List<ResolvedOperatorCandidate>(declared.Length);
+        bool unresolvedCandidate = false;
+        foreach (var candidate in declared)
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (TryCloseOperatorCandidate(location, candidate, operands, exactOperands, expected,
+                    out var closed, out bool deferred))
+            { candidates.Add(closed!); }
+            unresolvedCandidate |= deferred;
+        }
+        if (unresolvedCandidate)
+        {
+            // An open operator parameter may still become applicable and change the winner.
+            // Do not publish facts from the candidates that happened to close first.
+            Defer(location);
+            return new(null);
+        }
         var checkedCandidates = candidates.Where(candidate => candidate.Function.IsCheckedOperator).ToArray();
-        if (checkedCandidates.Length != 0) { candidates = checkedCandidates; }
-        var ranked = candidates.Select(candidate => (Candidate: candidate, Ranks: candidate.Function.Parameters
-            .Select((parameter, index) => ConversionRank(operands[index].Type!, Written(parameter.Type!))).ToArray())).ToArray();
-        var best = ranked.Where(candidate => !ranked.Any(other =>
-            !ReferenceEquals(other.Candidate.Function, candidate.Candidate.Function)
-            && BetterOperatorRanks(other.Ranks, candidate.Ranks))).ToArray();
+        if (checkedCandidates.Length != 0) { candidates = checkedCandidates.ToList(); }
+        var best = candidates.Where(candidate => !candidates.Any(other =>
+            !ReferenceEquals(other.Function, candidate.Function) && BetterOperatorCandidate(other, candidate))).ToArray();
         if (best.Length != 1)
         {
             if (best.Length == 0 && context.Callable is { } callable && callable.TypeParameters.Any()
@@ -136,24 +157,34 @@ internal sealed partial class BodyBindingBuilder
                 ? "Operator is not defined for these operand types." : "Ambiguous operator overload.", location);
             return new(null);
         }
-        var function = best[0].Candidate.Function;
-        var owner = best[0].Candidate.Owner;
+        var selected = best[0];
+        var function = selected.Function;
         foreach (var parameter in function.Parameters.Where(p => p.Type is not null))
-        { ValidateFunctionEffects(Specialize(parameter.Type!, owner), location); }
+        { ValidateFunctionEffects(Types.Substitute(Written(parameter.Type!), selected.Substitution, _cancellation), location); }
         for (int index = 0; index < operands.Length; index++)
         {
-            var target = Written(function.Parameters[index].Type!);
+            var target = selected.ParameterTypes[index];
             if (Types.ClassifyConversion(operands[index].Type!, target, _cancellation) == IntrinsicConversion.None)
             { UserConversion(operands[index].Type!, target, location, state, true); }
         }
         if (Sources.Declarations.GetDeclaredSymbol(function) is { } symbol && !Accessible(symbol, location))
         { Report("SOL2214", "The operator is inaccessible.", location); }
-        var effects = function.ThrownTypes.Select(t => Specialize(t, owner)).ToArray();
+        var effects = function.ThrownTypes.Select(t => Types.Substitute(Written(t), selected.Substitution, _cancellation)).ToArray();
         RecordPotentialCallEdges(state, effects);
         state.Effects.UnionWith(effects);
         var resultType = function.ReturnType is null ? CheckBody(function).ReturnType
-            : Specialize(function.ReturnType, owner);
+            : Types.Substitute(Written(function.ReturnType), selected.Substitution, _cancellation);
         if (resultType is not null) { ValidateFunctionEffects(resultType, location); }
+        if (location is AstOperation operation && operation.Operation == name
+            || location is AstAssignment assignment && assignment.Operation.Length > 1
+                && assignment.Operation.EndsWith('=') && assignment.Operation[..^1] == name)
+        {
+            var typeParameters = Sources.Types.GetTypeParameters(function);
+            var typeArguments = typeParameters.Select(parameter => selected.Substitution.GetValueOrDefault(parameter, parameter))
+                .ToImmutableArray();
+            OperatorBindings[location] = new(location, name, function, typeArguments,
+                selected.ParameterTypes, resultType, effects.ToImmutableArray(), usesNullableLifting);
+        }
         return new(resultType);
     }
 

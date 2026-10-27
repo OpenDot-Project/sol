@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: syntax/semantic contract fixture; one-open-effect inference is bounded and unqualified by runtime tests.
+// Status: syntax/semantic contract fixture; bounded unique top-level effect matching is unqualified by runtime tests.
 module examples.semantics.generic_effect_callback_evidence
 
 class DiskFailure(message: String): Exception(message)

@@ -107,15 +107,19 @@ nullable normalization. Constructed base projections can infer a parameter from 
 derived argument. Multiple bounds require one unique most-specific candidate; numeric widening is
 not introduced. Constraints are checked after inference for both method-owned and constructed-owner
 parameters. Explicit type arguments bypass evidence collection for those parameters but still pass
-constraint and conversion checks. Generic function-effect inference, complete lambda/array literal
-evidence, and monomorphized body rechecking remain deferred. See
+constraint and conversion checks. Bounded unordered matching can infer multiple top-level callback
+effect patterns when exactly one complete assignment survives; ambiguous and nested function-type
+sets remain deferred. Complete lambda/array literal evidence and monomorphized body rechecking also
+remain deferred. See
 [generic inference](generic-inference.md) for bounds, limits, and examples.
 
 Argument typing currently covers written lexical types, simple literal-initialized locals, typed
 properties, grouping, tuples, and nested bound direct calls. Numeric literals prefer default
 `int`/`double` matches, then other representable contextual targets; integer bounds are checked before
-selection. Binary128 literal rounding is deferred. Unary/operator expressions, array literal inference,
-lambdas, arbitrary property initializers, and full expression-body return inference are not implemented.
+selection. Binary128 literal rounding is deferred. Built-in and supported user-defined unary/binary
+operators bind in body analysis; generic operator arguments can use operand and expected-result
+evidence. Array literal inference, lambdas, arbitrary property initializers, and full expression-body
+return inference remain incomplete.
 A block function without a result annotation supplies `()`; expression-body functions need a written
 result for this binder. Declared effects are substituted and retained, without checked-effect coverage.
 

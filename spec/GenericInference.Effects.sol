@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative generic effect inference contract; set-aware inference is pending.
+// Status: normative generic effect inference contract; bounded unique recursive set matching is implemented.
 module source.spec.generic_inference.effects
 
 // Generic parameters and checked effect sets
@@ -27,16 +27,19 @@ module source.spec.generic_inference.effects
 // A type parameter occurring in an effect has one of these cases:
 //
 // 1. It is also solved from an ordinary parameter/result position. Substitution closes the effect.
-// 2. It occurs only in an expected callable effect set. A set-aware matcher may infer it when there
-//    is one unique mapping between constructed effect patterns and expected effect identities.
+// 2. It occurs in an expected callback effect set. Bounded unordered matching may infer multiple
+//    parameters when exactly one mapping exists between constructed patterns and actual identities.
 // 3. It occurs only in the actual lambda body's effect set. Candidate-local contextual lambda
 //    checking may contribute an upper/lower relation under the declared function contract.
 // 4. It occurs in multiple unordered effects with more than one possible pairing. The candidate is
 //    ambiguous/deferred; list order cannot decide.
 //
 // The current implementation handles case 1 when the variable also occurs in supported structural
-// parameter/result positions. Cases 2–4 remain deferred until a dedicated unordered-set solver and
-// candidate-local lambda store are available.
+// parameter/result positions. Candidate-local lambda analysis handles case 2 when the complete
+// mapping is unique. If comparing constructed effect identities exposes another function-type
+// effect set, the matcher recursively solves that set under the same search budget. Ambiguous or
+// incomplete nested evidence stays deferred. This is not complete flow/catch or native effect
+// verification.
 
 // Checked budgets
 // ---------------
@@ -74,10 +77,10 @@ module source.spec.generic_inference.effects
 
 // Deterministic set matching
 // --------------------------
-// Any future effect matcher must compare canonical constructed identities without depending on
-// source order. Duplicate identical effects normalize to one element. Two different projections
-// that construct the same exception type are one effect; different generic arguments remain
-// distinct. The matcher returns a unique map, no map, multiple maps, or an indeterminate result.
+// The bounded matcher compares canonical constructed identities without depending on source order.
+// Duplicate identical effects normalize to one element. Two different projections that construct
+// the same exception type are one effect; different generic arguments remain distinct. The matcher
+// returns a unique map, no map, multiple maps, or an indeterminate result within explicit limits.
 //
 // Sorting exception names and zipping positions is not a semantic algorithm. A fixed sorting order
 // can be used for JSON and diagnostics after the set is solved.

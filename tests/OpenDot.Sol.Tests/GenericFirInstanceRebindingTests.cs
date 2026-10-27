@@ -84,4 +84,20 @@ public sealed class GenericFirInstanceRebindingTests
         Assert.Null(compilation.Program);
         Assert.Contains(compilation.Diagnostics, diagnostic => diagnostic.Code == "SOL2207");
     }
+
+    [Fact]
+    public void ClosedGenericRebindRanksUserOperatorBeforeFirRejectsTheSelectedBody()
+    {
+        var compilation = Compile("add<Number>(Number(1), Number(2))",
+            "class Number(val value: int) { companion object {\n"
+                + "    operator func +(left: Number, right: Number): Number = left\n"
+                + "    operator func +(left: Number, right: Object): String = \"fallback\"\n"
+                + "} }\n"
+                + "func <T> add(left, right: T): T = left + right");
+
+        Assert.Null(compilation.Program);
+        Assert.Contains(compilation.Diagnostics, diagnostic => diagnostic.Code == "SOL2400");
+        Assert.DoesNotContain(compilation.Diagnostics, diagnostic => diagnostic.Code == "SOL2207");
+        Assert.DoesNotContain(compilation.Diagnostics, diagnostic => diagnostic.Code == "SOL2206");
+    }
 }

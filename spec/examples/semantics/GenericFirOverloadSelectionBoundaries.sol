@@ -49,7 +49,7 @@ func checkedEffectSetOrderIsNotEvidence(): String throws DiskFailure {
 }
 
 func multiOpenEffectMappingCanDefer(): () {
-    // expect: effects.multi-open | Deferred | reason=multiple-open-effect-patterns
+    // expect: effects.multi-open | Deferred | reason=more-open-patterns-than-actual-effects
     val value = useTwoEffects({ readDisk() })
 }
 

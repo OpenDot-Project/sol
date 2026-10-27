@@ -104,8 +104,8 @@ module source.spec.generic_inference.candidate_evidence_ledger
 // | typed lambda parameter | exact | yes | yes per candidate round |
 // | untyped lambda parameter | contextual only | no by self-evidence | yes per candidate round |
 // | lambda body result | input/lower | yes if independent and closed | yes per candidate round |
-// | one open effect pattern | exact set residual | yes if unique | yes per candidate round |
-// | multiple open effects | unresolved set | no current unique mapping | yes, bounded |
+// | open effect patterns | exact unordered set assignment | yes if one complete mapping survives | yes, bounded per candidate round |
+// | nested function-type effect sets | nested unordered assignment | deferred | yes, bounded |
 // | omitted default | none | no | evaluated after selection |
 
 // Worked evidence ledger

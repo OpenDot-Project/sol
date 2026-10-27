@@ -30,12 +30,18 @@ public sealed record BodyCallBinding(AstCall Call, AstCallable Target, ResolvedT
     public ImmutableArray<int> EmptyVarargParameters { get; init; } = [];
 }
 
+/// <summary>Selected source operator target and its candidate-local closed signature.</summary>
+public sealed record BodyOperatorBinding(AstNode Site, string Operator, AstFunction Target,
+    ImmutableArray<ResolvedType> TypeArguments, ImmutableArray<ResolvedType> ParameterTypes,
+    ResolvedType? ReturnType, ImmutableArray<ResolvedType> Effects, bool UsesNullableLifting);
+
 /// <summary>Closed semantic facts for one generic function instance within one BodyAnalysis.</summary>
 internal sealed class SpecializedBodyAnalysis
 {
     private readonly ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
     private readonly ImmutableDictionary<AstCallable, BodySummary> _bodies;
     private readonly ImmutableDictionary<AstCall, BodyCallBinding> _calls;
+    private readonly ImmutableDictionary<AstNode, BodyOperatorBinding> _operators;
     private readonly ImmutableHashSet<AstNode> _nodes;
 
     internal SpecializedBodyAnalysis(BodyBindingBuilder builder, AstFunction function,
@@ -48,11 +54,14 @@ internal sealed class SpecializedBodyAnalysis
         _expressions = builder.Expressions.ToImmutableDictionary();
         _bodies = builder.Bodies.ToImmutableDictionary();
         _calls = builder.Calls.ToImmutableDictionary();
+        _operators = builder.OperatorBindings.ToImmutableDictionary();
         _nodes = builder.Files.Keys.ToImmutableHashSet();
         Expressions = _expressions.Values.OrderBy(binding => binding.Expression.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(binding => binding.Expression.Origin.Span.Start).ToImmutableArray();
         Calls = _calls.Values.OrderBy(binding => binding.Call.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(binding => binding.Call.Origin.Span.Start).ToImmutableArray();
+        OperatorBindings = _operators.Values.OrderBy(binding => binding.Site.Origin.Source.Path, StringComparer.Ordinal)
+            .ThenBy(binding => binding.Site.Origin.Span.Start).ToImmutableArray();
         Bodies = _bodies.Values.OrderBy(body => body.Declaration.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(body => body.Declaration.Origin.Span.Start).ToImmutableArray();
         UnverifiedNodes = builder.Unverified.OrderBy(node => node.Origin.Source.Path, StringComparer.Ordinal)
@@ -68,6 +77,7 @@ internal sealed class SpecializedBodyAnalysis
     internal BodySummary Summary { get; }
     internal ImmutableArray<ExpressionBinding> Expressions { get; }
     internal ImmutableArray<BodyCallBinding> Calls { get; }
+    internal ImmutableArray<BodyOperatorBinding> OperatorBindings { get; }
     internal ImmutableArray<BodySummary> Bodies { get; }
     internal ImmutableArray<AstNode> UnverifiedNodes { get; }
     internal ImmutableArray<Diagnostic> Diagnostics { get; }
@@ -92,6 +102,13 @@ internal sealed class SpecializedBodyAnalysis
         if (!_nodes.Contains(call)) { throw new ArgumentException("The call belongs to another source analysis.", nameof(call)); }
         return _calls.GetValueOrDefault(call);
     }
+
+    internal BodyOperatorBinding? GetOperator(AstNode site)
+    {
+        ArgumentNullException.ThrowIfNull(site);
+        if (!_nodes.Contains(site)) { throw new ArgumentException("The operator site belongs to another source analysis.", nameof(site)); }
+        return _operators.GetValueOrDefault(site);
+    }
 }
 
 /// <summary>
@@ -103,6 +120,7 @@ public sealed class BodyAnalysis
     private readonly record struct GenericBodyKey(AstFunction Function, string TypeIds);
     private readonly ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
     private readonly ImmutableDictionary<AstCallable, BodySummary> _bodies;
+    private readonly ImmutableDictionary<AstNode, BodyOperatorBinding> _operators;
     private readonly ImmutableHashSet<AstNode> _nodes;
     private readonly object _genericBodyGate = new();
     private readonly Dictionary<GenericBodyKey, SpecializedBodyAnalysis> _genericBodies = [];
@@ -112,8 +130,10 @@ public sealed class BodyAnalysis
         Sources = builder.Sources;
         Types = builder.Types;
         Calls = builder.Calls.Values.ToImmutableArray();
+        OperatorBindings = builder.OperatorBindings.Values.ToImmutableArray();
         _expressions = builder.Expressions.ToImmutableDictionary();
         _bodies = builder.Bodies.ToImmutableDictionary();
+        _operators = builder.OperatorBindings.ToImmutableDictionary();
         _nodes = builder.Files.Keys.ToImmutableHashSet();
         UnverifiedNodes = builder.Unverified.OrderBy(n => n.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(n => n.Origin.Span.Start).ToImmutableArray();
@@ -130,6 +150,7 @@ public sealed class BodyAnalysis
     public SourceAnalysis Sources { get; }
     public TypeSpecialization Types { get; }
     public ImmutableArray<BodyCallBinding> Calls { get; }
+    internal ImmutableArray<BodyOperatorBinding> OperatorBindings { get; }
     public ImmutableArray<ExpressionBinding> Expressions { get; }
     public ImmutableArray<BodySummary> Bodies { get; }
     public ImmutableArray<Diagnostic> Diagnostics { get; }
@@ -159,6 +180,13 @@ public sealed class BodyAnalysis
         ArgumentNullException.ThrowIfNull(declaration);
         if (!_nodes.Contains(declaration)) { throw new ArgumentException("The declaration belongs to another source analysis.", nameof(declaration)); }
         return _bodies.GetValueOrDefault(declaration);
+    }
+
+    internal BodyOperatorBinding? GetOperator(AstNode site)
+    {
+        ArgumentNullException.ThrowIfNull(site);
+        if (!_nodes.Contains(site)) { throw new ArgumentException("The operator site belongs to another source analysis.", nameof(site)); }
+        return _operators.GetValueOrDefault(site);
     }
 
     internal SpecializedBodyAnalysis GetGenericBody(AstFunction function,

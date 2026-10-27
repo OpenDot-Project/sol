@@ -29,7 +29,7 @@ The following features remain outside this guide's implemented boundary:
 - generic C ABI exports and cross-module generic templates;
 - full per-instance semantic rebinding when concrete types change applicability or flow;
 - native checked exception unwinding, source `catch`, `finally`, and cleanup lowering;
-- complete unordered matching of multiple open effect patterns.
+- every cross-lambda fixed-point interaction for nested open effect patterns.
 
 A closed effect list in FIR is source metadata and a verification fact. It does not by itself
 provide an exception object representation, a native unwind edge, or a runtime handler.
@@ -123,17 +123,21 @@ The selected tuple is `[String, DiskFailure]`; the call's declared checked effec
 `DiskFailure`. The parameter/result shape and the effect set are checked as separate parts of the
 function type.
 
-The current body analysis also has a bounded one-open-effect inference case. When exactly one open
-effect pattern remains after fixed members match, and there is exactly one residual actual effect,
-the solver can use that constructed type as evidence. It does not pair two open patterns by source
-order. The current resolver does not implement complete set matching for multiple simultaneously
-open patterns or all cross-lambda effect interactions.
+The current body analysis has a bounded unordered matcher for multiple open effect patterns. It
+removes exact fixed members first, explores complete one-to-one assignments against the remaining
+actual effects, and accepts evidence only if exactly one full assignment survives structural
+matching and all available generic constraints. Constructed exception arguments participate in
+identity. Search is capped at 256 members and 4096 visited states and observes cancellation. It
+does not pair effects by source order. If comparing a constructed effect recursively exposes a
+function-type effect set, the same solver resolves its open patterns under the root search-state
+budget. Ambiguous or incomplete nested assignments remain deferred. Complete cross-lambda
+fixed-point matching remains open.
 
 The effect solver must distinguish these outcomes:
 
 | Evidence | Meaning |
 |---|---|
-| One exact residual type and one open pattern | Candidate may infer that type, subject to bounds. |
+| One complete valid mapping for all open patterns | Candidate may infer the mapped types, subject to bounds. |
 | No residual type for a required open parameter | Missing evidence; do not invent an empty effect type. |
 | Conflicting exact identities for one parameter | Candidate is inapplicable or remains incomplete. |
 | Multiple valid assignments to open effect variables | Ambiguous/deferred; declaration order is not a tie-break. |
@@ -347,7 +351,8 @@ not executable by the current backend subset.
 | Substitute slots, expression types, results, nested call arguments, and effects | Implemented as typed FIR projection |
 | Recheck every semantic rule in a fresh concrete body context | Not implemented |
 | Generic class/object/method specialization | Not implemented |
-| Full multiple-open effect-set matching | Not implemented |
+| Bounded unique multiple-open effect matching, including recursively reached nested sets | Implemented in candidate-local inference |
+| Complete cross-lambda fixed-point matching | Not implemented |
 | Verify generic constraints and concrete source signatures | Implemented in FIR verifier |
 | Check caller checked-effect budgets | Implemented as source/FIR proof |
 | Native checked exception unwinding | Not implemented |
@@ -403,7 +408,7 @@ The analysis and FIR stages handle this as a chain of distinct facts:
 | Declaration binding | `E` belongs to `invoke`; `DiskFailure` is a Throwable subtype. | A concrete call instance. |
 | Body call candidate | The lambda is checked against the candidate's callback shape. | Native exception unwinding. |
 | Effect evidence | `readDisk()` contributes `DiskFailure` to the callback body. | A second unrelated effect argument. |
-| Candidate solve | `E` is fixed to the residual constructed effect if the bounded one-open rules apply. | General unordered matching of any number of open patterns. |
+| Candidate solve | Bounded matching accepts a unique complete constructed-type assignment, including recursively reached nested effect sets. | Complete cross-lambda matching. |
 | Source binding | `BodyCallBinding` stores the selected target and `[DiskFailure]`. | Successful FIR verification. |
 | Builder queue | The key `(invoke declaration, DiskFailure)` is reserved once. | A stable cross-process cache key. |
 | FIR projection | `invoke` slots, result, call types, and declared effects are closed. | Concrete semantic rebinding of every source operation. |
@@ -423,8 +428,9 @@ separates exact evidence from a future operation that remains outside the bounde
 | Formal set | Actual set | Required handling |
 |---|---|---|
 | `{DiskFailure}` | `{DiskFailure}` | Exact closed match. |
-| `{E}` | `{DiskFailure}` | One-open residual may infer `E`. |
+| `{E}` | `{DiskFailure}` | Unique assignment infers `E`. |
 | `{DiskFailure, E}` | `{DiskFailure, NetworkFailure}` | Remove the fixed member, infer the unique residual. |
+| `{ReadFailure<T>, NetworkFailure<U>}` | `{ReadFailure<String>, NetworkFailure<int>}` | Unique structural assignment infers both arguments. |
 | `{E, F}` | `{DiskFailure, NetworkFailure}` | Do not zip members; remain ambiguous/deferred. |
 | `{E}` | `{}` | Missing evidence; do not infer a no-throw type. |
 | `{DiskFailure}` | `{NetworkFailure}` | Exact mismatch unless source conversion rules explicitly allow coverage later. |

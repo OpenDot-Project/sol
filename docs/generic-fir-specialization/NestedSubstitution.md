@@ -314,7 +314,7 @@ separate work:
 - generic class, struct, ref struct, interface, object, property, constructor and operator owners;
 - arbitrary nested nominal types, nullable values, nested arrays, tuples and function-type layouts;
 - open generic function values, closure conversion, virtual dispatch and runtime type tokens;
-- full multi-open checked-effect inference and exception unwinding in the native runtime;
+- nested/complete multi-open checked-effect inference and exception unwinding in the native runtime;
 - persistent specialization caches, stable canonical IDs and cross-version cache invalidation;
 - generic C ABI exports, generic `.solib` exports and specialization across artifact boundaries;
 - the complete target/layout matrix beyond the currently supported Windows x86-64 bootstrap subset.

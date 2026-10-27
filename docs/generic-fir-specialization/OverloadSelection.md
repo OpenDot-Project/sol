@@ -109,9 +109,15 @@ The remaining parameters can receive only evidence allowed by the source analysi
 - ordinary mapped input types provide lower-bound evidence;
 - mapped ref/out types provide exact evidence;
 - a surrounding expected result can constrain a generic result;
+- generic operator operands and their surrounding expected result use the same structural solver;
 - supported array, lambda, constructed-base, or effect matching can contribute structural evidence;
 - a defaulted parameter that was omitted contributes no evidence;
 - a call elsewhere in the file contributes no evidence to this call.
+
+For an overloaded generic operator, expected-result evidence can close a return type parameter that
+does not occur in the operands. It does not change the operand conversion rank vector. Constraints
+are checked on the completed substitution, and a missing or conflicting result remains deferred or
+inapplicable; it is never filled with an arbitrary type.
 
 The result is an ordered vector. If the declaration is `func <T, U> pair(...)`, the stored vector is
 `[value-for-T, value-for-U]`, even if inference discovered `U` before `T`. A vector with any open
@@ -256,21 +262,25 @@ arguments and admitted native signature types. `FirBuilder` substitutes type-bea
 ordinary monomorphic `FirFunction`. It composes caller substitutions into nested generic calls,
 reuses exact source-plus-type-argument keys, and bounds instance creation.
 
-The current builder rejects generic owner/member specialization. It also rejects generic body
-operations and member lookups that depend on an open type parameter, because those require source
-overload and body analysis to be rerun for each concrete type. A generic identity body is a small
-admitted shape; a generic `value + value` body is not automatically safe merely because the eventual
-type argument happens to be `int`.
+The open-template analysis defers operations whose applicability depends on an unresolved type
+parameter. When a closed generic instance is requested, `BodyAnalysis` creates a fresh source binder
+under that instance's substitution and reruns body analysis. This rebind resolves primitive
+operators, supported direct calls, overload candidates, and their flow/effect consequences for the
+closed types. A generic identity body is a small admitted shape; a generic `value + value` body can
+be admitted for `int`, but its source-selected operation and concrete FIR representation still have
+to be checked.
 
 This distinction is essential when overloads interact with backend support. Suppose a generic source
 candidate is an exact match, while a same-name `Object` overload requires a reference conversion. If
 the generic body later hits `SOL2400`, the compiler reports that native limitation. It must not
 retry source ranking and silently produce behavior from the weaker `Object` overload.
 
-The implementation does not yet guarantee full per-instance semantic rebinding. In particular, it
-must not be described as complete generic body checking. The source body was checked in its
-declaration-owned parameter context; FIR then performs the bounded projection and independently
-checks closed types, call identities, argument mappings, effects, and flow invariants.
+Per-instance source rebinding is implemented for the closed body-analysis path, but the set of
+operations and representations accepted by FIR remains bounded. It is not complete generic body
+checking: generic owner/member layout, virtual dispatch, and other unimplemented FIR shapes may
+still be rejected after source selection. `FirVerifier` independently checks closed types, call
+identities, argument mappings, effects, and flow invariants; it does not use backend rejection to
+rerank source candidates.
 
 ### Admission table
 
@@ -286,21 +296,22 @@ second overload search. The table gives representative cases:
 | `id<T>(value: T) = value` | `[][]int` | Rejected | Nested array layout is outside this verifier subset |
 | `id<T>(value: T) = value` | arbitrary class | Rejected | General nominal object layout is not admitted |
 | `get<T>(value: T) = value.member` | a type satisfying a member bound | Rejected here | Concrete member rebinding is not performed per instance |
-| `sum<T>(value: T) = value + value` | a numeric type | Rejected here | The generic operator is not re-resolved under the concrete type |
+| `sum<T>(value: T) = value + value` | `int` | Admitted | Closed source rebinding resolves the built-in `int` addition; the concrete body is within the tested FIR subset |
+| `add<T>(left, right: T) = left + right` with `Number` overloads for `Number` and `Object` | `Number` | Rejected after source selection | Closed source rebinding ranks `Number + Number` over `Number + Object`; FIR rejects the nominal body with `SOL2400` and does not retry a weaker overload |
 | `forward<T>(value: T) = id(value)` | `String` | Admitted for supported direct generic calls | Caller substitution closes the callee arguments |
 | generic member on `Box<T>` | any | Rejected | Generic owners and receiver substitution are not in this slice |
 | generic function value | any | Rejected or deferred | Indirect generic dispatch has no admitted FIR contract |
 
-The line between the first three and the later examples is intentional. The initial builder accepts
-body shapes for which the existing source binding can be projected and the concrete FIR verifier can
-prove the resulting operations. It does not assume that every operation on an abstract type remains
-equivalent after substitution.
+The line between source rebinding and FIR admission is intentional. A closed instance can change
+operator and overload applicability; source analysis reruns those selections under the substitution.
+The concrete verifier still admits only represented operation and ABI shapes. A source-valid winner
+that fails this gate remains the winner and produces a backend diagnostic.
 
-The `forward<T>` row is different from a generic arithmetic expression. A direct generic callee has
-an explicit closed call target after the outer substitution is applied. Its own declaration and
-concrete argument vector can be represented as another `FirFunction` instance. The target ID and
-type-argument vector are checked independently. A user-defined member/operator would require lookup
-and overload resolution again in the concrete type context, which this slice intentionally refuses.
+The `forward<T>` row illustrates a direct generic callee with an explicit closed call target after
+outer substitution. Its declaration and concrete argument vector can be represented as another
+`FirFunction` instance; the target ID and type-argument vector are checked independently. Generic
+operator bodies also undergo closed source lookup and ranking. A user-defined operator whose body or
+nominal ABI is not represented by FIR is rejected after that source winner is fixed.
 
 ### Source-selected, then backend-rejected
 

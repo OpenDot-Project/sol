@@ -305,6 +305,13 @@ public static partial class FirVerifier
                 ? sourceView.Calls.SingleOrDefault(binding => ReferenceEquals(binding.Call.Origin.Element, sourceOrigin))
                 : program.Analysis.Calls.SingleOrDefault(binding => ReferenceEquals(binding.Call.Origin.Element, sourceOrigin));
 
+        private BodyOperatorBinding? GetSourceOperator(object sourceOrigin)
+        {
+            var bindings = _sourceView is { } sourceView
+                ? sourceView.OperatorBindings : program.Analysis.OperatorBindings;
+            return bindings.SingleOrDefault(binding => ReferenceEquals(binding.Site.Origin.Element, sourceOrigin));
+        }
+
         private ResolvedType SubstituteCallTargetType(ResolvedType type, BodyCallBinding binding,
             ImmutableArray<ResolvedType> typeArguments)
         {
@@ -591,18 +598,19 @@ public static partial class FirVerifier
             if (call.Target < 0 || call.Target >= program.Functions.Length) { Fail("Call target does not belong to this program.", call.Origin); return; }
             var target = program.Functions[call.Target];
             var sourceBinding = GetSourceCall(call.Origin.Element);
+            var operatorBinding = sourceBinding is null ? GetSourceOperator(call.Origin.Element) : null;
             DefaultCallPlan? defaultPlan = null;
-            if (sourceBinding is null)
+            if (sourceBinding is null && operatorBinding is null)
             {
                 Fail("Call is not anchored to a resolved source call.", call.Origin);
             }
-            else
+            else if (sourceBinding is { } selectedCall)
             {
                 var targetSource = program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
                     .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, target.Origin.Element));
-                if (targetSource is null || !ReferenceEquals(sourceBinding.Target.Origin.Element, targetSource.Origin.Element))
+                if (targetSource is null || !ReferenceEquals(selectedCall.Target.Origin.Element, targetSource.Origin.Element))
                 { Fail("Call target differs from overload resolution.", call.Origin); }
-                var selectedTypeArguments = sourceBinding.TypeArguments.Select(Substitute).ToImmutableArray();
+                var selectedTypeArguments = selectedCall.TypeArguments.Select(Substitute).ToImmutableArray();
                 if (call.TypeArguments.IsDefault || !selectedTypeArguments.SequenceEqual(call.TypeArguments))
                 { Fail("Call specialization arguments differ from source overload resolution.", call.Origin); }
                 if (target.SpecializationArguments.IsDefault || !selectedTypeArguments.SequenceEqual(target.SpecializationArguments))
@@ -617,28 +625,50 @@ public static partial class FirVerifier
                         nested.Add(target.Id);
                     }
                 }
-                if (sourceBinding.ReturnType is null || Substitute(sourceBinding.ReturnType) != call.Type)
+                if (selectedCall.ReturnType is null || Substitute(selectedCall.ReturnType) != call.Type)
                 { Fail("Call result type differs from overload resolution.", call.Origin); }
                 if (target.RuntimeFunction == FirRuntimeFunction.None
-                    && sourceBinding.ParameterTypes.Length != target.Parameters.Length)
+                    && selectedCall.ParameterTypes.Length != target.Parameters.Length)
                 { Fail("Call parameter signature differs from the selected specialization.", call.Origin); }
                 else if (target.RuntimeFunction == FirRuntimeFunction.None)
                 {
-                    for (int index = 0; index < sourceBinding.ParameterTypes.Length; index++)
+                    for (int index = 0; index < selectedCall.ParameterTypes.Length; index++)
                     {
-                        var expectedParameterType = Substitute(sourceBinding.ParameterTypes[index]);
-                        if (sourceBinding.Target.Parameters[index].PassingMode == AstPassingMode.Vararg)
+                        var expectedParameterType = Substitute(selectedCall.ParameterTypes[index]);
+                        if (selectedCall.Target.Parameters[index].PassingMode == AstPassingMode.Vararg)
                         { expectedParameterType = program.Analysis.Types.GetArray(expectedParameterType); }
                         if (expectedParameterType != target.Parameters[index].Type)
                         { Fail("Call parameter type differs from overload resolution.", call.Origin); }
                     }
                 }
-                var selectedEffects = sourceBinding.Target.ThrownTypes
+                var selectedEffects = selectedCall.Target.ThrownTypes
                     .Select(program.Analysis.Sources.Types.GetType)
-                    .Select(effect => SubstituteCallTargetType(effect, sourceBinding, selectedTypeArguments)).ToImmutableArray();
+                    .Select(effect => SubstituteCallTargetType(effect, selectedCall, selectedTypeArguments)).ToImmutableArray();
                 if (!selectedEffects.SequenceEqual(target.Effects))
                 { Fail("Call effect metadata differs from the selected source target.", call.Origin); }
-                defaultPlan = ValidateCallArguments(call, sourceBinding);
+                defaultPlan = ValidateCallArguments(call, selectedCall);
+            }
+            else if (operatorBinding is { } selectedOperator)
+            {
+                var targetSource = program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
+                    .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, target.Origin.Element));
+                if (targetSource is null || !ReferenceEquals(selectedOperator.Target.Origin.Element, targetSource.Origin.Element))
+                { Fail("Operator call target differs from the selected source operator.", call.Origin); }
+                if (!selectedOperator.TypeArguments.IsEmpty || !call.TypeArguments.IsEmpty
+                    || !target.SpecializationArguments.IsEmpty)
+                { Fail("This FIR operator call must target a nongeneric operator declaration.", call.Origin); }
+                if (selectedOperator.ReturnType is null || Substitute(selectedOperator.ReturnType) != call.Type)
+                { Fail("Operator call result type differs from overload resolution.", call.Origin); }
+                if (selectedOperator.ParameterTypes.Length != target.Parameters.Length)
+                { Fail("Operator call parameter signature differs from overload resolution.", call.Origin); }
+                for (int index = 0; index < Math.Min(selectedOperator.ParameterTypes.Length, target.Parameters.Length); index++)
+                {
+                    if (target.Parameters[index].Mode != AstPassingMode.Value
+                        || Substitute(selectedOperator.ParameterTypes[index]) != target.Parameters[index].Type)
+                    { Fail("Operator call parameter type or mode differs from overload resolution.", call.Origin); }
+                }
+                if (!selectedOperator.Effects.Select(Substitute).SequenceEqual(target.Effects))
+                { Fail("Operator call effects differ from the selected source operator.", call.Origin); }
             }
             Exact(call.Type, target.ReturnType, call.Origin);
             if (target.RuntimeFunction == FirRuntimeFunction.None

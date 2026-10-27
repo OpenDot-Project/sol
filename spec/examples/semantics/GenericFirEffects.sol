@@ -562,12 +562,13 @@ func inferredNetworkEffect(): String throws NetworkFailure {
 // expect: planned-effects-03 | Unsupported | source-catch-native-lowering=true
 // expect: planned-effects-04 | Unsupported | native-checked-exception-unwinding=true
 //
-// The current generic-inference subsystem supports an unambiguous single open effect pattern in
-// its bounded body-analysis case. Multi-open unordered set matching, unique assignment proofs for
-// constructed exception patterns, and full cross-lambda fixed-point coverage are not implied by
-// the FIR metadata change.
+// The current generic-inference subsystem supports bounded unordered matching for top-level
+// callback effect sets, including multiple open patterns, when exactly one complete assignment
+// survives structural matching and owner constraints. Ambiguous assignments, nested function-type
+// effect sets, and full cross-lambda fixed-point coverage remain deferred. This is a body-analysis
+// capability and is not implied by the FIR metadata change alone.
 //
-// expect: planned-effects-05 | Deferred | two-open-effect-patterns=true
+// expect: planned-effects-05 | Deferred | ambiguous-two-open-effect-mapping=true
 // expect: planned-effects-06 | Deferred | source-order-pairing=true
 //
 // The exception hierarchy remains a source semantic contract. This native subset records
