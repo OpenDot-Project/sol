@@ -77,6 +77,30 @@ public sealed class GenericInferenceExpectedResultTests
     }
 
     [Fact]
+    public void ExpectedResultCanInferAnArrayTypeArgumentFromNestedEmptyResultShape()
+    {
+        var analysis = Analyze("func <T> make(): []T = throw RuntimeException()\n"
+            + "func use(): [][]String = make()");
+
+        Assert.False(analysis.HasErrors,
+            string.Join('\n', analysis.Diagnostics.Select(diagnostic => diagnostic.Code + " " + diagnostic.Message)));
+        var argument = Assert.Single(Assert.Single(analysis.Calls, binding => binding.Target.Name == "make").TypeArguments);
+        Assert.Equal(ResolvedTypeKind.Array, argument.Kind);
+        Assert.Equal("std.core.String", Assert.Single(argument.Arguments).Name);
+    }
+
+    [Fact]
+    public void ExpectedResultCannotChangeAConcretePartOfAnInvariantGenericResult()
+    {
+        var analysis = Analyze("class Pair<A, B> {}\n"
+            + "func <T> make(): Pair<T, int> = throw RuntimeException()\n"
+            + "func use(): Pair<String, short> = make()");
+
+        Assert.DoesNotContain(analysis.Calls, binding => binding.Target.Name == "make");
+        Assert.Contains(analysis.Diagnostics, diagnostic => diagnostic.Code == "SOL2221");
+    }
+
+    [Fact]
     public void ExpectedResultDoesNotNarrowAGenericReturnToADerivedType()
     {
         var analysis = Analyze("interface Parent<T> {}\n"
