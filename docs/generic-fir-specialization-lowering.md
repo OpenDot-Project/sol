@@ -430,7 +430,7 @@ arguments.
 |---|---|---|
 | `SOL2400` | A source construct or selected specialization shape lies outside verified native FIR. | Check the exact source origin, selected candidate, owner kind, argument representation, and body operation. |
 | `SOL2401` | Executable entry selection does not satisfy `Main.main(args: []String): ()`. | Check the entry declaration independently of the generic call graph. |
-| `SOL2403` | Generic instance count, specialized body-node, type-depth, or substitution resource limit was reached. | Check the specific cap and source call; do not truncate the instance graph. |
+| `SOL2403` | Generic instance count, specialized body-node, type-depth, or FIR-time type-interner resource limit was reached. | Check the specific cap and source call; do not truncate the instance graph. |
 | `SOL2402` | Independent FIR verification found a source, signature, effect, type, or call-identity mismatch. | Inspect the verifier invariant and the malformed/generated FIR metadata. |
 | source-analysis diagnostic | The candidate was invalid, ambiguous, deferred, inaccessible, or failed a language rule before FIR. | Fix source binding; do not adjust native target selection to bypass it. |
 | verifier diagnostic | Constructed FIR did not independently satisfy the source, type, storage, effect, or flow contract. | Inspect the FIR node and source origin; repair the producer or verifier proof, not LLVM text. |

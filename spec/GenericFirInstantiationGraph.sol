@@ -328,12 +328,12 @@ module source.spec.generic_fir_instantiation_graph
 // failed, dependent errors may be suppressed or summarized, but the compiler must not report a
 // successful artifact or present one `SOL2403` per recursive back edge.
 //
-// `SOL2403` is separate from a `TypeSpecializationException` generated while inference or source
-// type construction runs. A type interner limit may be translated by its owning source-analysis
-// operation into the appropriate source-analysis diagnostic. The generic FIR builder's 4,096
-// instance limit is not the interner's 100,000 additional-type limit. The 128 structural-type
-// nesting limit is independently observed by the relevant operation; equal numeric values do not
-// make their budgets interchangeable.
+// The generic FIR builder's 4,096 instance limit is not the type interner's 100,000 additional-type
+// limit. If FIR-time concrete-body substitution exhausts that interner, it reports `SOL2403` with
+// the interner dimension; it does not increment the function-instance count. A type-interner limit
+// reached during inference or source type construction is translated by its owning source-analysis
+// operation into that phase's diagnostic. The 128 structural-type nesting limit is independently
+// observed by the relevant operation; equal numeric values do not make their budgets interchangeable.
 
 // 10. Separate resource domains
 // ------------------------------

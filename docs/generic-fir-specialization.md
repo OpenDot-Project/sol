@@ -136,8 +136,11 @@ contracts and their ABI qualification together.
 Specialization is bounded so that a small source file cannot request unbounded native work through
 recursive type growth or duplicated bodies. The current builder caps one compilation at 4,096
 specialized functions, 16,000,000 source AST nodes counted across specialized bodies, and 128 nested
-structural type levels. Cancellation is checked while draining the work queue and while the
-verifier traverses instances.
+structural type levels. `TypeSpecialization` also has a separate 100,000-additional-type workspace
+capacity; exhaustion while FIR constructs a concrete generic body is reported as `SOL2403` without
+incrementing the 4,096 function count. The same interner limit reached by another phase belongs to
+that phase's diagnostic contract. Cancellation is checked while draining the work queue and while
+the verifier traverses instances.
 
 These caps are operational limits, not language-level restrictions on source genericity. A resource
 exhaustion diagnostic must identify which bound was crossed and preserve a stable source origin.

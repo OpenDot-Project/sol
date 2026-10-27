@@ -302,8 +302,9 @@ belongs to the owning analysis/interner; numeric ID equality from another worksp
 
 This budget counts type construction and rewriting. It does not count generic function instances,
 specialized source bodies, call edges, or machine code. Interning 100,000 types does not create
-100,000 function bodies. A type interner failure is reported by the source-analysis operation that
-required the type.
+100,000 function bodies. A type interner failure belongs to the operation that required the type:
+source analysis reports its own diagnostic, while FIR-time concrete-body substitution maps an
+interner resource exhaustion to `SOL2403` and identifies that separate dimension.
 
 ### Generic FIR specialization
 
