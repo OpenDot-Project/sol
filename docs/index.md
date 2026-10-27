@@ -20,6 +20,11 @@ and [path-sensitive flow and checked effects](flow-and-effects.md). The [cleanup
 effects guide](cleanup-construction.md) specifies lexical `defer` behavior and checked effects from
 implicit construction, including the current analysis and native-backend boundaries.
 
+The [generic FIR specialization guide](generic-fir-specialization.md) maps the current closed
+module-level generic free-function slice to its source contracts, verifier rules, resource limits,
+diagnostics and native admission boundary. It distinguishes current implementation from normative
+requirements that still need work.
+
 The [array and cursor iteration guide](array-iteration.md) defines dynamic-array `for-in`, item-copy
 semantics, loop transfers, GC obligations, the future cursor protocol, and the verified-FIR/native
 qualification boundary. The corresponding normative contract and fixture matrix are indexed in the

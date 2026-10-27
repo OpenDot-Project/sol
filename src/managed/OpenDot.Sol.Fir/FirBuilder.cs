@@ -19,6 +19,13 @@ internal sealed partial class FirBuilder
     private readonly ImmutableArray<AstSnapshot> _input;
     private readonly CancellationToken _cancellation;
     private readonly Dictionary<AstCallable, int> _functions = [];
+    private readonly Dictionary<SpecializationKey, int> _specializedFunctions = [];
+    private readonly Queue<PendingSpecialization> _pendingSpecializations = [];
+    private readonly Dictionary<int, FirFunction> _builtFunctions = [];
+    private Dictionary<ResolvedType, ResolvedType> _typeSubstitution = [];
+    private int _nextFunctionId;
+    private int _specializationCount;
+    private long _specializedBodyNodeCount;
     private readonly Dictionary<AstNode, AstSnapshot> _files = [];
     private readonly Dictionary<LocalSymbol, FirSlot> _slots = [];
     private readonly Dictionary<AstCall, BodyCallBinding> _calls;
@@ -40,8 +47,20 @@ internal sealed partial class FirBuilder
             .Where(p => !Ancestors(p).OfType<AstFunction>().Any()))
         { Unsupported(property, "Global or receiver storage initialization"); }
         var declarations = _analysis.Sources.Declarations.Files.SelectMany(f => f.Nodes).OfType<AstFunction>().Where(f => _catalog.Intrinsic(f) is null).ToArray();
-        foreach (var declaration in declarations) { _functions.Add(declaration, _functions.Count); }
-        var functions = declarations.Select(BuildFunction).ToImmutableArray();
+        var ordinary = declarations.Where(f => !f.TypeParameters.Any()).ToArray();
+        foreach (var declaration in ordinary) { _functions.Add(declaration, _nextFunctionId++); }
+        foreach (var declaration in ordinary)
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            var id = _functions[declaration];
+            _builtFunctions.Add(id, BuildFunction(declaration, id, []));
+        }
+        while (_pendingSpecializations.TryDequeue(out var pending))
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            _builtFunctions.Add(pending.Id, BuildFunction(pending.Function, pending.Id, pending.TypeArguments));
+        }
+        var functions = Enumerable.Range(0, _nextFunctionId).Select(id => _builtFunctions[id]).ToImmutableArray();
         var entries = declarations.Where(IsEntry).ToArray();
         if (!_library && entries.Length != 1)
         {
@@ -61,35 +80,43 @@ internal sealed partial class FirBuilder
             && _analysis.GetBody(function)?.ReturnType == Empty && !function.Modifiers.Contains("private");
     }
 
-    private FirFunction BuildFunction(AstFunction function)
+    private FirFunction BuildFunction(AstFunction function, int id, ImmutableArray<ResolvedType> specializationArguments)
     {
         _cancellation.ThrowIfCancellationRequested();
         _current = function; _slots.Clear();
+        _typeSubstitution = CreateSubstitution(function, specializationArguments);
         var summary = _analysis.GetBody(function);
-        var result = summary?.ReturnType ?? Empty;
+        var result = summary?.ReturnType is { } resultType ? Specialize(resultType) : Empty;
         if (_catalog.Owns(function) && function.Body.Kind == AstBodyKind.Missing)
         {
             var runtime = function.Name switch { "print" => FirRuntimeFunction.Print, "println" => FirRuntimeFunction.Println,
                 "error" => FirRuntimeFunction.Error, "errorln" => FirRuntimeFunction.Errorln, _ => FirRuntimeFunction.None };
-            return new(_functions[function], function.Name!, [], [], result, null, runtime, function.ThrownTypes.Select(_analysis.Sources.Types.GetType).ToImmutableArray(), function.Origin);
+            return new(id, function.Name!, [], [], result, null, runtime, function.ThrownTypes.Select(_analysis.Sources.Types.GetType).Select(Specialize).ToImmutableArray(), function.Origin);
         }
         var owner = Ancestors(function).OfType<AstTypeDeclaration>().FirstOrDefault();
-        if (function.TypeParameters.Any() || function.ReturnsByReference || function.Body.Kind == AstBodyKind.Missing
-            || owner is not null && (owner.SyntaxKind != NodeKind.ObjectDeclaration || owner.Members.Any(m => m is not AstFunction)))
+        if (function.TypeParameters.Any() && (owner is not null || specializationArguments.Length != function.TypeParameters.Count())
+            || !function.TypeParameters.Any() && !specializationArguments.IsEmpty
+            || function.ReturnsByReference || function.Body.Kind == AstBodyKind.Missing
+            || owner is not null && (owner.SyntaxKind != NodeKind.ObjectDeclaration
+                || _analysis.Sources.Types.GetTypeParameters(owner).Length != 0
+                || owner.Members.Any(m => m is not AstFunction)))
         { Unsupported(function, "Generic, unimplemented, ref-return, or stateful receiver body"); }
+        bool bodyWithinBudget = specializationArguments.IsEmpty || AccountSpecializedBody(function);
+        if (!specializationArguments.IsEmpty && bodyWithinBudget) { ValidateGenericBodySurface(function); }
         var parameters = ImmutableArray.CreateBuilder<FirSlot>();
         foreach (var parameter in function.Parameters)
         {
             var local = _analysis.Sources.Lexical.Scopes.Where(s => s.Owner == function).SelectMany(s => s.Symbols)
                 .SingleOrDefault(l => ReferenceEquals(l.Origin.Element, parameter.NameOrigin.Element));
             if (local is null || parameter.Type is null) { Unsupported(function, "Missing parameter identity"); continue; }
-            var type = _analysis.Sources.Types.GetType(parameter.Type);
+            var type = Specialize(_analysis.Sources.Types.GetType(parameter.Type));
             if (parameter.PassingMode == AstPassingMode.Vararg || parameter.DefaultValue is not null) { Unsupported(function, "User vararg/default lowering"); }
             var slot = new FirSlot(_slots.Count, parameter.Name, type, local.IsMutable, parameter.PassingMode, true, parameter.NameOrigin);
             _slots.Add(local, slot); parameters.Add(slot);
         }
         FirBlock body;
-        if (function.Body.Node is AstBlock block) { body = Block(block, true); }
+        if (!bodyWithinBudget) { body = new([], function.Origin); }
+        else if (function.Body.Node is AstBlock block) { body = Block(block, true); }
         else if (function.Body.Node is AstExpression expression)
         { body = new([new FirReturn(Expression(expression), expression.Origin)], function.Origin); }
         else { body = new([], function.Origin); }
@@ -97,9 +124,12 @@ internal sealed partial class FirBuilder
         { body = body with { Statements = body.Statements.Add(new FirReturn(null, function.Origin)) }; }
         foreach (var gap in _analysis.UnverifiedNodes.Where(n => Ancestors(n).Contains(function) && n is not AstType))
         { Unsupported(gap, "Unverified source obligation"); }
-        return new(_functions[function], function.Name ?? "", parameters.ToImmutable(), _slots.Values.OrderBy(s => s.Id).ToImmutableArray(),
-            result, body, FirRuntimeFunction.None, function.ThrownTypes.Select(_analysis.Sources.Types.GetType).ToImmutableArray(), function.Origin)
-        { ExportName = _library && !_catalog.Owns(function) && owner is null && function.IsPublic ? function.Name : null };
+        return new(id, function.Name ?? "", parameters.ToImmutable(), _slots.Values.OrderBy(s => s.Id).ToImmutableArray(),
+            result, body, FirRuntimeFunction.None, function.ThrownTypes.Select(_analysis.Sources.Types.GetType).Select(Specialize).ToImmutableArray(), function.Origin)
+        {
+            ExportName = _library && !_catalog.Owns(function) && owner is null && function.IsPublic && specializationArguments.IsEmpty ? function.Name : null,
+            SpecializationArguments = specializationArguments,
+        };
     }
 
     private IEnumerable<AstNode> Ancestors(AstNode node)

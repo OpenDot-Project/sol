@@ -15,7 +15,7 @@ internal sealed partial class FirBuilder
     {
         _cancellation.ThrowIfCancellationRequested();
         var binding = _analysis.GetExpression(expression);
-        var type = binding?.Type;
+        var type = binding?.Type is { } boundType ? Specialize(boundType) : null;
         if (type is null || binding!.Status != BodyBindingStatus.Bound) { return Invalid(expression); }
         switch (expression)
         {
@@ -59,7 +59,9 @@ internal sealed partial class FirBuilder
                     }
                     return new FirIntrinsic(intrinsic, inputs.ToImmutable(), type, call.Origin) { ParameterOrder = order.ToImmutable() };
                 }
-                if (!_functions.TryGetValue(selected.Target, out int target)) { return Invalid(call); }
+                var typeArguments = selected.TypeArguments.Select(Specialize).ToImmutableArray();
+                int target = SpecializationTarget(selected.Target, typeArguments, call);
+                if (target < 0) { return Invalid(call); }
                 var arguments = ImmutableArray.CreateBuilder<FirArgument>();
                 foreach (var mapping in selected.Arguments)
                 {
@@ -68,7 +70,8 @@ internal sealed partial class FirBuilder
                     var mode = selected.Target.Parameters[mapping.ParameterIndex].PassingMode;
                     arguments.Add(new(mapping.ParameterIndex, mode == AstPassingMode.Vararg ? AstPassingMode.Value : mode, Expression(argumentExpression)));
                 }
-                return new FirCall(target, arguments.ToImmutable(), type, call.Origin);
+                return new FirCall(target, arguments.ToImmutable(), type, call.Origin)
+                { TypeArguments = selected.Target is AstFunction { TypeParameters: var typeParameters } && typeParameters.Any() ? typeArguments : [] };
             default:
                 if (expression.SyntaxKind == NodeKind.IndexExpression)
                 {
@@ -106,7 +109,7 @@ internal sealed partial class FirBuilder
             case AstProperty property:
                 var local = _analysis.Sources.Lexical.Scopes.SelectMany(s => s.Symbols).FirstOrDefault(s => ReferenceEquals(s.Origin.Element, property.Origin.Element));
                 var initializer = property.Initializer is null ? null : Expression(property.Initializer);
-                var type = property.Type is null ? initializer?.Type : _analysis.Sources.Types.GetType(property.Type);
+                var type = property.Type is null ? initializer?.Type : Specialize(_analysis.Sources.Types.GetType(property.Type));
                 if (local is null || type is null || property.BindingNames.Count() != 1 || property.Delegate is not null) { Unsupported(node, "Local binding"); return null; }
                 var slot = new FirSlot(_slots.Count, local.Name, type, local.IsMutable, AstPassingMode.Value, false, property.Origin);
                 _slots[local] = slot;

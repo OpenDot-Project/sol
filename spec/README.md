@@ -88,6 +88,50 @@ Do not link this entire corpus as one application: several examples intentionall
 | [Reflection.sol](Reflection.sol) | Native metadata, SolProperty access and descriptor ownership |
 | [StandardLibrary.sol](StandardLibrary.sol) | Intended modules and collection types |
 
+## Generic FIR specialization
+
+The following contracts define the source-selected generic instance graph, current FIR boundary,
+verifier requirements and future completion criteria. The examples are specification fixtures; they
+do not imply that each row is already parsed, semantically checked, or executed by native code.
+
+| Contract | Topics |
+|---|---|
+| [GenericFirSpecialization.sol](GenericFirSpecialization.sol) | Source selection, closed instance identity, body substitution, verifier and lowering contract |
+| [GenericFirSpecializationBoundaries.sol](GenericFirSpecializationBoundaries.sol) | Unsupported surface, conformance requirements and completion gates |
+| [GenericFirSpecializationLimits.sol](GenericFirSpecializationLimits.sol) | Function, body-node, type-depth budgets, cancellation and deterministic failure |
+| [GenericFirInstantiationGraph.sol](GenericFirInstantiationGraph.sol) | Exact-key recursion, expanding-key cycles, worklist reachability and cache boundary |
+| [GenericFirCacheAndDeterminism.sol](GenericFirCacheAndDeterminism.sol) | Compilation-local identity, deterministic ordering and future cache invalidation |
+| [GenericFirSpecializationCases.sol](GenericFirSpecializationCases.sol) | End-to-end generic source selection and native admission matrix |
+| [GenericFirJsonContract.sol](GenericFirJsonContract.sol) | FIR inspection schema 4, workspace-local type IDs, source origins and diagnostics |
+| [GenericFirArtifacts.sol](GenericFirArtifacts.sol) | AOT/ORC and bin/cdylib/staticlib/solib generic instance boundaries |
+| [GenericFirFunctionValues.sol](GenericFirFunctionValues.sol) | Generic declarations, contextual lambdas, function values, captures and indirect calls |
+| [GenericFirOwnersAndMembers.sol](GenericFirOwnersAndMembers.sol) | Partial generic owners, constructors, methods, accessors, operators and dispatch |
+| [GenericFirStorageAndRoots.sol](GenericFirStorageAndRoots.sol) | Concrete storage, collection and span layouts, ref-like lifetime and Yellow Tea roots |
+| [GenericFirConstraints.sol](examples/semantics/GenericFirConstraints.sol) | Nominal constraints, bounds, anti-constraints, inheritance and direct cases |
+| [GenericFirConstraintsAdvanced.sol](examples/semantics/GenericFirConstraintsAdvanced.sol) | Overloads, nested forwarding, verifier agreement and deferred constraint outcomes |
+| [GenericFirNullability.sol](examples/semantics/GenericFirNullability.sol) | Nullable type identity, nullable array element/container syntax and safe access |
+| [GenericFirNullabilityFlow.sol](examples/semantics/GenericFirNullabilityFlow.sol) | Nested substitution, flow, GC representation and native diagnostic boundaries |
+| [GenericFirPrimitiveAbi.sol](examples/semantics/GenericFirPrimitiveAbi.sol) | Primitive, String and array ABI admission boundaries |
+| [GenericFirEffects.sol](examples/semantics/GenericFirEffects.sol) | Generic checked effects, exception substitution and call budgets |
+| [GenericFirNestedSubstitution.sol](examples/semantics/GenericFirNestedSubstitution.sol) | Nested type constructors, owner identity, simultaneous substitution and limits |
+| [GenericFirArgumentMapping.sol](examples/semantics/GenericFirArgumentMapping.sol) | Named/default/vararg/ref/out mapping before generic inference |
+| [GenericFirOverloadSelection.sol](examples/semantics/GenericFirOverloadSelection.sol) | Conversion ranking, generic tie rules, result evidence and exact ref/out |
+| [GenericFirOverloadSelectionBoundaries.sol](examples/semantics/GenericFirOverloadSelectionBoundaries.sol) | Candidate rollback, native rejection, verifier identity and phase diagnostics |
+| [GenericFirFlow.sol](examples/semantics/GenericFirFlow.sol) | Flow-sensitive values and limits of reusing open-body facts |
+| [GenericFirRecursion.sol](examples/semantics/GenericFirRecursion.sol) | Recursive calls, distinct type keys, cancellation and budget outcomes |
+| [GenericFirJsonContract.sol](examples/semantics/GenericFirJsonContract.sol) | Schema field and source binding scenarios for generic FIR calls |
+| [GenericFirArtifacts.sol](examples/semantics/GenericFirArtifacts.sol) | Artifact/backend combinations and private closed helper scenarios |
+| [GenericFirFunctionValues.sol](examples/semantics/GenericFirFunctionValues.sol) | Direct call versus function value, lambda, capture and GC scenarios |
+| [GenericFirOwnersAndMembers.sol](examples/semantics/GenericFirOwnersAndMembers.sol) | Generic class/member identity and native admission cases |
+| [GenericFirStorageAndRoots.sol](examples/semantics/GenericFirStorageAndRoots.sol) | Nullable array elements, spans, descriptors, roots and process-isolation cases |
+| [GenericFirCacheAndDeterminism.sol](examples/semantics/GenericFirCacheAndDeterminism.sol) | Per-build keys, FIFO reuse, invalidation and deterministic-output cases |
+| [GenericFirFunctionValues source contract](GenericFirFunctionValues.sol) | Generic declarations versus function values, lambdas, captures and indirect-call requirements |
+| [GenericFirFunctionValues semantic examples](examples/semantics/GenericFirFunctionValues.sol) | Direct calls, expected lambdas, effects, ref/out, captures, GC and artifact boundaries |
+
+All example pairs that share a declared module form one logical module contract when read together.
+Compile only the individual fixture groups a scenario requires; unrelated contracts deliberately
+use independent example modules.
+
 ## Flow-transfer and checked-effect fixtures
 
 These independent files make path-sensitive transfer and effect contracts concrete. They are
@@ -265,8 +309,10 @@ syntax whose semantic or backend support is still pending.
   constant evaluation, and generated data/delegation members remain incomplete.
 - Default-expression origins and evaluation order are represented by the analysis API. Actual
   evaluation, virtual calls, native exceptions, standard library behavior and garbage collection
-  require later verified FIR, LLVM and runtime implementation. No example currently produces a native
-  executable. The released Sol 0.0.1 component contains only the initial CST frontend.
+  require later verified FIR, LLVM and runtime implementation for each claimed feature. Only the
+  separately qualified closed bootstrap subset produces native executables; semantic examples do
+  not establish broader implementation coverage. The released Sol 0.0.1 component contains only the
+  initial CST frontend.
 
 The current body-analysis delta adds bounded candidate-local lambda replay, generic array-literal
 evidence, one-open-effect matching, per-path hiding/override recovery, protected method receiver

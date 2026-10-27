@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Normative implementation contract: FIR JSON schema 3 identifies dynamic-array iteration nodes.
+// Normative implementation contract: FIR JSON schema 4 identifies dynamic-array iteration and
+// closed generic specialization identities.
 module spec.arrayiteration.firjsonschema
 
 func serializedArrayIteration(values: []int): int {
@@ -114,5 +115,5 @@ func cursorNodeNeedsDifferentSchemaShape(values: UserIterable<int>): int {
 }
 
 // The serializer reports kind `FirArrayForEach` with item-slot ID, array expression, and body.
-// Schema 3 is compatibility-visible; identifiers are deterministic for one compilation only and
+// Schema 4 is compatibility-visible; identifiers are deterministic for one compilation only and
 // are not stable package ABI identities. The flow graph remains verification metadata.

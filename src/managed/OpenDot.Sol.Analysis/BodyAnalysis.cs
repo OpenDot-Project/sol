@@ -23,7 +23,7 @@ public sealed record BodySummary(AstCallable Declaration, ResolvedType? ReturnTy
 public sealed record MemberBinding(DeclarationSymbol Symbol, ResolvedType DeclaringType);
 
 public sealed record BodyCallBinding(AstCall Call, AstCallable Target, ResolvedType? Receiver,
-    ImmutableArray<ResolvedType> ParameterTypes, ResolvedType? ReturnType,
+    ImmutableArray<ResolvedType> TypeArguments, ImmutableArray<ResolvedType> ParameterTypes, ResolvedType? ReturnType,
     ImmutableArray<CallArgumentBinding> Arguments, ImmutableArray<int> DefaultParameters);
 
 /// <summary>

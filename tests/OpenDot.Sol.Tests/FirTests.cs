@@ -61,7 +61,6 @@ public sealed class FirTests
     [InlineData("defer {}; println(1)")]
     [InlineData("try { println(1) } catch (e: IOException) {}")]
     [InlineData("println(default<int>())")]
-    [InlineData("println(id(1))", "func <T> id(value: T): T = value")]
     [InlineData("println(overflow())", "func overflow(): byte = 256")]
     [InlineData("println(1)", "val globalValue = 42")]
     [InlineData("stop()", "func stop(): ! { for {} }")]
@@ -87,7 +86,7 @@ public sealed class FirTests
         string json = FirJson.Serialize(program, TestContext.Current.CancellationToken);
         using var document = JsonDocument.Parse(json);
         Assert.True(document.RootElement.GetProperty("verified").GetBoolean());
-        Assert.Equal(3, document.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(4, document.RootElement.GetProperty("schema").GetInt32());
         Assert.DoesNotContain("<solrt>", json);
         Assert.NotEmpty(document.RootElement.GetProperty("flow").EnumerateArray());
         Assert.Equal(json, FirJson.Serialize(program, TestContext.Current.CancellationToken));

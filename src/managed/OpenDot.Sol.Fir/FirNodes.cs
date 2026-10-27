@@ -21,7 +21,11 @@ public sealed record FirIntrinsic(FirIntrinsicKind Operation, ImmutableArray<Fir
     public ImmutableArray<int> ParameterOrder { get; init; } = [];
 }
 public sealed record FirArgument(int Parameter, AstPassingMode Mode, FirExpression Value);
-public sealed record FirCall(int Target, ImmutableArray<FirArgument> Arguments, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
+public sealed record FirCall(int Target, ImmutableArray<FirArgument> Arguments, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin)
+{
+    /// <summary>Closed, declaration-ordered type arguments for a specialized generic target.</summary>
+    public ImmutableArray<ResolvedType> TypeArguments { get; init; } = [];
+}
 
 public abstract record FirStatement(AstOrigin Origin) : FirNode(Origin);
 public sealed record FirBlock(ImmutableArray<FirStatement> Statements, AstOrigin Origin) : FirStatement(Origin);
@@ -41,6 +45,8 @@ public sealed record FirFunction(int Id, string Name, ImmutableArray<FirSlot> Pa
     ResolvedType ReturnType, FirBlock? Body, FirRuntimeFunction RuntimeFunction, ImmutableArray<ResolvedType> Effects, AstOrigin Origin)
 {
     public string? ExportName { get; init; }
+    /// <summary>Closed generic arguments for this monomorphic body; empty for ordinary functions.</summary>
+    public ImmutableArray<ResolvedType> SpecializationArguments { get; init; } = [];
 }
 
 /// <summary>Unverified source FIR; verification is required before code generation.</summary>

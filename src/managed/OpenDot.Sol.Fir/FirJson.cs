@@ -23,7 +23,8 @@ public static class FirJson
                 FirRead read => new { read.Slot },
                 FirUnary unary => new { unary.Operation, value = Node(unary.Value) },
                 FirBinary binary => new { binary.Operation, left = Node(binary.Left), right = Node(binary.Right) },
-                FirCall call => new { call.Target, arguments = call.Arguments.Select(a => new { a.Parameter, mode = a.Mode.ToString(), value = Node(a.Value) }).ToArray() },
+                FirCall call => new { call.Target, typeArguments = call.TypeArguments.Select(t => t.Id).ToArray(),
+                    arguments = call.Arguments.Select(a => new { a.Parameter, mode = a.Mode.ToString(), value = Node(a.Value) }).ToArray() },
                 FirIntrinsic intrinsic => new { operation = intrinsic.Operation.ToString(), order = intrinsic.ParameterOrder, arguments = intrinsic.Arguments.Select(Node).ToArray() },
                 FirArrayLength length => new { array = Node(length.Array) },
                 FirArrayIndex index => new { array = Node(index.Array), index = Node(index.Index) },
@@ -43,8 +44,9 @@ public static class FirJson
         }
         return JsonSerializer.Serialize(new
         {
-            schema = 3, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
+            schema = 4, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
             functions = program.Program.Functions.Select(f => new { f.Id, f.Name, runtime = f.RuntimeFunction.ToString(),
+                specializationArguments = f.SpecializationArguments.Select(t => t.Id).ToArray(),
                 returnType = f.ReturnType.Id, effects = f.Effects.Select(effect => effect.Id).ToArray(),
                 parameters = f.Parameters.Select(p => p.Id).ToArray(),
                 slots = f.Slots.Select(s => new { s.Id, s.Name, type = s.Type.Id, s.Mutable, mode = s.Mode.ToString(), s.IsParameter }).ToArray(),

@@ -20,6 +20,44 @@
   href: generic-calls.md
 - name: Generic inference
   href: generic-inference.md
+- name: Generic FIR specialization
+  items:
+    - name: Overview and implementation boundary
+      href: generic-fir-specialization.md
+    - name: Specialization lowering
+      href: generic-fir-specialization-lowering.md
+    - name: Independent FIR verification
+      href: fir-generic-verification.md
+    - name: Argument mapping
+      href: generic-fir-specialization/ArgumentMapping.md
+    - name: Constraints
+      href: generic-fir-specialization/Constraints.md
+    - name: Checked effects
+      href: generic-fir-specialization/Effects.md
+    - name: Flow and rebinding
+      href: generic-fir-specialization/Flow.md
+    - name: Function values and lambdas
+      href: generic-fir-specialization/FunctionValues.md
+    - name: Nested substitution
+      href: generic-fir-specialization/NestedSubstitution.md
+    - name: Nullability
+      href: generic-fir-specialization/Nullability.md
+    - name: Overload selection
+      href: generic-fir-specialization/OverloadSelection.md
+    - name: Artifact boundaries
+      href: generic-fir-specialization/Artifacts.md
+    - name: Generic owners and members
+      href: generic-fir-specialization/OwnersAndMembers.md
+    - name: Primitive ABI
+      href: generic-fir-specialization/PrimitiveAbi.md
+    - name: Recursion and limits
+      href: generic-fir-specialization/RecursionAndLimits.md
+    - name: JSON and diagnostics
+      href: generic-fir-specialization/JsonAndDiagnostics.md
+    - name: Storage and Yellow Tea roots
+      href: generic-fir-specialization/StorageAndRoots.md
+    - name: Cache and determinism
+      href: generic-fir-specialization/CacheAndDeterminism.md
 - name: Argument and default contracts
   href: arguments.md
 - name: Receiver and member resolution

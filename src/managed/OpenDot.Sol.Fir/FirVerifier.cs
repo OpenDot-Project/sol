@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using OpenDot.Sol.Analysis;
@@ -37,18 +38,26 @@ public static class FirVerifier
         internal List<Diagnostic> Errors { get; } = [];
         internal List<FirFlowGraph> Graphs { get; } = [];
         private FirFunction _function = null!;
+        private Dictionary<ResolvedType, ResolvedType> _substitution = [];
         private readonly HashSet<FirNode> _active = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<int> _declared = [];
+        private readonly HashSet<(object Source, string Arguments)> _genericInstances = [];
+        private readonly HashSet<int> _genericInstanceRoots = [];
+        private readonly Dictionary<int, HashSet<int>> _genericInstanceEdges = [];
+        private readonly Dictionary<object, ExpressionBinding> _sourceExpressions = new(ReferenceEqualityComparer.Instance);
         private int _depth;
 
         internal void Check()
         {
+            foreach (var binding in program.Analysis.Expressions)
+            { _sourceExpressions.TryAdd(binding.Expression.Origin.Element, binding); }
             if (program.IsLibrary ? program.Entry != -1 : program.Entry < 0 || program.Entry >= program.Functions.Length)
             { throw new ArgumentException("FIR entry index is invalid.", nameof(program)); }
             for (int index = 0; index < program.Functions.Length; index++)
             {
                 cancellation.ThrowIfCancellationRequested();
                 _function = program.Functions[index];
+                _substitution = [];
                 _declared.Clear();
                 if (_function.Id != index) { Fail("Function identity/index mismatch.", _function.Origin); }
                 CheckExport();
@@ -74,6 +83,7 @@ public static class FirVerifier
                 Graphs.Add(flow);
                 Errors.AddRange(flow.Diagnostics);
             }
+            CheckSpecializationReachability();
             if (program.IsLibrary) { return; }
             var entry = program.Functions[program.Entry];
             if (entry.RuntimeFunction != FirRuntimeFunction.None || !IsEmpty(entry.ReturnType)
@@ -119,19 +129,60 @@ public static class FirVerifier
             }
 
             if (source.Name != _function.Name) { Fail("Function name differs from its source declaration.", _function.Origin); }
+            var genericParameters = program.Analysis.Sources.Types.GetTypeParameters(source);
+            if (genericParameters.Length != _function.SpecializationArguments.Length)
+            {
+                if (genericParameters.Length != 0 || !_function.SpecializationArguments.IsEmpty)
+                { Fail("Generic function specialization arity differs from its declaration.", _function.Origin); }
+            }
+            else if (genericParameters.Length != 0)
+            {
+                var sourceFile = program.Analysis.Sources.Declarations.Files.Single(file => file.Nodes.OfType<AstFunction>()
+                    .Any(function => ReferenceEquals(function.Origin.Element, source.Origin.Element)));
+                if (HasTypeOwner(sourceFile, source))
+                { Fail("Only module-level generic functions can appear in verified FIR.", _function.Origin); }
+                for (int index = 0; index < genericParameters.Length; index++)
+                {
+                    var argument = _function.SpecializationArguments[index];
+                    if (argument is null)
+                    { Fail("Generic FIR specialization contains a null type argument.", _function.Origin); continue; }
+                    if (!TryValidateOwnership(argument, _function.Origin)) { continue; }
+                    CheckType(argument, _function.Origin);
+                    if (ContainsParameter(argument)) { Fail("A generic FIR instance must have closed type arguments.", _function.Origin); }
+                    _substitution.Add(genericParameters[index], argument);
+                }
+                if (!_function.SpecializationArguments.Any(argument => argument is null))
+                {
+                    string argumentKey = string.Join(",", _function.SpecializationArguments
+                        .Select(argument => argument.Id.ToString(CultureInfo.InvariantCulture)));
+                    if (!_genericInstances.Add((source.Origin.Element, argumentKey)))
+                    { Fail("A generic FIR specialization identity is duplicated.", _function.Origin); }
+                    try
+                    {
+                        var constraints = program.Analysis.Types.CheckConstraints(source, _function.SpecializationArguments, cancellation);
+                        if (constraints.Status != ConstraintStatus.Satisfied)
+                        { Fail("Generic FIR specialization constraints are not satisfied.", _function.Origin); }
+                    }
+                    catch (ArgumentException)
+                    { Fail("Generic FIR specialization arguments belong to another type workspace.", _function.Origin); }
+                }
+            }
+            else if (_function.SpecializationArguments.IsDefault)
+            { Fail("FIR specialization metadata must be initialized.", _function.Origin); }
+
             var summary = program.Analysis.GetBody(source);
             if (summary is null || summary.Status != BodyBindingStatus.Bound)
             { Fail("Function body lacks a completed source analysis summary.", _function.Origin); }
-            else if (summary.ReturnType != _function.ReturnType)
+            else if (summary.ReturnType is null || Substitute(summary.ReturnType) != _function.ReturnType)
             { Fail("Function result type differs from source analysis.", _function.Origin); }
 
-            var declaredEffects = source.ThrownTypes.Select(program.Analysis.Sources.Types.GetType).ToImmutableArray();
+            var declaredEffects = source.ThrownTypes.Select(program.Analysis.Sources.Types.GetType).Select(Substitute).ToImmutableArray();
             if (_function.Effects.IsDefault || !declaredEffects.SequenceEqual(_function.Effects))
             { Fail("Function effect metadata differs from its source declaration.", _function.Origin); }
             ValidateEffects(_function.Effects, _function.Origin);
             if (summary is not null)
             {
-                foreach (var escaping in summary.EscapingEffects.Where(IsChecked))
+                foreach (var escaping in summary.EscapingEffects.Select(Substitute).Where(IsChecked))
                 {
                     if (!declaredEffects.Any(budget => program.Analysis.Types.ClassifyConversion(escaping, budget, cancellation) != IntrinsicConversion.None))
                     { Fail("Source body analysis found a checked effect outside the function signature.", _function.Origin); }
@@ -146,7 +197,7 @@ public static class FirVerifier
                 var sourceParameter = source.Parameters[index];
                 var firParameter = _function.Parameters[index];
                 if (sourceParameter.Name != firParameter.Name || sourceParameter.Type is null
-                    || program.Analysis.Sources.Types.GetType(sourceParameter.Type) != firParameter.Type
+                    || Substitute(program.Analysis.Sources.Types.GetType(sourceParameter.Type)) != firParameter.Type
                     || sourceParameter.PassingMode != firParameter.Mode)
                 { Fail("Function parameter metadata differs from its source declaration.", firParameter.Origin); }
             }
@@ -175,9 +226,79 @@ public static class FirVerifier
 
         private void CheckType(ResolvedType type, AstOrigin origin)
         {
-            try { program.Analysis.Types.ValidateOwnership(type); }
-            catch (ArgumentException) { Fail("Type belongs to another workspace.", origin); return; }
+            if (!TryValidateOwnership(type, origin)) { return; }
             if (!Supported(type)) { Fail("Type is outside the verified native subset: " + type.Name, origin); }
+        }
+
+        private bool TryValidateOwnership(ResolvedType type, AstOrigin origin)
+        {
+            try { program.Analysis.Types.ValidateOwnership(type); return true; }
+            catch (ArgumentException) { Fail("Type belongs to another workspace.", origin); return false; }
+        }
+
+        private ResolvedType Substitute(ResolvedType type)
+        {
+            if (_substitution.Count == 0) { return type; }
+            try { return program.Analysis.Types.Substitute(type, _substitution, cancellation); }
+            catch (Exception error) when (error is ArgumentException or TypeSpecializationException)
+            { Fail("Source type could not be specialized for the verified FIR instance.", _function.Origin); return type; }
+        }
+
+        private ResolvedType SubstituteCallTargetType(ResolvedType type, BodyCallBinding binding,
+            ImmutableArray<ResolvedType> typeArguments)
+        {
+            var parameters = program.Analysis.Sources.Types.GetTypeParameters(binding.Target);
+            if (parameters.Length != typeArguments.Length) { return Substitute(type); }
+            var substitutions = new Dictionary<ResolvedType, ResolvedType>();
+            for (int index = 0; index < parameters.Length; index++) { substitutions.Add(parameters[index], typeArguments[index]); }
+            if (substitutions.Count == 0) { return Substitute(type); }
+            try
+            {
+                var callerSubstitution = program.Analysis.Types.Substitute(type, _substitution, cancellation);
+                return program.Analysis.Types.Substitute(callerSubstitution, substitutions, cancellation);
+            }
+            catch (Exception error) when (error is ArgumentException or TypeSpecializationException)
+            { Fail("Selected generic call effects could not be specialized.", binding.Call.Origin); return type; }
+        }
+
+        private static bool ContainsParameter(ResolvedType type)
+        {
+            var pending = new Stack<ResolvedType>();
+            var seen = new HashSet<ResolvedType>();
+            pending.Push(type);
+            while (pending.TryPop(out var current))
+            {
+                if (!seen.Add(current)) { continue; }
+                if (current.Kind == ResolvedTypeKind.Parameter) { return true; }
+                foreach (var argument in current.Arguments) { pending.Push(argument); }
+                foreach (var effect in current.Effects) { pending.Push(effect); }
+            }
+            return false;
+        }
+
+        private static bool HasTypeOwner(AstSnapshot file, AstNode node)
+        {
+            for (var parent = file.GetParent(node); parent is not null; parent = file.GetParent(parent))
+            { if (parent is AstTypeDeclaration) { return true; } }
+            return false;
+        }
+
+        private void CheckSpecializationReachability()
+        {
+            var pending = new Queue<int>(_genericInstanceRoots);
+            var reachable = new HashSet<int>();
+            while (pending.TryDequeue(out int current))
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if (!reachable.Add(current)) { continue; }
+                if (_genericInstanceEdges.TryGetValue(current, out var nested))
+                { foreach (int target in nested) { pending.Enqueue(target); } }
+            }
+            foreach (var function in program.Functions.Where(function => !function.SpecializationArguments.IsEmpty))
+            {
+                if (!reachable.Contains(function.Id))
+                { Fail("Generic FIR instance is not reachable from a nongeneric source function.", function.Origin); }
+            }
         }
 
         private void Statement(FirStatement statement, int loops)
@@ -293,6 +414,10 @@ public static class FirVerifier
             try
             {
                 CheckType(expression.Type, expression.Origin);
+                if (!_sourceExpressions.TryGetValue(expression.Origin.Element, out var sourceExpression)
+                    || sourceExpression.Status != BodyBindingStatus.Bound || sourceExpression.Type is null
+                    || Substitute(sourceExpression.Type) != expression.Type)
+                { Fail("FIR expression type or source binding differs from the selected generic instance.", expression.Origin); }
                 switch (expression)
                 {
                     case FirConstant constant: Constant(constant); break;
@@ -402,10 +527,36 @@ public static class FirVerifier
                     .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, target.Origin.Element));
                 if (targetSource is null || !ReferenceEquals(sourceBinding.Target.Origin.Element, targetSource.Origin.Element))
                 { Fail("Call target differs from overload resolution.", call.Origin); }
-                if (sourceBinding.ReturnType != call.Type)
+                var selectedTypeArguments = sourceBinding.TypeArguments.Select(Substitute).ToImmutableArray();
+                if (call.TypeArguments.IsDefault || !selectedTypeArguments.SequenceEqual(call.TypeArguments))
+                { Fail("Call specialization arguments differ from source overload resolution.", call.Origin); }
+                if (target.SpecializationArguments.IsDefault || !selectedTypeArguments.SequenceEqual(target.SpecializationArguments))
+                { Fail("Call target is not the selected closed generic instance.", call.Origin); }
+                if (!target.SpecializationArguments.IsEmpty)
+                {
+                    if (_function.SpecializationArguments.IsEmpty) { _genericInstanceRoots.Add(target.Id); }
+                    else
+                    {
+                        if (!_genericInstanceEdges.TryGetValue(_function.Id, out var nested))
+                        { nested = []; _genericInstanceEdges.Add(_function.Id, nested); }
+                        nested.Add(target.Id);
+                    }
+                }
+                if (sourceBinding.ReturnType is null || Substitute(sourceBinding.ReturnType) != call.Type)
                 { Fail("Call result type differs from overload resolution.", call.Origin); }
+                if (sourceBinding.ParameterTypes.Length != target.Parameters.Length)
+                { Fail("Call parameter signature differs from the selected specialization.", call.Origin); }
+                else
+                {
+                    for (int index = 0; index < sourceBinding.ParameterTypes.Length; index++)
+                    {
+                        if (Substitute(sourceBinding.ParameterTypes[index]) != target.Parameters[index].Type)
+                        { Fail("Call parameter type differs from overload resolution.", call.Origin); }
+                    }
+                }
                 var selectedEffects = sourceBinding.Target.ThrownTypes
-                    .Select(program.Analysis.Sources.Types.GetType).ToImmutableArray();
+                    .Select(program.Analysis.Sources.Types.GetType)
+                    .Select(effect => SubstituteCallTargetType(effect, sourceBinding, selectedTypeArguments)).ToImmutableArray();
                 if (!selectedEffects.SequenceEqual(target.Effects))
                 { Fail("Call effect metadata differs from the selected source target.", call.Origin); }
                 ValidateCallArguments(call, sourceBinding);

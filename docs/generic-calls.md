@@ -27,9 +27,11 @@ applications through substitution.
 The default depth budget is 128 and the workspace permits 100,000 additional interned types.
 Callers may lower these limits. Resource exhaustion throws `TypeSpecializationException` with
 `ResourceLimit`; invalid constructed storage reports `InvalidType`. The call binder translates these
-failures into source diagnostics. These budgets do not measure compiled generic machine-code instances:
-monomorphization and body specialization have not been implemented. Cancellation is observed during
-substitution, constraint queries, and inheritance traversal.
+failures into source diagnostics. These budgets do not measure compiled generic machine-code
+instances. The verified native subset now has a separate 4,096-instance compilation limit and
+128-level specialization-type limit for closed module-level generic free functions; per-instance
+source rebinding and the full Sol generic contract remain incomplete. Cancellation is observed during
+substitution, constraint queries, inheritance traversal, and FIR instance scheduling.
 
 ## Bases, conversions, and constraints
 
@@ -151,4 +153,7 @@ Receiver member analysis is available through `BodyAnalysis`, including construc
 inherited overload groups, and method inference. The direct `CallAnalysis` API still cannot consume
 an enclosing expected-result type. Complete protected receiver checks, cross-distribution access,
 all user conversions, checked-effect coverage, smart casts, definite assignment, ref escape, and
-verified FIR remain future stages. See [member resolution](member-resolution.md).
+full verified FIR remain future stages. A bounded closed generic free-function slice is now carried
+from `BodyAnalysis` into verified FIR; it does not add a stable generic binary ABI or make all
+body-analysis results executable. See [member resolution](member-resolution.md) and
+[generic FIR lowering](generic-fir-specialization-lowering.md).

@@ -184,8 +184,10 @@ case as deferred when argument evidence is insufficient.
 Not yet implemented: every lambda/array-literal shape and complete cross-argument contextual
 inference, multi-open effect-set matching, full common-interface/boxing interactions, generic body
 rechecking for each monomorphized substitution, user-defined conversion inference, checked-effect
-coverage, safe-call lowering, complete flow and borrow verification, FIR generation, or native code
-generation. The open work is also listed in
+coverage, safe-call lowering, and complete flow and borrow verification. A bounded FIR/native slice
+now specializes closed module-level generic free functions over admitted primitive, String, and
+single-level array ABI types. It does not make the complete generic contract executable. The open
+work is also listed in
 [generic calls](generic-calls.md) and the [compiler status](status.md).
 
 ## Candidate-local lambda replay
@@ -477,7 +479,9 @@ that is itself produced by the selected overload.
 `SourceAnalysis` owns declarations, written types, and lexical scopes. `BodyAnalysis` owns the
 current bounded expression/call facts and completeness markers. `GenericInferenceSolver` is an
 internal analysis service. There is no public `solc` command that prints a solver ledger, no stable
-generic-instantiation object for downstream binaries, and no complete FIR specialization API yet.
+generic-instantiation object for downstream binaries, and no complete FIR specialization API.
+`FirCompilation` internally admits a bounded closed free-function specialization slice, subject to
+its separate native verifier and ABI gate.
 
 Direct `CallAnalysis` does not receive an enclosing expression's expected result. Its candidate
 inputs are therefore narrower than `BodyAnalysis` call sites where the parent expression supplies

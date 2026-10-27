@@ -28,7 +28,7 @@ internal sealed partial class FirBuilder
         }
 
         var source = _analysis.GetExpression(iterable);
-        var arrayType = source?.Type;
+        var arrayType = source?.Type is { } sourceType ? Specialize(sourceType) : null;
         if (source is null || source.Status != BodyBindingStatus.Bound
             || arrayType is null || arrayType.Kind != ResolvedTypeKind.Array || arrayType.Arguments.Length != 1
             || !FirVerifier.Supported(arrayType))

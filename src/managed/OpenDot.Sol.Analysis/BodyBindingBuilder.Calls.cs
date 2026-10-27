@@ -13,8 +13,9 @@ internal sealed partial class BodyBindingBuilder
 {
     private sealed record Target(AstCallable Callable, DeclarationSymbol? Symbol, ResolvedType? Receiver,
         ResolvedType? Constructed = null, ResolvedType? AccessReceiver = null);
-    private sealed record Applicable(Target Target, ArgumentMapping Mapping, ImmutableArray<ResolvedType> Parameters,
-        ResolvedType? Result, ImmutableArray<ResolvedType> Effects, ImmutableArray<int> Ranks, bool Generic);
+    private sealed record Applicable(Target Target, ArgumentMapping Mapping, ImmutableArray<ResolvedType> TypeArguments,
+        ImmutableArray<ResolvedType> Parameters, ResolvedType? Result, ImmutableArray<ResolvedType> Effects,
+        ImmutableArray<int> Ranks, bool Generic);
     private const int MaximumLambdaInferencePasses = 128;
 
     private Value SafeCall(AstCall call, State state, Context context, ResolvedType? expected)
@@ -65,8 +66,8 @@ internal sealed partial class BodyBindingBuilder
             return new(null);
         }
         var selected = best[0];
-        Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.Parameters,
-            selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults);
+        Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.TypeArguments,
+            selected.Parameters, selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults);
         foreach (var parameter in selected.Parameters) { ValidateFunctionEffects(parameter, call); }
         if (selected.Result is not null) { ValidateFunctionEffects(selected.Result, call); }
         if (context.Callable is AstConstructor && targetExpression is AstMember { Receiver: AstAtom { Spelling: "this" } }
@@ -388,7 +389,8 @@ internal sealed partial class BodyBindingBuilder
             : callable.ReturnType is not null ? Types.Substitute(Written(callable.ReturnType), substitution, _cancellation)
                 : CheckBody(callable).ReturnType is { } inferred ? Types.Substitute(inferred, substitution, _cancellation) : null;
         var effects = callable.ThrownTypes.Select(t => Types.Substitute(Written(t), substitution, _cancellation)).ToImmutableArray();
-        return new(target, mapping, types, result, effects, ranks.ToImmutable(), inferParameters.Length != 0);
+        var typeArguments = parameters.Select(parameter => substitution.GetValueOrDefault(parameter, parameter)).ToImmutableArray();
+        return new(target, mapping, typeArguments, types, result, effects, ranks.ToImmutable(), inferParameters.Length != 0);
     }
 
     private void AddLambdaEvidence(ImmutableArray<GenericInferenceConstraint>.Builder constraints,
