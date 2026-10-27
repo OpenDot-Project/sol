@@ -192,7 +192,13 @@ internal sealed partial class GenericInferenceSolver
             AddEvidence(buckets[template], template, relation, actual, origin);
             return true;
         }
-        if (!ContainsInferenceParameter(template, parameters)) { return true; }
+        if (!ContainsInferenceParameter(template, parameters))
+        {
+            // Exact relations also constrain portions of an invariant generic shape that do
+            // not contain an inference variable. Treating those portions as evidence-free can
+            // make an incompatible base projection look applicable.
+            return relation != GenericInferenceRelation.Exact || template == actual;
+        }
 
         if (template.IsNullable)
         {
@@ -213,6 +219,11 @@ internal sealed partial class GenericInferenceSolver
                 ? Project(template, projectionTarget, fixedMap)
                 : Project(actual, projectionTarget, fixedMap);
             if (projections.IsEmpty) { return false; }
+            if (relation == GenericInferenceRelation.Expected)
+            {
+                return CollectExpectedProjection(template, actual, projections, origin, parameters, buckets,
+                    fixedMap, effectConstraints, depth);
+            }
             foreach (var projection in projections)
             {
                 var left = relation == GenericInferenceRelation.Expected ? projection : template;
@@ -251,6 +262,67 @@ internal sealed partial class GenericInferenceSolver
         }
         effectConstraints.Add(new(template.Effects, actual.Effects, origin, depth + 1));
         return true;
+    }
+
+    private bool CollectExpectedProjection(ResolvedType template, ResolvedType actual,
+        ImmutableArray<ResolvedType> projections, string origin, HashSet<ResolvedType> parameters,
+        Dictionary<ResolvedType, Evidence> buckets,
+        IReadOnlyDictionary<ResolvedType, ResolvedType> fixedMap,
+        List<EffectSetConstraint> effectConstraints, int depth)
+    {
+        var orderedParameters = parameters.OrderBy(parameter => parameter.Id).ToImmutableArray();
+        var matches = new List<(Dictionary<ResolvedType, Evidence> Evidence, List<EffectSetConstraint> Effects)>();
+        foreach (var projection in projections)
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (projection.Declaration != actual.Declaration || projection.Arguments.Length != actual.Arguments.Length)
+            { continue; }
+
+            var candidateEvidence = CloneEvidence(buckets, orderedParameters);
+            var candidateEffects = new List<EffectSetConstraint>(effectConstraints);
+            bool matchesExpected = true;
+            for (int index = 0; index < projection.Arguments.Length; index++)
+            {
+                // A projected return is a candidate path. A mismatch on one base route must not
+                // erase valid evidence from a different route; test each route transactionally.
+                if (!Collect(projection.Arguments[index], actual.Arguments[index], GenericInferenceRelation.Exact,
+                        origin, parameters, candidateEvidence, fixedMap, candidateEffects, depth + 1))
+                { matchesExpected = false; break; }
+            }
+            if (matchesExpected) { matches.Add((candidateEvidence, candidateEffects)); }
+        }
+
+        if (matches.Count == 0) { return false; }
+        var selected = matches[0];
+        for (int index = 1; index < matches.Count; index++)
+        {
+            if (!SameEvidence(selected.Evidence, matches[index].Evidence, orderedParameters)
+                || !SameEffectConstraints(selected.Effects, matches[index].Effects))
+            {
+                // Multiple compatible-looking base paths that infer different facts are
+                // ambiguous. Keep the original solver state untouched.
+                return false;
+            }
+        }
+
+        MergeEvidence(buckets, selected.Evidence, orderedParameters);
+        effectConstraints.AddRange(selected.Effects.Skip(effectConstraints.Count));
+        return true;
+    }
+
+    private static bool SameEvidence(Dictionary<ResolvedType, Evidence> left,
+        Dictionary<ResolvedType, Evidence> right, ImmutableArray<ResolvedType> parameters) => parameters.All(parameter =>
+            left[parameter].Lower.OrderBy(type => type.Id).SequenceEqual(right[parameter].Lower.OrderBy(type => type.Id))
+            && left[parameter].Exact.OrderBy(type => type.Id).SequenceEqual(right[parameter].Exact.OrderBy(type => type.Id))
+            && left[parameter].Upper.OrderBy(type => type.Id).SequenceEqual(right[parameter].Upper.OrderBy(type => type.Id)));
+
+    private static bool SameEffectConstraints(List<EffectSetConstraint> left, List<EffectSetConstraint> right)
+    {
+        static string Key(EffectSetConstraint constraint) => constraint.Origin + "|" + constraint.Depth + "|"
+            + string.Join(",", constraint.Templates.Select(type => type.Id).Order()) + "|"
+            + string.Join(",", constraint.Actuals.Select(type => type.Id).Order());
+        return left.Select(Key).OrderBy(key => key, StringComparer.Ordinal)
+            .SequenceEqual(right.Select(Key).OrderBy(key => key, StringComparer.Ordinal), StringComparer.Ordinal);
     }
 
     private static void AddEvidence(Evidence evidence, ResolvedType parameter,

@@ -35,6 +35,21 @@ public sealed class GenericInferenceExpectedResultTests
     }
 
     [Fact]
+    public void ExpectedResultCanUseMatchingBasePathAfterAnIncompatibleProjection()
+    {
+        var analysis = Analyze("interface Parent<T> {}\n"
+            + "interface FixedParent: Parent<int> {}\n"
+            + "class Projected<T>: FixedParent, Parent<T> {}\n"
+            + "func <T> make(): Projected<T> = throw RuntimeException()\n"
+            + "func use(): Parent<String> = make()");
+
+        Assert.False(analysis.HasErrors,
+            string.Join('\n', analysis.Diagnostics.Select(diagnostic => diagnostic.Code + " " + diagnostic.Message)));
+        var call = Assert.Single(analysis.Calls, binding => binding.Target.Name == "make");
+        Assert.Equal("std.core.String", Assert.Single(call.TypeArguments).Name);
+    }
+
+    [Fact]
     public void ExpectedResultDoesNotNarrowAGenericReturnToADerivedType()
     {
         var analysis = Analyze("interface Parent<T> {}\n"
