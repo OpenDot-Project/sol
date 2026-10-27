@@ -408,8 +408,15 @@ func <E: Throwable> invokeCallback(callback: () -> () throws E): () throws E {
 // observe the same variable. Separate lambdas capturing the same mutable variable share one cell;
 // they must not receive independent snapshots.
 // LexicalAnalysis exposes the resolved local capture inventory per lambda, including nested-lambda
-// environment propagation and read/write access. This records source bindings and candidate storage
-// policy only; it does not prove escape safety, select a native layout, or authorize code generation.
+// environment propagation and read/write access. `LambdaEscapes` and `GetLambdaEscape(lambda)` add
+// a separate source-use classification. `ProvenNonEscaping` is currently produced only when the
+// lambda (optionally through grouping/label wrappers) is the direct target of its creating call.
+// Returning a literal, passing it to a call, storing it in a property/aggregate, or assigning it to
+// a heap location is classified as escape-capable. Simple immutable local initializer aliases are
+// followed by symbol identity; if every use is another local alias or local invocation, they prove
+// non-escape. Mutable alias assignment, aliases captured by another callable, branch-sensitive
+// reassignment, and every unmodeled consumer are `Unknown`. No no-escape call contract is inferred.
+// These facts do not prove borrow safety, select a native layout, or authorize code generation.
 //
 // A captured receiver or local may keep an object reachable after the creating stack frame returns.
 // The environment layout must identify every managed reference slot so Yellow Tea can scan it. A
@@ -446,8 +453,9 @@ func <T> forbiddenCapture(value: T): () -> T where T: allows ref struct {
 // captured value in a GC-managed environment.
 
 // Non-escaping does not mean unrestricted: proof must include all returns, stores, calls, callbacks,
-// exception paths, and nested captures. An unknown function-valued call is conservatively escaping
-// until its contract proves otherwise.
+// exception paths, and nested captures. A call argument is conservatively escape-capable because no
+// no-escape declaration contract is implemented. `Unknown` is not interchangeable with
+// `ProvenNonEscaping`, including for a lambda stored in a local and invoked later.
 
 // 15. Indirect invocation has an explicit execution edge
 // ------------------------------------------------------

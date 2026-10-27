@@ -19,6 +19,7 @@ public sealed class LexicalAnalysis
     private readonly Dictionary<AstNode, AstSnapshot> _files;
     private readonly Dictionary<AstLambda, ImmutableArray<LambdaCapture>> _capturesByLambda;
     private readonly ImmutableHashSet<LocalSymbol> _capturedLocals;
+    private readonly Dictionary<AstLambda, LambdaEscape> _escapesByLambda;
 
     private LexicalAnalysis(LexicalBuilder builder)
     {
@@ -49,6 +50,9 @@ public sealed class LexicalAnalysis
             .ToDictionary(group => group.Key, group => group.ToImmutableArray(), lambdaComparer);
         _capturedLocals = _bindings.Values.Where(binding => binding.CapturesOuterLocal)
             .SelectMany(binding => binding.Lookup.Locals).ToImmutableHashSet();
+        LambdaEscapes = LambdaEscapeAnalysis.Create(Scopes, _scopeOf, _files, _bindings.Values,
+            LambdaCaptures, builder.Cancellation);
+        _escapesByLambda = LambdaEscapes.ToDictionary(escape => escape.Lambda, lambdaComparer);
         Diagnostics = diagnostics.OrderBy(d => d.Source.Path, StringComparer.Ordinal).ThenBy(d => d.Span.Start).ToImmutableArray();
     }
 
@@ -58,6 +62,8 @@ public sealed class LexicalAnalysis
     public IEnumerable<NameBinding> Bindings => _bindings.Values;
     /// <summary>Lexical local captures grouped by lambda; this inventory does not prove escape safety.</summary>
     public ImmutableArray<LambdaCapture> LambdaCaptures { get; }
+    /// <summary>Conservative source use/lifetime facts; only direct invocation proves non-escape.</summary>
+    public ImmutableArray<LambdaEscape> LambdaEscapes { get; }
     public bool HasErrors => Declarations.HasErrors || Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
 
     /// <summary>Returns captures for an owned lambda, including an empty result for a noncapturing lambda.</summary>
@@ -66,6 +72,14 @@ public sealed class LexicalAnalysis
         ArgumentNullException.ThrowIfNull(lambda);
         if (!_scopeOf.ContainsKey(lambda)) { throw new ArgumentException("The lambda belongs to another lexical snapshot.", nameof(lambda)); }
         return _capturesByLambda.GetValueOrDefault(lambda, []);
+    }
+
+    /// <summary>Returns the lifetime classification for an owned lambda source node.</summary>
+    public LambdaEscape GetLambdaEscape(AstLambda lambda)
+    {
+        ArgumentNullException.ThrowIfNull(lambda);
+        if (!_scopeOf.ContainsKey(lambda)) { throw new ArgumentException("The lambda belongs to another lexical snapshot.", nameof(lambda)); }
+        return _escapesByLambda[lambda];
     }
 
     internal bool IsCaptured(LocalSymbol local) => _capturedLocals.Contains(local);

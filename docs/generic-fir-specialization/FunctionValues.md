@@ -238,6 +238,36 @@ generic call can carry that function reference when its callback parameter has t
 signature. A lambda written inside a generic enclosing body is still rejected by this slice, even if
 one call site could specialize that body.
 
+## Source capture and escape facts
+
+`LexicalAnalysis.LambdaCaptures` and `GetLambdaCaptures(lambda)` inventory each captured local by
+resolved symbol identity. Entries preserve source-ordered references, read/write access, passing
+mode, and a candidate storage category. Nested lambdas list an outer local for each environment that
+would need to retain it. This inventory does not establish a lifetime or environment layout.
+
+`LexicalAnalysis.LambdaEscapes` and `GetLambdaEscape(lambda)` add a separate use classification:
+
+| Disposition | Current evidence |
+|---|---|
+| `ProvenNonEscaping` | The lambda is the direct target of the call that creates it, or immutable local initializer aliases lead only to local aliasing and local invocation. Grouping and label wrappers are transparent. |
+| `MayEscape` | The source returns it, passes it as a call argument, stores it in a property/heap location, or embeds it in an aggregate, including through a tracked local alias. |
+| `Unknown` | A mutable alias is reassigned, an alias is captured by another callable, or the lambda appears in a consumer whose lifetime behavior is not modeled. |
+
+Every result includes ordered source witnesses and the capture inventory for that lambda. The bounded
+alias graph follows immutable local initializers by resolved `LocalSymbol` identity. A local alias
+passed as a call argument or returned from the callable is an escape-capable sink. Mutable aliases,
+alias writes, aliases captured by another callable, flow-sensitive branch joins, anonymous-function
+environments, and callback retention contracts do not receive a non-escape proof. Call arguments are
+escape-capable because there is no verified no-escape contract on callable declarations. `MayEscape`
+means the source operation permits an escape; it does not claim a runtime callee actually retained
+the value. `Unknown` is never a non-escape proof.
+
+The result is advisory source analysis only. It does not authorize `FirFunctionReference`, closure
+conversion, stack environment allocation, ref/out capture, or a Yellow Tea root/layout decision.
+Capturing lambda FIR remains rejected until the callable ABI represents both code and environment,
+the verifier checks capture sources and lifetimes, and runtime descriptors/barriers keep every live
+environment reachable.
+
 ### Bounded noncapturing-lambda FIR path
 
 The current path admits named-header lambdas such as `{ value -> value + 1 }`, positional forms such
