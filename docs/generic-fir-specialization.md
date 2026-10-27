@@ -48,7 +48,7 @@ as a future requirement in the specification.
 | Nullability and bottom type | [Nullability contract](generic-fir-specialization/Nullability.md) | Source typing requirements are documented; nullable native representations remain outside the slice. |
 | Primitive and array ABI | [Primitive ABI](generic-fir-specialization/PrimitiveAbi.md) | Admission is intentionally finite and target-specific. |
 | Recursion and termination | [Recursion and limits](generic-fir-specialization/RecursionAndLimits.md) | Exact keys are reused; distinct keys consume bounded resources. |
-| JSON and diagnostics | [JSON and diagnostic contract](generic-fir-specialization/JsonAndDiagnostics.md) | Documents schema 4 metadata, source identity, origins, and phase-specific diagnostics. |
+| JSON and diagnostics | [JSON and diagnostic contract](generic-fir-specialization/JsonAndDiagnostics.md) | Documents schema 5 metadata, source identity, origins, and phase-specific diagnostics. |
 | Artifact and runtime boundaries | [Artifact contract](generic-fir-specialization/Artifacts.md), [native artifacts](library-artifacts.md) | The generic slice does not create C ABI or external `.solib` generic exports. |
 | Generic owners and members | [Owner/member contract](generic-fir-specialization/OwnersAndMembers.md), [member resolution](member-resolution.md) | Source member binding is broader than verified generic member FIR. |
 | Storage, arrays and GC roots | [Storage and root contract](generic-fir-specialization/StorageAndRoots.md), [Yellow Tea ABI](yellow-tea/compiler-runtime-abi.md) | Generic collections, spans, nullable layouts and full per-instance root maps remain outside the slice. |

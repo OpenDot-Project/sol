@@ -24,12 +24,23 @@ const auto ArrayTypes = [] {
     }
     return result;
 }();
+constexpr std::uint32_t ReferenceOffset = 0;
+constexpr ScanShape ReferenceElements{&ReferenceOffset, 1};
 }
 
 extern "C"
 {
+SOL_RT_API const TypeDescriptor sol_rt_reference_array_type{sizeof(StringArray), 16, 230, 2, 0,
+                                                            &sol_rt_object_type, &ReferenceElements, nullptr,
+                                                            nullptr, nullptr};
+
 StringArray *sol_rt_array_new(int length, int elementKind)
 {
+    if (elementKind == 11)
+    {
+        return sol_rt_array_create(length, sizeof(Header *), &sol_rt_object_type,
+                                   &sol_rt_reference_array_type);
+    }
     if (elementKind < 0 || elementKind >= static_cast<int>(Widths.size()))
     {
         sol_rt_fail(7);

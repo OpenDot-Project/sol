@@ -124,6 +124,14 @@ internal sealed partial class BodyBindingBuilder
             && BetterOperatorRanks(other.Ranks, candidate.Ranks))).ToArray();
         if (best.Length != 1)
         {
+            if (best.Length == 0 && context.Callable is { } callable && callable.TypeParameters.Any()
+                && operands.Any(operand => DependsOnCallableParameter(operand.Type!, callable)))
+            {
+                // The open template cannot decide primitive or user-defined operator binding.
+                // A closed generic instance must repeat this lookup with substituted operands.
+                Defer(location);
+                return new(null);
+            }
             Report(best.Length == 0 ? "SOL2207" : "SOL2222", best.Length == 0
                 ? "Operator is not defined for these operand types." : "Ambiguous operator overload.", location);
             return new(null);
@@ -147,6 +155,22 @@ internal sealed partial class BodyBindingBuilder
             : Specialize(function.ReturnType, owner);
         if (resultType is not null) { ValidateFunctionEffects(resultType, location); }
         return new(resultType);
+    }
+
+    private bool DependsOnCallableParameter(ResolvedType type, AstCallable callable)
+    {
+        var pending = new Stack<ResolvedType>();
+        var visited = new HashSet<ResolvedType>();
+        pending.Push(type);
+        while (pending.TryPop(out var current))
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (!visited.Add(current)) { continue; }
+            if (current.Parameter is { } parameter && ReferenceEquals(parameter.Owner, callable)) { return true; }
+            foreach (var argument in current.Arguments) { pending.Push(argument); }
+            foreach (var effect in current.Effects) { pending.Push(effect); }
+        }
+        return false;
     }
 
     private static bool BetterOperatorRanks(int[] left, int[] right)

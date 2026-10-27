@@ -19,9 +19,13 @@ module-level free-function call, closes its type arguments, and emits a monomorp
 mapped values can be represented by the verified subset.
 
 The current native subset supports named argument reordering and exact scalar `ref`/`out` calls when
-the storage location maps to a verified FIR slot. It rejects user defaults, user varargs, expanded
-varargs, array spread, and closure lowering with `SOL2400`. Source analysis may still provide useful
-mapping facts for those calls; a `Bound` body call does not promise a verified FIR call.
+the storage location maps to a verified FIR slot. It also lowers pure defaults on module-level free
+functions when each omitted expression is a scalar/String literal, an earlier value-parameter read,
+or a supported primitive unary/binary expression. Explicit expressions execute once in source order;
+omitted defaults execute afterward in formal order. Calls to defaults are rejected if they target a
+vararg function, if a default follows a ref/out parameter, or if an omitted expression needs a call,
+member access, array operation, effect, or unsupported conversion. User varargs, expanded varargs,
+array spread, and closure lowering remain outside this slice with `SOL2400`.
 
 `out var` is represented in the source binder, which may assign its type after candidate selection.
 The current native lowering path does not qualify every `out var` declaration shape. Do not treat
@@ -269,10 +273,10 @@ for `T`. If the explicit argument fixes `T`, then the selected default must be c
 substitution. A default typed for a different `T` is an error; it does not create a separate
 specialization or change the overload winner.
 
-User default lowering is outside the first native generic slice. Source mapping can be complete and
-the type argument can be closed while `FirBuilder` still reports `SOL2400` because the function
-requires a default value that has no admitted native lowering. The compiler must reject the whole
-required FIR artifact rather than omit the defaulted parameter or synthesize a zero value.
+The native builder admits only the pure default expression subset described above. It rejects an
+omitted default outside that subset with `SOL2400`; it does not omit the parameter or synthesize a
+zero value. Earlier formal reads in a default become call-value references to values captured by the
+call's ordered evaluation plan, so an explicit argument expression is never run twice.
 
 ## Varargs and spreads
 
@@ -362,17 +366,19 @@ source analysis and the independent FIR checks can enter this slice.
 | `ParameterTypes` | Final source-bound parameter types | Compared with the target FIR signature |
 | `ReturnType` | Selected source result type | Compared with `FirCall.Type` |
 | `Arguments` | Source-index/formal-index records | Used to check argument identity, order, and mode |
-| `DefaultParameters` | Omitted defaults after selection | Currently prevents native call construction |
+| `DefaultParameters` | Omitted defaults after selection | Lowered for the bounded pure free-function subset |
 
 `FirCall.Target` is a function-array index, not a name. `FirCall.TypeArguments` repeats the closed
 ordered type vector for verification and JSON inspection. The target `FirFunction.SpecializationArguments`
 must carry the same vector. A nongeneric target has an initialized empty vector. A default immutable
 array is not interchangeable with an explicitly initialized empty array where metadata is serialized.
 
-`FirJson` schema 4 records ordered function specialization arguments and call type arguments as
-compilation-local resolved-type IDs. These IDs are not persistent ABI identities or cross-build
-cache keys. Source byte spans remain available, while absolute checkout paths are omitted. Any
-consumer that assumed the previous schema must reject schema 4 or upgrade explicitly.
+`FirJson` schema 5 records ordered function specialization arguments, call type arguments, and
+call-value references as compilation-local data. A default expression that reads an earlier formal
+uses a `FirCallValueReference` to an earlier position in the call evaluation plan. Type IDs are not
+persistent ABI identities or cross-build cache keys. Source byte spans remain available, while
+absolute checkout paths are omitted. A consumer that assumed the previous schema must reject schema
+5 or upgrade explicitly.
 
 ## Independent verifier checks
 

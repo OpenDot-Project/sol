@@ -297,7 +297,7 @@ Before lowering an instance, a future complete verifier must establish all of th
 
 Today, the source and FIR verifier cover a narrower type/call subset and the native bootstrap has
 specific qualified descriptor/root paths. The full checklist is a normative future requirement; it
-must not be described as already proven by schema-4 JSON or by successful parsing.
+must not be described as already proven by schema-5 JSON or by successful parsing.
 
 ## Artifact and compatibility consequences
 

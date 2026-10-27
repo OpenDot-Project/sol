@@ -21,6 +21,7 @@ public static class FirJson
                 FirBlock block => new { statements = block.Statements.Select(Node).ToArray() },
                 FirConstant constant => new { constant.Spelling },
                 FirRead read => new { read.Slot },
+                FirCallValueReference reference => new { evaluationIndex = reference.EvaluationIndex },
                 FirUnary unary => new { unary.Operation, value = Node(unary.Value) },
                 FirBinary binary => new { binary.Operation, left = Node(binary.Left), right = Node(binary.Right) },
                 FirCall call => new { call.Target, typeArguments = call.TypeArguments.Select(t => t.Id).ToArray(),
@@ -44,7 +45,7 @@ public static class FirJson
         }
         return JsonSerializer.Serialize(new
         {
-            schema = 4, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
+            schema = 5, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
             functions = program.Program.Functions.Select(f => new { f.Id, f.Name, runtime = f.RuntimeFunction.ToString(),
                 specializationArguments = f.SpecializationArguments.Select(t => t.Id).ToArray(),
                 returnType = f.ReturnType.Id, effects = f.Effects.Select(effect => effect.Id).ToArray(),

@@ -404,10 +404,11 @@ diagnostic limit.
 
 ## Serialization and observability
 
-`FirJson.Serialize` is deterministic for the same verified program. Schema 4 contains:
+`FirJson.Serialize` is deterministic for the same verified program. Schema 5 contains:
 
 - a function's `specializationArguments` as an ordered array of type IDs;
 - a call's `typeArguments` as an ordered array of type IDs;
+- ordered explicit/default call values and `FirCallValueReference` nodes for earlier captured formals;
 - each function's source name, ID, signature, effects, slots, and body;
 - the resolved type table and derived flow graph.
 
@@ -657,7 +658,7 @@ The implementation is distributed across these source files:
 | `src/managed/OpenDot.Sol.Fir/FirBuilder.ForEach.cs` | Specialized iterable element types |
 | `src/managed/OpenDot.Sol.Fir/FirNodes.cs` | FIR call/function specialization metadata |
 | `src/managed/OpenDot.Sol.Fir/FirVerifier.cs` | Independent type, source, constraint, and call checks |
-| `src/managed/OpenDot.Sol.Fir/FirJson.cs` | Deterministic schema-4 inspection output |
+| `src/managed/OpenDot.Sol.Fir/FirJson.cs` | Deterministic schema-5 inspection output |
 | `src/managed/OpenDot.Sol.Lowering/LlvmEmitter.cs` | LLVM function declarations and ID-based calls |
 
 `docs/generic-calls.md` describes the broader source analysis surface. `spec/GenericFirSpecialization.sol`

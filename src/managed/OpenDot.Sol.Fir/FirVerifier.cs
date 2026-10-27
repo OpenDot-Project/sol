@@ -15,7 +15,7 @@ namespace OpenDot.Sol.Fir;
 public sealed record FirVerification(VerifiedFirProgram? Program, ImmutableArray<Diagnostic> Diagnostics);
 
 /// <summary>Checks the closed native subset, exact type/slot/call identity, and CFG assignment proof.</summary>
-public static class FirVerifier
+public static partial class FirVerifier
 {
     public static FirVerification Verify(FirProgram program, CancellationToken cancellationToken = default)
     {
@@ -28,16 +28,33 @@ public static class FirVerifier
 
     internal static bool IsEmpty(ResolvedType type) => type.Kind == ResolvedTypeKind.Tuple && type.Arguments.IsEmpty;
     internal static bool IsString(ResolvedType type) => type.Declaration is { ModuleName: "std.core", Name: "String", Arity: 0 };
-    internal static bool Supported(ResolvedType type) => type.Kind == ResolvedTypeKind.Primitive && type.Name is not ("half" or "quad")
-        || IsEmpty(type) || IsString(type)
-        || type.Kind == ResolvedTypeKind.Array && type.Arguments.Length == 1
-            && (IsString(type.Arguments[0]) || type.Arguments[0].Kind == ResolvedTypeKind.Primitive && type.Arguments[0].Name is not ("half" or "quad"));
+    internal static bool Supported(ResolvedType type)
+    {
+        if (IsEmpty(type)) { return true; }
+        var pending = new Stack<(ResolvedType Type, int Depth)>();
+        pending.Push((type, 0));
+        while (pending.TryPop(out var current))
+        {
+            if (current.Depth > 128) { return false; }
+            if (current.Type.Kind == ResolvedTypeKind.Primitive)
+            {
+                if (current.Type.Name is "half" or "quad") { return false; }
+                continue;
+            }
+            if (IsString(current.Type)) { continue; }
+            if (current.Type.Kind != ResolvedTypeKind.Array || current.Type.Arguments.Length != 1)
+            { return false; }
+            pending.Push((current.Type.Arguments[0], current.Depth + 1));
+        }
+        return true;
+    }
 
-    private sealed class Checker(FirProgram program, CancellationToken cancellation)
+    private sealed partial class Checker(FirProgram program, CancellationToken cancellation)
     {
         internal List<Diagnostic> Errors { get; } = [];
         internal List<FirFlowGraph> Graphs { get; } = [];
         private FirFunction _function = null!;
+        private SpecializedBodyAnalysis? _sourceView;
         private Dictionary<ResolvedType, ResolvedType> _substitution = [];
         private readonly HashSet<FirNode> _active = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<int> _declared = [];
@@ -50,8 +67,6 @@ public static class FirVerifier
 
         internal void Check()
         {
-            foreach (var binding in program.Analysis.Expressions)
-            { _sourceExpressions.TryAdd(binding.Expression.Origin.Element, binding); }
             foreach (var assignment in program.Analysis.Sources.Declarations.Files
                 .SelectMany(file => file.Nodes).OfType<AstAssignment>())
             { _sourceAssignments.TryAdd(assignment.Origin.Element, assignment); }
@@ -62,10 +77,16 @@ public static class FirVerifier
                 cancellation.ThrowIfCancellationRequested();
                 _function = program.Functions[index];
                 _substitution = [];
+                _sourceView = null;
+                _sourceExpressions.Clear();
+                _defaultCallPlans.Clear();
+                _defaultArgumentContext = null;
                 _declared.Clear();
                 if (_function.Id != index) { Fail("Function identity/index mismatch.", _function.Origin); }
                 CheckExport();
                 CheckSourceContract();
+                foreach (var binding in _sourceView?.Expressions ?? program.Analysis.Expressions)
+                { _sourceExpressions.TryAdd(binding.Expression.Origin.Element, binding); }
                 if (_function.RuntimeFunction != FirRuntimeFunction.None) { CheckRuntime(); continue; }
                 CheckType(_function.ReturnType, _function.Origin);
                 for (int slot = 0; slot < _function.Slots.Length; slot++)
@@ -81,6 +102,7 @@ public static class FirVerifier
                 { Fail("Parameter/slot identity mismatch.", _function.Origin); }
                 if (_function.Body is null) { Fail("An ordinary function requires a body.", _function.Origin); continue; }
                 Statement(_function.Body, 0);
+            CheckSourceCorrespondence();
                 if (_function.Slots.Any(s => !s.IsParameter && !_declared.Contains(s.Id))) { Fail("Every local slot requires a declaration.", _function.Origin); }
                 if (Errors.Count != 0) { continue; }
                 var flow = FirFlowGraph.Create(_function, program.Functions, cancellation);
@@ -174,7 +196,23 @@ public static class FirVerifier
             else if (_function.SpecializationArguments.IsDefault)
             { Fail("FIR specialization metadata must be initialized.", _function.Origin); }
 
-            var summary = program.Analysis.GetBody(source);
+            if (genericParameters.Length != 0 && !_function.SpecializationArguments.IsDefault
+                && _function.SpecializationArguments.Length == genericParameters.Length
+                && !_function.SpecializationArguments.Any(argument => argument is null))
+            {
+                try
+                {
+                    _sourceView = program.Analysis.GetGenericBody(source, _function.SpecializationArguments, cancellation);
+                    if (_sourceView.Summary.Status != BodyBindingStatus.Bound
+                        || !_sourceView.UnverifiedNodes.IsEmpty
+                        || _sourceView.Diagnostics.Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
+                    { Fail("Specialized function body lacks a complete source analysis proof.", _function.Origin); }
+                }
+                catch (Exception error) when (error is ArgumentException or TypeSpecializationException)
+                { Fail("Generic source body could not be rebound for this FIR instance.", _function.Origin); }
+            }
+
+            var summary = _sourceView?.Summary ?? program.Analysis.GetBody(source);
             if (summary is null || summary.Status != BodyBindingStatus.Bound)
             { Fail("Function body lacks a completed source analysis summary.", _function.Origin); }
             else if (summary.ReturnType is null || Substitute(summary.ReturnType) != _function.ReturnType)
@@ -200,9 +238,16 @@ public static class FirVerifier
             {
                 var sourceParameter = source.Parameters[index];
                 var firParameter = _function.Parameters[index];
+                var expectedParameterType = sourceParameter.Type is null ? null
+                    : Substitute(program.Analysis.Sources.Types.GetType(sourceParameter.Type));
+                var expectedParameterMode = sourceParameter.PassingMode;
+                if (sourceParameter.PassingMode == AstPassingMode.Vararg)
+                {
+                    if (expectedParameterType is not null) { expectedParameterType = program.Analysis.Types.GetArray(expectedParameterType); }
+                    expectedParameterMode = AstPassingMode.Value;
+                }
                 if (sourceParameter.Name != firParameter.Name || sourceParameter.Type is null
-                    || Substitute(program.Analysis.Sources.Types.GetType(sourceParameter.Type)) != firParameter.Type
-                    || sourceParameter.PassingMode != firParameter.Mode)
+                    || expectedParameterType != firParameter.Type || expectedParameterMode != firParameter.Mode)
                 { Fail("Function parameter metadata differs from its source declaration.", firParameter.Origin); }
             }
         }
@@ -247,6 +292,17 @@ public static class FirVerifier
             catch (Exception error) when (error is ArgumentException or TypeSpecializationException)
             { Fail("Source type could not be specialized for the verified FIR instance.", _function.Origin); return type; }
         }
+
+        private ExpressionBinding? GetSourceExpression(AstExpression expression)
+            => _sourceView is { } sourceView ? sourceView.GetExpression(expression) : program.Analysis.GetExpression(expression);
+
+        private BodyCallBinding? GetSourceCall(AstCall call)
+            => GetSourceCall(call.Origin.Element);
+
+        private BodyCallBinding? GetSourceCall(object sourceOrigin)
+            => _sourceView is { } sourceView
+                ? sourceView.Calls.SingleOrDefault(binding => ReferenceEquals(binding.Call.Origin.Element, sourceOrigin))
+                : program.Analysis.Calls.SingleOrDefault(binding => ReferenceEquals(binding.Call.Origin.Element, sourceOrigin));
 
         private ResolvedType SubstituteCallTargetType(ResolvedType type, BodyCallBinding binding,
             ImmutableArray<ResolvedType> typeArguments)
@@ -368,9 +424,9 @@ public static class FirVerifier
                 if (!ReferenceEquals(sourceIterable.Origin.Element, iteration.Array.Origin.Element))
                 { Fail("Array iteration expression differs from its source iterable.", iteration.Array.Origin); }
 
-                var sourceType = program.Analysis.GetExpression(sourceIterableExpression);
-                if (sourceType is not { Status: BodyBindingStatus.Bound, Type: var sourceArrayType }
-                    || sourceArrayType != iteration.Array.Type)
+                var sourceType = GetSourceExpression(sourceIterableExpression);
+                if (sourceType is not { Status: BodyBindingStatus.Bound, Type: { } sourceArrayType }
+                    || Substitute(sourceArrayType) != iteration.Array.Type)
                 { Fail("Array iteration type differs from source analysis.", iteration.Array.Origin); }
 
                 var names = binding.BindingNames.ToArray();
@@ -427,7 +483,9 @@ public static class FirVerifier
                     && compound.Operation == assignment.Operation[..^1]
                     && ReferenceEquals(compound.Left.Origin.Element, location.Origin.Element)
                     && ReferenceEquals(compound.Right.Origin.Element, value.Origin.Element);
-                if (!syntheticCompoundAssignment
+                bool syntheticVarargArray = expression is FirArrayLiteral packed && IsSyntheticVarargArray(packed);
+                bool sourceBoundDefaultArgument = _defaultArgumentContext is not null;
+                if (!syntheticCompoundAssignment && !syntheticVarargArray && !sourceBoundDefaultArgument
                     && (!_sourceExpressions.TryGetValue(expression.Origin.Element, out var sourceExpression)
                     || sourceExpression.Status != BodyBindingStatus.Bound || sourceExpression.Type is null
                     || Substitute(sourceExpression.Type) != expression.Type))
@@ -436,6 +494,7 @@ public static class FirVerifier
                 {
                     case FirConstant constant: Constant(constant); break;
                     case FirRead read: Exact(read.Type, Slot(read.Slot, read.Origin)?.Type, read.Origin); break;
+                    case FirCallValueReference reference: CheckCallValueReference(reference); break;
                     case FirUnary unary:
                         Expression(unary.Value); Exact(unary.Type, unary.Value.Type, unary.Origin);
                         if (unary.Operation is not ("+" or "-" or "~" or "!")) { Fail("Unrecognized unary operation.", unary.Origin); }
@@ -529,8 +588,8 @@ public static class FirVerifier
         {
             if (call.Target < 0 || call.Target >= program.Functions.Length) { Fail("Call target does not belong to this program.", call.Origin); return; }
             var target = program.Functions[call.Target];
-            var sourceBinding = program.Analysis.Calls.SingleOrDefault(binding =>
-                ReferenceEquals(binding.Call.Origin.Element, call.Origin.Element));
+            var sourceBinding = GetSourceCall(call.Origin.Element);
+            DefaultCallPlan? defaultPlan = null;
             if (sourceBinding is null)
             {
                 Fail("Call is not anchored to a resolved source call.", call.Origin);
@@ -565,7 +624,10 @@ public static class FirVerifier
                 {
                     for (int index = 0; index < sourceBinding.ParameterTypes.Length; index++)
                     {
-                        if (Substitute(sourceBinding.ParameterTypes[index]) != target.Parameters[index].Type)
+                        var expectedParameterType = Substitute(sourceBinding.ParameterTypes[index]);
+                        if (sourceBinding.Target.Parameters[index].PassingMode == AstPassingMode.Vararg)
+                        { expectedParameterType = program.Analysis.Types.GetArray(expectedParameterType); }
+                        if (expectedParameterType != target.Parameters[index].Type)
                         { Fail("Call parameter type differs from overload resolution.", call.Origin); }
                     }
                 }
@@ -574,14 +636,20 @@ public static class FirVerifier
                     .Select(effect => SubstituteCallTargetType(effect, sourceBinding, selectedTypeArguments)).ToImmutableArray();
                 if (!selectedEffects.SequenceEqual(target.Effects))
                 { Fail("Call effect metadata differs from the selected source target.", call.Origin); }
-                ValidateCallArguments(call, sourceBinding);
+                defaultPlan = ValidateCallArguments(call, sourceBinding);
             }
             Exact(call.Type, target.ReturnType, call.Origin);
             if (target.RuntimeFunction == FirRuntimeFunction.None
                 && (call.Arguments.Length != target.Parameters.Length || call.Arguments.Select(a => a.Parameter).Distinct().Count() != target.Parameters.Length))
             { Fail("Call argument mapping must fill every parameter exactly once.", call.Origin); }
-            foreach (var argument in call.Arguments)
+            for (int argumentIndex = 0; argumentIndex < call.Arguments.Length; argumentIndex++)
             {
+                var argument = call.Arguments[argumentIndex];
+                var previousDefaultArgument = _defaultArgumentContext;
+                _defaultArgumentContext = sourceBinding is null || defaultPlan is null
+                    ? null : defaultPlan.ForArgument(call, sourceBinding, argumentIndex);
+                try
+                {
                 Expression(argument.Value);
                 if (target.RuntimeFunction != FirRuntimeFunction.None)
                 {
@@ -596,52 +664,13 @@ public static class FirVerifier
                 if (argument.Mode is AstPassingMode.Ref or AstPassingMode.Out
                     && (argument.Value is not FirRead read || Slot(read.Slot, read.Origin)?.Mutable != true))
                 { Fail("Ref/out needs exact writable local storage.", call.Origin); }
+                }
+                finally { _defaultArgumentContext = previousDefaultArgument; }
             }
             foreach (var effect in target.Effects.Where(IsChecked))
             {
                 if (!_function.Effects.Any(b => program.Analysis.Types.ClassifyConversion(effect, b, cancellation) != IntrinsicConversion.None))
                 { Fail("Call exceeds the function's checked effect budget.", call.Origin); }
-            }
-        }
-
-        private void ValidateCallArguments(FirCall call, BodyCallBinding sourceBinding)
-        {
-            if (sourceBinding.Arguments.Length != call.Arguments.Length)
-            { Fail("FIR call argument count differs from source binding.", call.Origin); return; }
-            bool runtimeAdapter = program.Functions[call.Target].RuntimeFunction != FirRuntimeFunction.None;
-            var firArguments = new Dictionary<int, FirArgument>();
-            if (!runtimeAdapter)
-            {
-                foreach (var argument in call.Arguments)
-                {
-                    if (!firArguments.TryAdd(argument.Parameter, argument))
-                    { Fail("FIR call maps a parameter more than once.", call.Origin); }
-                }
-            }
-            for (int index = 0; index < sourceBinding.Arguments.Length; index++)
-            {
-                var mapping = sourceBinding.Arguments[index];
-                if (mapping.IsArrayArgument || mapping.IsSpread || mapping.IsExpandedVararg && !runtimeAdapter
-                    || mapping.ArgumentIndex < 0 || mapping.ArgumentIndex >= sourceBinding.Call.Arguments.Length
-                    || mapping.ParameterIndex < 0 || mapping.ParameterIndex >= sourceBinding.Target.Parameters.Length)
-                { Fail("Native call does not support the resolved source argument mapping.", call.Origin); continue; }
-                FirArgument? argument = runtimeAdapter ? call.Arguments[index]
-                    : firArguments.GetValueOrDefault(mapping.ParameterIndex);
-                if (argument is null || argument.Parameter != mapping.ParameterIndex)
-                { Fail("FIR call omitted a source-bound argument.", call.Origin); continue; }
-                var sourceArgument = sourceBinding.Call.Arguments[mapping.ArgumentIndex];
-                if (sourceArgument.Value is not AstExpression sourceValue
-                    || !ReferenceEquals(UnwrapGrouping(sourceValue).Origin.Element, argument.Value.Origin.Element))
-                { Fail("FIR argument value differs from the source expression.", call.Origin); }
-                var expectedMode = sourceArgument.Mode switch
-                {
-                    AstArgumentMode.Value => AstPassingMode.Value,
-                    AstArgumentMode.Ref => AstPassingMode.Ref,
-                    AstArgumentMode.Out or AstArgumentMode.OutVariable => AstPassingMode.Out,
-                    _ => AstPassingMode.Vararg,
-                };
-                if (argument.Mode != expectedMode || mapping.IsTrailingLambda != sourceArgument.IsTrailingLambda)
-                { Fail("FIR argument mode differs from the source call.", call.Origin); }
             }
         }
 

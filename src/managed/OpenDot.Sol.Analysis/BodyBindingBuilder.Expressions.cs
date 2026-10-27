@@ -284,6 +284,12 @@ internal sealed partial class BodyBindingBuilder
     {
         if (expected is null || value.Type is null || expected.IsError || value.Type.IsError) { Defer(node); return; }
         if (!Converts(value.Type, expected) && !(state is not null && UserConversion(value.Type, expected, node, state, true)))
-        { Report("SOL2206", "Expression type is not assignable to the expected type.", node); }
+        {
+            var genericOwner = Ancestors(node).OfType<AstFunction>().FirstOrDefault(function => function.TypeParameters.Any());
+            if (genericOwner is not null && (DependsOnCallableParameter(value.Type, genericOwner)
+                || DependsOnCallableParameter(expected, genericOwner)))
+            { Defer(node); }
+            else { Report("SOL2206", "Expression type is not assignable to the expected type.", node); }
+        }
     }
 }

@@ -30,9 +30,22 @@ internal sealed partial class FirBuilder
     private readonly Dictionary<LocalSymbol, FirSlot> _slots = [];
     private readonly Dictionary<AstCall, BodyCallBinding> _calls;
     private AstCallable _current = null!;
+    private SpecializedBodyAnalysis? _specializedBody;
     private readonly bool _library;
     private ResolvedType Empty => _analysis.Types.GetTuple([]);
     internal List<Diagnostic> Diagnostics { get; } = [];
+
+    private ExpressionBinding? BoundExpression(AstExpression expression) => _specializedBody is { } specialized
+        ? specialized.GetExpression(expression) : _analysis.GetExpression(expression);
+
+    private BodyCallBinding? BoundCall(AstCall call) => _specializedBody is { } specialized
+        ? specialized.GetCall(call) : _calls.GetValueOrDefault(call);
+
+    private BodySummary? BoundBody(AstCallable callable) => _specializedBody is { } specialized
+        ? specialized.GetBody(callable) : _analysis.GetBody(callable);
+
+    private IEnumerable<AstNode> BoundUnverifiedNodes => _specializedBody is { } specialized
+        ? specialized.UnverifiedNodes : _analysis.UnverifiedNodes;
 
     internal FirBuilder(BodyAnalysis analysis, RuntimeCatalog catalog, ImmutableArray<AstSnapshot> input, CancellationToken cancellation, bool library = false)
     {
@@ -85,7 +98,17 @@ internal sealed partial class FirBuilder
         _cancellation.ThrowIfCancellationRequested();
         _current = function; _slots.Clear();
         _typeSubstitution = CreateSubstitution(function, specializationArguments);
-        var summary = _analysis.GetBody(function);
+        _specializedBody = null;
+        bool bodyWithinBudget = specializationArguments.IsEmpty || AccountSpecializedBody(function);
+        if (!bodyWithinBudget && !specializationArguments.IsEmpty)
+        {
+            return new(id, function.Name ?? "", [], [], Empty, null, FirRuntimeFunction.None, [], function.Origin)
+            { SpecializationArguments = specializationArguments };
+        }
+        _specializedBody = specializationArguments.IsEmpty ? null
+            : _analysis.GetGenericBody(function, specializationArguments, _cancellation);
+        if (_specializedBody is { } specializedBody) { Diagnostics.AddRange(specializedBody.Diagnostics); }
+        var summary = specializationArguments.IsEmpty ? _analysis.GetBody(function) : _specializedBody?.GetBody(function);
         var result = summary?.ReturnType is { } resultType ? Specialize(resultType) : Empty;
         if (_catalog.Owns(function) && function.Body.Kind == AstBodyKind.Missing)
         {
@@ -101,17 +124,19 @@ internal sealed partial class FirBuilder
                 || _analysis.Sources.Types.GetTypeParameters(owner).Length != 0
                 || owner.Members.Any(m => m is not AstFunction)))
         { Unsupported(function, "Generic, unimplemented, ref-return, or stateful receiver body"); }
-        bool bodyWithinBudget = specializationArguments.IsEmpty || AccountSpecializedBody(function);
-        if (!specializationArguments.IsEmpty && bodyWithinBudget) { ValidateGenericBodySurface(function); }
         var parameters = ImmutableArray.CreateBuilder<FirSlot>();
         foreach (var parameter in function.Parameters)
         {
             var local = _analysis.Sources.Lexical.Scopes.Where(s => s.Owner == function).SelectMany(s => s.Symbols)
                 .SingleOrDefault(l => ReferenceEquals(l.Origin.Element, parameter.NameOrigin.Element));
             if (local is null || parameter.Type is null) { Unsupported(function, "Missing parameter identity"); continue; }
-            var type = Specialize(_analysis.Sources.Types.GetType(parameter.Type));
-            if (parameter.PassingMode == AstPassingMode.Vararg || parameter.DefaultValue is not null) { Unsupported(function, "User vararg/default lowering"); }
-            var slot = new FirSlot(_slots.Count, parameter.Name, type, local.IsMutable, parameter.PassingMode, true, parameter.NameOrigin);
+            var sourceType = _analysis.Sources.Types.GetType(parameter.Type);
+            if (parameter.PassingMode == AstPassingMode.Vararg) { sourceType = _analysis.Types.GetArray(sourceType); }
+            var type = Specialize(sourceType);
+            if (parameter.PassingMode == AstPassingMode.Vararg && !FirVerifier.Supported(type))
+            { Unsupported(function, "Vararg array element layout"); }
+            var passingMode = parameter.PassingMode == AstPassingMode.Vararg ? AstPassingMode.Value : parameter.PassingMode;
+            var slot = new FirSlot(_slots.Count, parameter.Name, type, local.IsMutable, passingMode, true, parameter.NameOrigin);
             _slots.Add(local, slot); parameters.Add(slot);
         }
         FirBlock body;
@@ -122,7 +147,7 @@ internal sealed partial class FirBuilder
         else { body = new([], function.Origin); }
         if (result == Empty && (body.Statements.IsEmpty || body.Statements[^1] is not FirReturn))
         { body = body with { Statements = body.Statements.Add(new FirReturn(null, function.Origin)) }; }
-        foreach (var gap in _analysis.UnverifiedNodes.Where(n => Ancestors(n).Contains(function) && n is not AstType))
+        foreach (var gap in BoundUnverifiedNodes.Where(n => Ancestors(n).Contains(function) && n is not AstType))
         { Unsupported(gap, "Unverified source obligation"); }
         return new(id, function.Name ?? "", parameters.ToImmutable(), _slots.Values.OrderBy(s => s.Id).ToImmutableArray(),
             result, body, FirRuntimeFunction.None, function.ThrownTypes.Select(_analysis.Sources.Types.GetType).Select(Specialize).ToImmutableArray(), function.Origin)

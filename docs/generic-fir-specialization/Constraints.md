@@ -599,7 +599,7 @@ end-to-end success message:
 - ABI evidence shows supported scalar/String forms lower through their existing representations.
 - Runtime evidence shows array/String references retain the expected GC root behavior.
 - Error evidence shows unsupported native types do not turn into source constraint errors.
-- Serialization evidence shows function and call type arguments appear under FIR schema 4.
+- Serialization evidence shows function and call type arguments appear under FIR schema 5.
 - Build evidence shows the managed FIR assembly compiles with the current SDK and analyzers.
 - CI evidence shows the branch's mandatory workflow has exercised the changed paths.
 

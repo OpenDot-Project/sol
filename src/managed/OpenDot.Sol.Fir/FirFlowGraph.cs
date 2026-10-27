@@ -131,6 +131,9 @@ public sealed class FirFlowGraph
             {
                 case FirRead read:
                     var node = New(read.Origin); node.Reads.Add(read.Slot); Edge(before, node.Id); return node.Id;
+                case FirCallValueReference:
+                    // Its source evaluation already completed earlier in this call plan.
+                    return before;
                 case FirUnary unary: return Expression(unary.Value, before);
                 case FirBinary { Operation: "&&" or "||" } conditional:
                     int left = Expression(conditional.Left, before); var right = New(conditional.Right.Origin); var join = New(conditional.Origin);

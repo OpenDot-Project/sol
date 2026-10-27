@@ -20,9 +20,12 @@ module source.spec.generic_fir_specialization
 //   composes an outer specialization into nested generic call arguments, and interns instances by
 //   source declaration identity plus ordered type IDs. Exact recursive keys are reused; creation is
 //   bounded to 4096 functions per compilation and 128 nested type levels.
+// - Pure defaults on module-level free functions lower as call-plan values: explicit arguments are
+//   evaluated once in source order, defaults follow in parameter order, and earlier formal reads use
+//   captured call values. Effectful or unsupported default expressions remain outside the native slice.
 // - The FIR verifier independently checks the source declaration, closed type arguments and
 //   constraints, substituted signature/effects, selected call binding, exact target instance, and
-//   argument origins. `FirJson` records function and call type arguments in schema 4.
+//   argument origins. `FirJson` records function and call type arguments in schema 5.
 // - Verified instances use the existing LLVM 23.1.3 C++ API path for AOT and ORC. This is code
 //   generation from constructed LLVM objects, not LLVM text input.
 // - This first slice substitutes the already-bound body facts; it does not rerun full source
@@ -240,7 +243,7 @@ module source.spec.generic_fir_specialization
 //
 // No on-disk specialization cache schema or cross-version cache compatibility is implied by this
 // source contract. Until such a schema is versioned, specialization caches are compilation-local
-// and discarded after the build. FIR JSON schema 4 records ordered function and call type arguments;
+// and discarded after the build. FIR JSON schema 5 records ordered function and call type arguments;
 // `.solib` schema 2 is not silently
 // extended by writing unversioned generic records into them.
 

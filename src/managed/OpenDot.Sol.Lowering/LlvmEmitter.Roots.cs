@@ -53,7 +53,7 @@ public sealed partial class LlvmEmitter
             FirIf n => n.Else is null ? [n.Condition, n.Then] : [n.Condition, n.Then, n.Else],
             FirLoop n => new FirNode?[] { n.Initializer, n.Condition, n.Body, n.Update }.OfType<FirNode>(),
             FirArrayForEach n => [n.Array, n.Body],
-            FirUnary n => [n.Value], FirBinary n => [n.Left, n.Right], FirArrayLength n => [n.Array],
+            FirCallValueReference => [], FirUnary n => [n.Value], FirBinary n => [n.Left, n.Right], FirArrayLength n => [n.Array],
             FirArrayIndex n => [n.Array, n.Index], FirArrayLiteral n => n.Elements,
             FirIntrinsic n => n.Arguments, FirCall n => n.Arguments.Select(a => a.Value), _ => [],
         };

@@ -10,6 +10,8 @@ public abstract record FirNode(AstOrigin Origin);
 public abstract record FirExpression(ResolvedType Type, AstOrigin Origin) : FirNode(Origin);
 public sealed record FirConstant(string Spelling, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirRead(int Slot, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
+/// <summary>Reads an earlier value captured by the containing call's ordered argument evaluation.</summary>
+public sealed record FirCallValueReference(int EvaluationIndex, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirUnary(string Operation, FirExpression Value, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirBinary(string Operation, FirExpression Left, FirExpression Right, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirArrayLength(FirExpression Array, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);

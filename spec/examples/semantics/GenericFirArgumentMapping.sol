@@ -287,34 +287,36 @@ func outVarNamedMapping(value: int): () {
 // -----------------------------------------------
 //
 // Default expressions are omitted inputs, not source arguments and not generic inference evidence.
-// After one candidate wins, defaults are evaluated in declaration order. The currently verified
-// native subset does not lower user defaults, so source binding success is not native admission.
+// After one candidate wins, defaults are evaluated in declaration order. Native lowering supports
+// pure free-function defaults made from scalar/String literals, earlier value-parameter reads, and
+// supported primitive unary/binary operations. Explicit arguments still evaluate first in source
+// order. Calls and member/array expressions in omitted defaults remain outside the native subset.
 
 func selectedDefaultAfterExplicit(number: int): int {
-    // expect: default.selected | SourceBoundNativeRejected | call=earlierDefault(number) type-arguments=[int] map=[value<-0] defaults=[fallback<-earlierDefault.value] eval-explicit=[0] eval-defaults=[fallback] diagnostic=SOL2400
+    // expect: default.selected | Specialized | call=earlierDefault(number) type-arguments=[int] map=[value<-0] defaults=[fallback<-earlierDefault.value] eval-plan=[value<-0,fallback<-value[0]]
     val result = earlierDefault(number)
     result
 }
 
 func defaultNotEvaluatedWhenSupplied(number: int): int {
-    // expect: default.suppressed | SourceBoundNativeRejected | call=earlierDefault(value=number,fallback=number) defaults=[] eval=[0,1] type-arguments=[int] diagnostic=SOL2400
+    // expect: default.suppressed | Specialized | call=earlierDefault(value=number,fallback=number) defaults=[] eval=[0,1] type-arguments=[int]
     val result = earlierDefault(value = number, fallback = number)
     result
 }
 
 func defaultMayUseEarlierParameter(number: int): int {
-    // expect: default.earlier-read | SourceBoundNativeRejected | call=earlierDefault(number) default=fallback expression=value substituted-type=int
+    // expect: default.earlier-read | Specialized | call=earlierDefault(number) default=fallback expression=value substituted-type=int value-reference=evaluation[0]
     earlierDefault(number)
 }
 
 func explicitArgumentEvaluatesBeforeDefault(): int {
-    // expect: default.evaluation-order | SourceBoundNativeRejected | call=earlierDefault(value=mark(2)) eval-explicit=[mark(2)] eval-defaults=[fallback] default-after-explicit=true
+    // expect: default.evaluation-order | Specialized | call=earlierDefault(value=mark(2)) eval-plan=[mark(2),fallback<-value[0]] default-after-explicit=true
     val result = earlierDefault(value = mark(2))
     result
 }
 
 func defaultDoesNotRunAtDeclaration(): int {
-    // expect: default.no-definition-evaluation | SourceBoundNativeRejected | declaration=earlierDefault evaluation=only-at-omitting-call
+    // expect: default.no-definition-evaluation | Specialized | call=earlierDefault(3) evaluation=only-at-omitting-call eval-plan=[3,fallback<-value[0]]
     earlierDefault(3)
 }
 
@@ -331,7 +333,7 @@ func defaultsRunOncePerOmission(): int {
 }
 
 func suppliedValuesSuppressDefaults(): int {
-    // expect: default.suppresses | SourceBoundNativeRejected | call=defaultedTrace(a=mark(10),b=mark(20),c=mark(30)) eval-explicit=[0,1,2] eval-defaults=[]
+    // expect: default.suppresses | Specialized | call=defaultedTrace(a=mark(10),b=mark(20),c=mark(30)) eval-explicit=[0,1,2] eval-defaults=[]
     val result = defaultedTrace(a = mark(10), b = mark(20), c = mark(30))
     result
 }
@@ -354,7 +356,7 @@ func missingNonDefaultStillFails(number: int): () {
 }
 
 func defaultCannotHideTypeConflict(number: int): () {
-    // expect: default.not-evidence | SourceBoundNativeRejected | call=earlierDefault(value=number) type-arguments=[int] default-evidence=[] fir=absent diagnostic=SOL2400
+    // expect: default.not-evidence | Specialized | call=earlierDefault(value=number) type-arguments=[int] default-evidence=[] fallback=evaluation[0]
     val value = earlierDefault(value = number)
 }
 
@@ -558,7 +560,7 @@ func nativeOutScalar(value: String): String {
 }
 
 func nativeUnsupportedDefault(value: int): int {
-    // expect: native.default | SourceBoundNativeRejected | call=earlierDefault(value) type-arguments=[int] source-mapping=complete fir=absent diagnostic=SOL2400
+    // expect: native.default | Specialized | call=earlierDefault(value) type-arguments=[int] source-mapping=complete default=fallback value-reference=evaluation[0]
     earlierDefault(value)
 }
 

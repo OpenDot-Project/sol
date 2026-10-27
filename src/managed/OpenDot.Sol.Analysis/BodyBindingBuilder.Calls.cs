@@ -62,12 +62,23 @@ internal sealed partial class BodyBindingBuilder
         var best = candidates.Where(c => !candidates.Any(other => !ReferenceEquals(c, other) && Better(other, c))).ToArray();
         if (best.Length != 1)
         {
+            bool dependsOnOpenParameter = context.Callable is { } owner && owner.TypeParameters.Any()
+                && (values.OfType<Value>().Any(value => value.Type is { } type && DependsOnCallableParameter(type, owner))
+                    || !explicitTypes.IsDefault && explicitTypes.Any(type => DependsOnCallableParameter(type, owner))
+                    || expected is not null && DependsOnCallableParameter(expected, owner));
+            if (dependsOnOpenParameter)
+            {
+                // Candidate ranking and constraints can change after the enclosing function closes T.
+                Defer(call);
+                return new(null);
+            }
             Report(best.Length == 0 ? "SOL2221" : "SOL2222", best.Length == 0 ? "No applicable callable signature." : "Ambiguous callable signature.", call);
             return new(null);
         }
         var selected = best[0];
         Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.TypeArguments,
-            selected.Parameters, selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults);
+            selected.Parameters, selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults)
+        { EmptyVarargParameters = selected.Mapping.EmptyVarargs };
         foreach (var parameter in selected.Parameters) { ValidateFunctionEffects(parameter, call); }
         if (selected.Result is not null) { ValidateFunctionEffects(selected.Result, call); }
         if (context.Callable is AstConstructor && targetExpression is AstMember { Receiver: AstAtom { Spelling: "this" } }
@@ -480,7 +491,10 @@ internal sealed partial class BodyBindingBuilder
         var parameters = Sources.Types.GetTypeParameters(definition);
         if (parameters.IsEmpty) { return true; }
         var arguments = parameters.Select(parameter => substitution.GetValueOrDefault(parameter, parameter)).ToArray();
-        var check = Types.CheckConstraints(definition, arguments, _cancellation);
+        var parameterSet = parameters.ToHashSet();
+        var enclosingSubstitution = substitution.Where(pair => !parameterSet.Contains(pair.Key))
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
+        var check = Types.CheckConstraintsWithSubstitution(definition, arguments, enclosingSubstitution, _cancellation);
         if (check.Status == ConstraintStatus.Unsatisfied) { return false; }
         if (check.Status == ConstraintStatus.Indeterminate)
         {

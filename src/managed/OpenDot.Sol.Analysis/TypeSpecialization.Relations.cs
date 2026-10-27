@@ -112,15 +112,36 @@ public sealed partial class TypeSpecialization
 
     public ConstraintCheck CheckConstraints(AstDeclaration definition, IReadOnlyList<ResolvedType> arguments,
         CancellationToken cancellationToken = default)
+        => CheckConstraintsWithSubstitution(definition, arguments, new Dictionary<ResolvedType, ResolvedType>(), cancellationToken);
+
+    /// <summary>
+    /// Checks a declaration's generic bounds after applying substitutions owned by its enclosing
+    /// constructed type. The declaration's own parameters are then bound to <paramref name="arguments"/>.
+    /// </summary>
+    public ConstraintCheck CheckConstraintsWithSubstitution(AstDeclaration definition, IReadOnlyList<ResolvedType> arguments,
+        IReadOnlyDictionary<ResolvedType, ResolvedType> enclosingSubstitution,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(enclosingSubstitution);
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var parameters = Analysis.GetTypeParameters(definition);
             if (arguments.Count != parameters.Length) { throw new ArgumentException("Generic arity mismatch.", nameof(arguments)); }
             foreach (var argument in arguments) { ValidateOwnership(argument); }
-            var substitutions = parameters.Select((p, index) => (p, arguments[index])).ToDictionary(p => p.p, p => p.Item2);
+            var substitutions = new Dictionary<ResolvedType, ResolvedType>();
+            foreach (var pair in enclosingSubstitution)
+            {
+                ValidateOwnership(pair.Key);
+                ValidateOwnership(pair.Value);
+                if (pair.Key.Kind != ResolvedTypeKind.Parameter)
+                { throw new ArgumentException("Enclosing substitution keys must be generic parameters.", nameof(enclosingSubstitution)); }
+                substitutions[pair.Key] = pair.Value;
+            }
+            for (int index = 0; index < parameters.Length; index++)
+            { substitutions[parameters[index]] = arguments[index]; }
             bool indeterminate = false;
             for (int index = 0; index < parameters.Length; index++)
             {

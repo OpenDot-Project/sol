@@ -102,7 +102,7 @@ do not imply that each row is already parsed, semantically checked, or executed 
 | [GenericFirInstantiationGraph.sol](GenericFirInstantiationGraph.sol) | Exact-key recursion, expanding-key cycles, worklist reachability and cache boundary |
 | [GenericFirCacheAndDeterminism.sol](GenericFirCacheAndDeterminism.sol) | Compilation-local identity, deterministic ordering and future cache invalidation |
 | [GenericFirSpecializationCases.sol](GenericFirSpecializationCases.sol) | End-to-end generic source selection and native admission matrix |
-| [GenericFirJsonContract.sol](GenericFirJsonContract.sol) | FIR inspection schema 4, workspace-local type IDs, source origins and diagnostics |
+| [GenericFirJsonContract.sol](GenericFirJsonContract.sol) | FIR inspection schema 5, workspace-local type IDs, source origins and diagnostics |
 | [GenericFirArtifacts.sol](GenericFirArtifacts.sol) | AOT/ORC and bin/cdylib/staticlib/solib generic instance boundaries |
 | [GenericFirFunctionValues.sol](GenericFirFunctionValues.sol) | Generic declarations, contextual lambdas, function values, captures and indirect calls |
 | [GenericFirOwnersAndMembers.sol](GenericFirOwnersAndMembers.sol) | Partial generic owners, constructors, methods, accessors, operators and dispatch |

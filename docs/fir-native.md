@@ -91,11 +91,12 @@ iteration's value from proving initialization in a later iteration. Normal exits
 out parameter and cannot fall through without a return.
 
 Only the verifier can construct `VerifiedFirProgram`, which is the input to LLVM lowering. `FirJson`
-Schema 4 includes functions, slots, type identities, expression trees, and flow reads/writes/kills/edges.
+Schema 5 includes functions, slots, type identities, expression trees, ordered call evaluation values,
+call-value references, and flow reads/writes/kills/edges.
 Each graph identifies its function, and each call-bearing flow block carries target IDs, declared effect
 type IDs and source byte spans. These are conservative call-site effect facts; the current native subset
 does not lower catch or exceptional CFG edges. The JSON contains byte spans but no host source paths.
-IDs are local to this compilation, not stable library ABI IDs. Schema 4 adds ordered function
+IDs are local to this compilation, not stable library ABI IDs. Schema 5 adds ordered function
 specialization and call type-argument identities; it invalidates consumers that assumed schema 3 or
 earlier. The enclosing `.solib` compiler identity changes with the compiler assembly.
 

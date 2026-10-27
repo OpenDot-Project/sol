@@ -86,7 +86,7 @@ public sealed class FirTests
         string json = FirJson.Serialize(program, TestContext.Current.CancellationToken);
         using var document = JsonDocument.Parse(json);
         Assert.True(document.RootElement.GetProperty("verified").GetBoolean());
-        Assert.Equal(4, document.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(5, document.RootElement.GetProperty("schema").GetInt32());
         Assert.DoesNotContain("<solrt>", json);
         Assert.NotEmpty(document.RootElement.GetProperty("flow").EnumerateArray());
         Assert.Equal(json, FirJson.Serialize(program, TestContext.Current.CancellationToken));
@@ -114,9 +114,11 @@ public sealed class FirTests
         var function = verified.Program.Functions.Single(f => f.Name == "fill");
         var returnNode = Assert.IsType<FirReturn>(function.Body!.Statements[^1]);
         var broken = function with { Body = function.Body with { Statements = [returnNode] } };
-        var result = FirVerifier.Verify(verified.Program with { Functions = verified.Program.Functions.SetItem(function.Id, broken) }, TestContext.Current.CancellationToken);
+        var changedFunctions = verified.Program.Functions.SetItem(function.Id, broken);
+        var result = FirVerifier.Verify(verified.Program with { Functions = changedFunctions }, TestContext.Current.CancellationToken);
         Assert.Null(result.Program);
-        Assert.Contains(result.Diagnostics, d => d.Code == "SOL2411");
+        var flow = FirFlowGraph.Create(broken, changedFunctions, TestContext.Current.CancellationToken);
+        Assert.Contains(flow.Diagnostics, diagnostic => diagnostic.Code == "SOL2411");
     }
 
     [Fact]

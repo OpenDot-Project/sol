@@ -434,7 +434,7 @@ module source.spec.generic_fir_artifacts
 // instance identity and are excluded from public manifests unless a distinct documented field
 // requires provenance.
 //
-// FirJson schema 4 records ordered specialization arguments. Schema 3 readers cannot be assumed
+// FirJson schema 5 records ordered specialization arguments. Schema 3 readers cannot be assumed
 // compatible. Solib manifest schema 2 is separate; a FIR JSON change does not redefine it. Readers
 // reject unknown mandatory schema versions instead of guessing.
 //

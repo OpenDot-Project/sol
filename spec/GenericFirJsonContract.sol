@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative inspection contract; the current serializer emits schema 4.
+// Status: normative inspection contract; the current serializer emits schema 5.
 module source.spec.generic_fir_json_contract
 
 // FIR JSON inspection and generic source identity
@@ -15,14 +15,16 @@ module source.spec.generic_fir_json_contract
 //
 // Current implementation status:
 //
-// - `FirJson.Serialize` emits root schema version 4 and `verified: true`.
+// - `FirJson.Serialize` emits root schema version 5 and `verified: true`.
 // - Function records carry `specializationArguments` as declaration-ordered type IDs.
 // - Call nodes carry `typeArguments` as declaration-ordered type IDs.
+// - Call argument arrays preserve explicit source order followed by omitted defaults in formal order.
+// - `FirCallValueReference` identifies a previously captured value in that call argument array.
 // - The `types` table describes IDs available in the producing analysis workspace.
 // - FIR verification precedes `VerifiedFirProgram` construction and serialization.
 // - Node and flow spans carry source offsets, but no stable source-file key is serialized.
 // - Diagnostic codes SOL2400, SOL2402, and SOL2403 describe separate phase boundaries.
-// - Schema 4 is an implementation inspection revision, not the public Sol ABI version.
+// - Schema 5 is an implementation inspection revision, not the public Sol ABI version.
 //
 // Full source file identity, reproducible cross-build IDs, cache serialization, debug path policy,
 // source-map packaging, and public diagnostic JSON remain separate contracts to be completed.
@@ -72,18 +74,18 @@ module source.spec.generic_fir_json_contract
 // --------------------
 //
 // The root `schema` field is the required compatibility discriminator.
-// The current emitted value is the integer 4.
+// The current emitted value is the integer 5.
 // A schema revision changes whenever a field is added, removed, renamed, retyped, or redefined.
 // A schema revision also changes when ordering or identity meaning changes observably.
 // Changes to comments in this spec alone do not change the serializer schema.
 // Changes to source language semantics do not automatically change the JSON schema.
 // Changes to FIR metadata can require both a schema change and a language-contract update.
 //
-// A schema-4 reader must reject a missing, non-integer, or unsupported `schema` value.
-// A reader must not infer schema 4 from the presence of `typeArguments`.
+// A schema-5 reader must reject a missing, non-integer, or unsupported `schema` value.
+// A reader must not infer schema 5 from the presence of `typeArguments`.
 // A reader must not silently ignore a future schema version while claiming full fidelity.
-// A writer must not emit a newer field layout while retaining schema value 4.
-// A change that preserves every serialized field meaning can retain schema 4.
+// A writer must not emit a newer field layout while retaining schema value 5.
+// A change that preserves every serialized field meaning can retain schema 5.
 // The project may choose a stricter revision policy than this minimum contract.
 //
 // The schema value is not `Sol 0.0.2`, the LLVM version, the runtime ABI version, or the language
@@ -95,9 +97,9 @@ module source.spec.generic_fir_json_contract
 // 4. Root record
 // --------------
 //
-// The schema-4 root has the following members:
+// The schema-5 root has the following members:
 //
-// - `schema`: integer 4 for the current inspection contract.
+// - `schema`: integer 5 for the current inspection contract.
 // - `verified`: boolean true because the serializer accepts only the verified wrapper.
 // - `entry`: integer function ID for an executable, or -1 for a library program.
 // - `library`: boolean indicating library mode for this compilation.
@@ -167,7 +169,7 @@ module source.spec.generic_fir_json_contract
 // 7. Type record
 // --------------
 //
-// A schema-4 type record contains `id`, `kind`, `name`, and `arguments`.
+// A schema-5 type record contains `id`, `kind`, `name`, and `arguments`.
 // `id` is an integer owned by the current compilation's resolved-type interner.
 // `kind` is the textual `ResolvedTypeKind` variant name.
 // `name` is the resolved display name retained by the type object.
@@ -194,7 +196,7 @@ module source.spec.generic_fir_json_contract
 // type; acceptance into FIR is independently constrained by native verification.
 // An open type parameter is forbidden for an emitted closed specialization.
 // Type rendering must preserve constructor nesting and nullability when a future reader renders it.
-// Current schema-4 records are not required to provide a canonical textual spelling for every type.
+// Current schema-5 records are not required to provide a canonical textual spelling for every type.
 //
 // 8. Node envelope
 // ----------------
@@ -226,6 +228,11 @@ module source.spec.generic_fir_json_contract
 // The reference is local to the enclosing function and must name a declared slot.
 // It is not a source variable declaration ID.
 // It is not portable outside the enclosing function record.
+
+// `FirCallValueReference` carries `evaluationIndex`, an index into the containing call's argument
+// array. It must point to an earlier argument whose formal mode is `Value`. This node is valid only
+// inside a default expression in a call plan. It reads the captured result of that earlier evaluation;
+// it does not repeat the source expression or read caller storage again.
 //
 // `FirUnary` carries the operator text in `Operation` and a nested `value` node.
 // `FirBinary` carries operator text in `Operation`, then nested `left` and `right` nodes.
@@ -237,9 +244,12 @@ module source.spec.generic_fir_json_contract
 // `typeArguments` is the ordered list selected by source analysis for the call target.
 // `arguments` preserves FIR parameter indexes and argument values after source mapping.
 // Each argument record carries `parameter`, textual `mode`, and nested `value`.
-// Argument array order is evaluation order in the FIR representation, not generic argument order.
+// Argument array order is evaluation order: explicit source arguments first, then omitted defaults
+// in formal declaration order. It is not generic argument order.
 // Named arguments may therefore be represented with parameter indexes differing from their array
 // position; consumers must use `parameter` to interpret the target formal slot.
+// A default may use `FirCallValueReference` to read an earlier captured value without evaluating its
+// source expression twice.
 // A non-generic call has an empty type argument array.
 // A generic call's target specialization tuple must agree with its call type argument tuple.
 // The verifier establishes that relationship before a `VerifiedFirProgram` exists.
@@ -319,7 +329,7 @@ module source.spec.generic_fir_json_contract
 // FIR function ID identifies the emitted instance only within its `functions` array.
 // Call target ID references that same local array.
 //
-// Schema 4 exposes ordered type IDs but not a stable declaration identity field.
+// Schema 5 exposes ordered type IDs but not a stable declaration identity field.
 // Therefore the JSON can show a specialization's type tuple but cannot independently distinguish
 // two same-named declarations with the same tuple after source identity is discarded.
 // A consumer must retain the containing source bundle or separately retain its own file/span map.
@@ -448,7 +458,7 @@ module source.spec.generic_fir_json_contract
 // 18. Reader behavior
 // -------------------
 //
-// A schema-4 reader first validates the root schema and basic JSON kinds.
+// A schema-5 reader first validates the root schema and basic JSON kinds.
 // It then builds document-local maps for functions, types, and function-scoped slots.
 // It verifies IDs are in range before following references.
 // It verifies `entry` against the `library` mode before using it.
@@ -508,7 +518,7 @@ module source.spec.generic_fir_json_contract
 // 21. Implementation conformance obligations
 // --------------------------------------------
 //
-// An implementation claiming schema-4 conformance must:
+// An implementation claiming schema-5 conformance must:
 //
 // 1. Serialize only verified FIR values.
 // 2. Emit the exact root fields and meanings defined above.
@@ -524,7 +534,7 @@ module source.spec.generic_fir_json_contract
 // 12. Never convert a failed or truncated FIR build into `verified: true` output.
 // 13. Propagate cancellation distinctly from source diagnostics.
 // 14. Revise the schema when any observable field meaning changes.
-// 15. Avoid describing schema-4 IDs as stable ABI identities.
+// 15. Avoid describing schema-5 IDs as stable ABI identities.
 //
 // 22. Required specialized-function consistency
 // -----------------------------------------------
@@ -542,14 +552,14 @@ module source.spec.generic_fir_json_contract
 // - Every resource limit was respected without dropping graph edges.
 //
 // These invariants are not reconstructed from the JSON alone because source declaration identity
-// and full source binding facts are not serialized in schema 4.
+// and full source binding facts are not serialized in schema 5.
 // A consumer can perform structural checks, but cannot replace the in-process verifier.
 // A new producer must use its own verifier before claiming the same semantics.
 //
 // 23. Negative requirements
 // --------------------------
 //
-// It is non-conforming to persist a schema-4 Type ID and later assume it names the same type.
+// It is non-conforming to persist a schema-5 Type ID and later assume it names the same type.
 // It is non-conforming to derive a C export name from `specializationArguments` without a separate
 // versioned ABI naming rule.
 // It is non-conforming to treat the schema integer as an artifact or Sol language version.
@@ -580,7 +590,7 @@ module source.spec.generic_fir_json_contract
 // 25. Conformance summary
 // -----------------------
 //
-// Schema 4 is a readable, compiler-local structural view of verified FIR.
+// Schema 5 is a readable, compiler-local structural view of verified FIR.
 // Its function and slot IDs are dense indices with explicitly local scopes.
 // Its type IDs are workspace-local references and have no durable meaning.
 // Its generic argument arrays preserve declaration ordinals.

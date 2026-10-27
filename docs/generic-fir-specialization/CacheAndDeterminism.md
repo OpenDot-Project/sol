@@ -157,7 +157,7 @@ which source-level instance was requested. It cannot determine if the body has c
 constraint is still satisfied, if a target ABI has changed, or if the final artifact has a different
 root or runtime closure.
 
-The JSON FIR inspector uses schema 4 and local IDs, but this does not make it a persistent cache
+The JSON FIR inspector uses schema 5 and local IDs, but this does not make it a persistent cache
 format. The current `.solib` manifest schema 2 does not define external generic FIR instantiation.
 Package digests check payload integrity relative to the manifest; they do not establish source
 identity, publisher authenticity, or verifier compatibility.

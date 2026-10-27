@@ -115,57 +115,6 @@ internal sealed partial class FirBuilder
         return true;
     }
 
-    private void ValidateGenericBodySurface(AstFunction function)
-    {
-        bool TypeDependsOnCurrentParameter(ResolvedType? type)
-        {
-            if (type is null) { return false; }
-            var pending = new Stack<ResolvedType>();
-            var seen = new HashSet<ResolvedType>();
-            pending.Push(type);
-            while (pending.TryPop(out var current))
-            {
-                if (!seen.Add(current)) { continue; }
-                if (current.Parameter is { } identity && ReferenceEquals(identity.Owner, function)) { return true; }
-                foreach (var argument in current.Arguments) { pending.Push(argument); }
-                foreach (var effect in current.Effects) { pending.Push(effect); }
-            }
-            return false;
-        }
-
-        bool ExpressionDependsOnCurrentParameter(AstNode? node)
-            => node is AstExpression expression && TypeDependsOnCurrentParameter(_analysis.GetExpression(expression)?.Type);
-
-        var pendingNodes = new Stack<AstNode>();
-        if (function.Body.Node is { } body) { pendingNodes.Push(body); }
-        var visited = new HashSet<AstNode>(ReferenceEqualityComparer.Instance);
-        while (pendingNodes.TryPop(out var node))
-        {
-            _cancellation.ThrowIfCancellationRequested();
-            if (!visited.Add(node)) { continue; }
-            foreach (var child in node.Children.Reverse()) { pendingNodes.Push(child); }
-
-            if (node is AstOperation operation
-                && (ExpressionDependsOnCurrentParameter(operation)
-                    || operation.Operands.Any(ExpressionDependsOnCurrentParameter)))
-            { Unsupported(operation, "Operation on a generic parameter needs per-instance source rebinding"); }
-
-            if (node is AstMember member
-                && (ExpressionDependsOnCurrentParameter(member) || ExpressionDependsOnCurrentParameter(member.Receiver)))
-            { Unsupported(member, "Member lookup on a generic parameter needs per-instance source rebinding"); }
-
-            if (node is not AstCall call || !_calls.TryGetValue(call, out var binding)) { continue; }
-            bool selectedGenericFunction = binding.Target is AstFunction target && target.TypeParameters.Any()
-                && !Ancestors(target).OfType<AstTypeDeclaration>().Any();
-            if (selectedGenericFunction) { continue; }
-            bool openArgument = binding.Arguments.Any(argument =>
-                argument.ArgumentIndex >= 0 && argument.ArgumentIndex < call.Arguments.Length
-                && ExpressionDependsOnCurrentParameter(call.Arguments[argument.ArgumentIndex].Value));
-            if (openArgument || TypeDependsOnCurrentParameter(binding.ReturnType))
-            { Unsupported(call, "Passing a generic parameter to a nongeneric call needs per-instance source rebinding"); }
-        }
-    }
-
     private static bool SupportedArgument(ResolvedType type, out int depth)
     {
         depth = 0;

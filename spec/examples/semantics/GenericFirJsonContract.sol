@@ -3,7 +3,7 @@
 // Status: normative inspection examples; expected observations are not a claim of runner coverage.
 module examples.semantics.generic_fir_json_contract
 
-// This file describes structural observations for the schema-4 verified FIR inspection document.
+// This file describes structural observations for the schema-5 verified FIR inspection document.
 // `expect` annotations are normative fixture outcomes for an implementation that supports the
 // corresponding native shape. A valid source example marked `NativeBoundary` may still be rejected
 // by today's FIR builder; such rejection is not a source type error.
@@ -36,7 +36,7 @@ func nestedForward(value: int): int = forwardTwice(value)
 
 // 1. Root schema and mode
 // -----------------------
-// expect: root.schema == 4
+// expect: root.schema == 5
 // expect: root.verified == true only for FirJson.Serialize(VerifiedFirProgram)
 // expect: root.library is the current FIR program mode
 // expect: executable root.entry indexes functions; library root.entry == -1
@@ -100,7 +100,7 @@ func emitText(): String = identity("sol")
 // expect: type parameter spelling T is not a type parameter identity
 // expect: type ID is not a stable source declaration identity
 // expect: function.id is not a stable cross-build specialization identity
-// expect: schema 4 does not serialize stable source declaration identity
+// expect: schema 5 does not serialize stable source declaration identity
 // expect: consumer that drops source bundle cannot always distinguish same-named declarations
 //
 // A future contract can add a source-file and declaration table, but that change needs a schema
@@ -210,15 +210,23 @@ func boxedArray(values: []int): [][]int = box(values)
 func callWithNamedFormals(firstValue: int, secondValue: String): int =
     left(second = secondValue, first = firstValue)
 
+func <T> withEarlierDefault(value: T, fallback: T = value): T = fallback
+func inspectEarlierDefault(value: int): int = withEarlierDefault(value)
+
 // expect: callWithNamedFormals call.arguments maps values to formal positions
 // expect: callWithNamedFormals call.typeArguments maps generic parameters in declaration order
 // expect: argument array order does not replace the `parameter` index
 // expect: nested argument spans identify original source expressions
 // expect: no `typeArguments` field is omitted for an ordinary non-generic call
+// expect: inspectEarlierDefault call arguments are ordered [value, fallback]
+// expect: the omitted fallback argument contains FirCallValueReference(evaluationIndex=0)
+// expect: that index points to the earlier value argument and does not re-evaluate `value`
 //
-// The current FIR slice rejects some argument mapping forms before a verified program exists. The
-// schema contract describes an admitted call record; it is not a promise that defaults, varargs,
-// ref/out calls, or all named argument combinations currently serialize.
+// The current FIR slice admits pure defaults on module-level free functions when each omitted value
+// is a scalar/String literal, an earlier value-parameter read, or a supported primitive unary/binary
+// expression. Calls/member/array/effectful defaults, defaults following ref/out parameters, and
+// defaults on vararg functions remain outside the verified native subset. Varargs and some other
+// argument forms may still be rejected before a verified program exists.
 
 // 10. Node envelope and origins
 // -----------------------------
@@ -275,7 +283,7 @@ func callWithNamedFormals(firstValue: int, secondValue: String): int =
 // expect: source inference mismatch -> source-analysis diagnostic, not SOL2400
 // expect: verifier mismatch after FIR construction -> SOL2402, no verified JSON
 // expect: specialization work cap -> SOL2403, no truncated verified JSON
-// expect: ordinary successful verified FIR -> schema-4 inspection JSON
+// expect: ordinary successful verified FIR -> schema-5 inspection JSON
 // expect: cancellation -> cancellation propagation, not one of the three diagnostics
 //
 func nativeAcceptedInt(): int = identity(7)
@@ -301,14 +309,14 @@ func nativeAcceptedInt(): int = identity(7)
 // expect: parser/type/constraint/effect diagnostics keep their own diagnostic identities
 //
 // The diagnostic code is independent from the JSON schema value. A future diagnostic JSON format
-// must have its own schema member and must never reuse `schema: 4` to mean a diagnostic revision.
+// must have its own schema member and must never reuse `schema: 5` to mean a diagnostic revision.
 // A diagnostic consumer can use its code to route a message but still needs file identity for a
 // multi-file navigation UI. The current FIR JSON does not serialize diagnostics or a stable path.
 
 // 15. Reader validation
 // ---------------------
 // expect: reject missing `schema`
-// expect: reject schema 3 when expecting schema 4 call type arguments
+// expect: reject schema 3 when expecting schema 5 call type arguments
 // expect: reject unsupported future major shape rather than silently claiming fidelity
 // expect: reject target id outside functions array
 // expect: reject slot id outside owning function slot array
@@ -323,14 +331,14 @@ func nativeAcceptedInt(): int = identity(7)
 
 // 16. No stable serialization contract
 // ------------------------------------
-// expect: schema 4 is not a persistent specialization cache format
-// expect: schema 4 is not a stable public FIR exchange format
-// expect: schema 4 is not a C ABI name-mangling scheme
-// expect: schema 4 is not a `.solib` symbol contract
-// expect: schema 4 is not a debug information format
-// expect: schema 4 is not a source archive or source map
-// expect: schema 4 is not a checksum or cryptographic attestation
-// expect: schema 4 is only the current compiler inspection schema
+// expect: schema 5 is not a persistent specialization cache format
+// expect: schema 5 is not a stable public FIR exchange format
+// expect: schema 5 is not a C ABI name-mangling scheme
+// expect: schema 5 is not a `.solib` symbol contract
+// expect: schema 5 is not a debug information format
+// expect: schema 5 is not a source archive or source map
+// expect: schema 5 is not a checksum or cryptographic attestation
+// expect: schema 5 is only the current compiler inspection schema
 //
 // A consumer may retain JSON as a human-readable diagnostic artifact for the exact compiler run.
 // It must record compiler identity separately if it needs to compare artifacts over time. That
@@ -349,7 +357,7 @@ func nativeAcceptedInt(): int = identity(7)
 // A new source table should use per-document opaque IDs rather than absolute build-machine paths.
 // A canonical type string should be a rendering of a grammar, not a guess from `name` and `args`.
 // A stable declaration key should handle module versioning, partial declarations, overload identity,
-// source movement, and collisions. These topics are deliberately not solved by schema 4.
+// source movement, and collisions. These topics are deliberately not solved by schema 5.
 
 // 18. Reproducibility fixture rules
 // ---------------------------------
@@ -397,7 +405,7 @@ func nativeAcceptedInt(): int = identity(7)
 // expect: schema root integer = 4 for the current implementation
 // expect: generic tuples always use declaration parameter order
 // expect: type/function/slot/flow IDs always state their local scope
-// expect: source declaration identity is not serialized as a durable key in schema 4
+// expect: source declaration identity is not serialized as a durable key in schema 5
 // expect: node origins preserve spans but not complete source file identity
 // expect: type and effect IDs remain references into the current compilation table
 // expect: verified JSON never contains a partially built specialization closure
@@ -464,14 +472,14 @@ func nativeAcceptedInt(): int = identity(7)
 
 // 25. Version negotiation cases
 // -----------------------------
-// expect: reader supports schema 4 -> decode all known fields
-// expect: reader supports schema 3 only -> reject schema 4 or explicitly announce partial support
-// expect: reader supports schema 4 and sees schema 5 -> do not claim schema-4 full fidelity
-// expect: schema 4 with missing specializationArguments -> reject malformed current document
-// expect: schema 4 with null specializationArguments -> reject malformed current document
-// expect: schema 4 with typeArguments serialized as a string -> reject wrong JSON kind
-// expect: schema 4 with typeArguments reordered -> preserve order and report source mismatch if known
-// expect: schema 4 with extra unknown member -> preserve if viewer policy permits, but do not infer it
+// expect: reader supports schema 5 -> decode all known fields
+// expect: reader supports schema 4 only -> reject schema 5 or explicitly announce partial support
+// expect: reader supports schema 5 and sees schema 6 -> do not claim schema-5 full fidelity
+// expect: schema 5 with missing specializationArguments -> reject malformed current document
+// expect: schema 5 with null specializationArguments -> reject malformed current document
+// expect: schema 5 with typeArguments serialized as a string -> reject wrong JSON kind
+// expect: schema 5 with typeArguments reordered -> preserve order and report source mismatch if known
+// expect: schema 5 with extra unknown member -> preserve if viewer policy permits, but do not infer it
 // expect: a strict validator may reject unknown members when the profile requires exact shape
 //
 // Forward-compatible display and strict semantic validation are different reader profiles. A
@@ -485,7 +493,7 @@ func nativeAcceptedInt(): int = identity(7)
 // expect: repeated span does not mean duplicated or aliased function ID
 // expect: source span can be zero length for synthesized nodes only if origin contract permits it
 // expect: source file table is needed to distinguish equal offsets in separate source files
-// expect: source node origin retains declaring file in memory even when schema 4 omits its key
+// expect: source node origin retains declaring file in memory even when schema 5 omits its key
 // expect: a future schema must pair span with file identity before promising navigation
 //
 // A source navigation consumer that has the exact compilation inputs may correlate known paths

@@ -289,7 +289,7 @@ instances selected inside the compilation can enter the generated FIR graph.
 
 ## Serialization and artifact identity
 
-`FirJson` inspection schema 4 adds resolved type IDs for function specialization arguments and
+`FirJson` inspection schema 5 adds resolved type IDs for function specialization arguments and
 generic call target arguments. IDs are local to the analysis workspace and are not stable across
 compilations. JSON is diagnostic output, not the verified-program transport format and not a cache
 key.
@@ -342,7 +342,7 @@ not executable by the current backend subset.
 | Capability | Current state |
 |---|---|
 | Keep generic function type arguments in body call binding | Implemented |
-| Preserve ordered type arguments on FIR calls/functions | Implemented in schema 4 inspection |
+| Preserve ordered type arguments on FIR calls/functions | Implemented in schema 5 inspection |
 | Build bounded direct free-function instances | Implemented for admitted native types |
 | Substitute slots, expression types, results, nested call arguments, and effects | Implemented as typed FIR projection |
 | Recheck every semantic rule in a fresh concrete body context | Not implemented |
@@ -375,7 +375,7 @@ isolation:
 - Are unchecked effects left semantically distinct from an empty effect set?
 - Does the verifier reject a tampered target, result type, effect list, or argument mapping?
 - Are unsupported generic owners and ABI types stopped before LLVM construction?
-- Does schema 4 expose enough inspection data without leaking source paths or pretending IDs are
+- Does schema 5 expose enough inspection data without leaking source paths or pretending IDs are
   stable across sessions?
 - Do AOT and ORC consume the same verified FIR while preserving host/guest process isolation?
 - Does the public status describe source metadata accurately without claiming native unwinding?
@@ -517,7 +517,7 @@ future admitted types and nested generic graphs.
 ## Artifact and runtime separation
 
 The verified FIR object is an in-memory capability. `FirJson` serializes a versioned inspection
-view; it is not loaded back as a trusted executable representation. Schema 4 exposes
+view; it is not loaded back as a trusted executable representation. Schema 5 exposes
 `specializationArguments` on functions and `typeArguments` on calls as workspace-local type IDs.
 
 The generic type ID and effect type ID are not stable ABI numbers. A future persistent artifact must
@@ -591,7 +591,7 @@ Before changing the implementation or contract, verify each layer:
   an empty source effect set?
 - **Verifier:** can a manually altered FIR target or effect list still mint `VerifiedFirProgram`?
 - **Lowering:** are unsupported exception paths rejected before LLVM construction?
-- **Inspection:** does JSON schema 4 show argument identities without exposing host paths?
+- **Inspection:** does JSON schema 5 show argument identities without exposing host paths?
 - **Artifacts:** are generic instances kept out of stable public C ABI names and unversioned caches?
 - **Status:** does documentation separate implemented FIR projection from planned full rebinding and
   native exception support?

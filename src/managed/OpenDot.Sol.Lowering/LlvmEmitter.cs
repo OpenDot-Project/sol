@@ -27,6 +27,8 @@ public sealed partial class LlvmEmitter
     private bool _terminated;
     private readonly Stack<(long Break, long Continue)> _loops = [];
     private readonly record struct Value(string Type, long Operand, ResolvedType SourceType);
+    private sealed record CallEvaluationFrame(Value[] Values, bool[] Captured);
+    private readonly Stack<CallEvaluationFrame> _callEvaluations = [];
 
     private LlvmEmitter(VerifiedFirProgram program, ILlvmModule module, CancellationToken cancellation)
     { _verified = program; _module = module; _cancellation = cancellation; }
@@ -162,6 +164,11 @@ public sealed partial class LlvmEmitter
         {
             case FirConstant constant: return Constant(constant);
             case FirRead read: return new(type, Op(LlvmOperation.Load, T(type), [Address(read.Slot)], type == "ptr" ? 1 : 0), read.Type);
+            case FirCallValueReference reference:
+                if (!_callEvaluations.TryPeek(out var frame) || reference.EvaluationIndex < 0
+                    || reference.EvaluationIndex >= frame.Values.Length || !frame.Captured[reference.EvaluationIndex])
+                { throw new InvalidOperationException("FIR call-value reference is not bound to an earlier evaluation."); }
+                return frame.Values[reference.EvaluationIndex];
             case FirUnary unary:
                 var operand = Expression(unary.Value);
                 if (unary.Operation == "+") { return operand; }
@@ -194,16 +201,40 @@ public sealed partial class LlvmEmitter
 
     private Value EmitCall(FirCall call)
     {
-        var target = _verified.Program.Functions[call.Target]; var arguments = new long[target.Parameters.Length]; var values = new List<Value>();
-        foreach (var argument in call.Arguments)
+        var target = _verified.Program.Functions[call.Target]; var arguments = new long[target.Parameters.Length]; var runtimeValues = new List<Value>();
+        var frame = new CallEvaluationFrame(new Value[call.Arguments.Length], new bool[call.Arguments.Length]);
+        _callEvaluations.Push(frame);
+        try
         {
-            if (target.RuntimeFunction != FirRuntimeFunction.None) { values.Add(Expression(argument.Value)); continue; }
-            arguments[argument.Parameter] = argument.Mode is AstPassingMode.Ref or AstPassingMode.Out ? Address(((FirRead)argument.Value).Slot) : Expression(argument.Value).Operand;
+            for (int index = 0; index < call.Arguments.Length; index++)
+            {
+                var argument = call.Arguments[index];
+                if (target.RuntimeFunction != FirRuntimeFunction.None)
+                {
+                    var value = Expression(argument.Value);
+                    frame.Values[index] = value; frame.Captured[index] = true; runtimeValues.Add(value);
+                    continue;
+                }
+                if (argument.Mode is AstPassingMode.Ref or AstPassingMode.Out)
+                {
+                    long address = Address(((FirRead)argument.Value).Slot);
+                    frame.Values[index] = new(Type(argument.Value.Type), address, argument.Value.Type);
+                    arguments[argument.Parameter] = address;
+                }
+                else
+                {
+                    var value = Expression(argument.Value);
+                    frame.Values[index] = value;
+                    arguments[argument.Parameter] = value.Operand;
+                }
+                frame.Captured[index] = true;
+            }
         }
+        finally { _callEvaluations.Pop(); }
         if (target.RuntimeFunction != FirRuntimeFunction.None)
         {
             int channel = target.RuntimeFunction is FirRuntimeFunction.Error or FirRuntimeFunction.Errorln ? 1 : 0;
-            foreach (var value in values) { Print(value, channel); }
+            foreach (var value in runtimeValues) { Print(value, channel); }
             if (target.RuntimeFunction is FirRuntimeFunction.Println or FirRuntimeFunction.Errorln) { Call("sol_rt_newline", Int(channel)); }
             return new("void", 0, call.Type);
         }

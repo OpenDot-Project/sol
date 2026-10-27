@@ -25,6 +25,8 @@ int RunBarrierTests();
 int RunDescriptorFailure(const wchar_t *mode);
 int RunTraceLayoutTests();
 int RunProfileOptionsTests();
+int RunReferenceArrayTests();
+int RunArrayAccessFailure(const wchar_t *mode);
 
 int wmain(int argc, wchar_t **argv)
 {
@@ -47,6 +49,10 @@ int wmain(int argc, wchar_t **argv)
     if (argc == 2 && std::wcscmp(argv[1], L"slot-overflow") == 0)
     {
         return RunSpanPoisonTest(false);
+    }
+    if (argc == 2 && std::wcsncmp(argv[1], L"array-", 6) == 0)
+    {
+        return RunArrayAccessFailure(argv[1] + 6);
     }
     if (argc == 2 && std::wcscmp(argv[1], L"heap-pressure") == 0)
     {
@@ -132,5 +138,5 @@ int wmain(int argc, wchar_t **argv)
             return failure;
         }
     }
-    return 0;
+    return RunReferenceArrayTests();
 }
