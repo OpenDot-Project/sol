@@ -271,8 +271,8 @@ func twoClosuresShareArray(seed: []String): (() -> int, () -> String) =
 // expect: Both environments may retain the same managed array; liveness is object identity, not source name.
 
 func closureSurvivesCreatingFrame(): () -> String {
-    val object = String("captured")
-    { object }
+    val captured = String("captured")
+    { captured }
 }
 // expect: Returning closure requires environment ownership after frame exit; not a stack-only raw pointer.
 

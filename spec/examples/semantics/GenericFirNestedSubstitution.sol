@@ -37,7 +37,7 @@ func <T> accept(value: T): () {}
 
 func <T> exact(value: T): T = value
 
-func <T> constrained<T: std.core.Object>(value: T): T = value
+func <T: std.core.Object> constrained(value: T): T = value
 
 func <T> objectOrValue(value: T): T = value
 
@@ -318,13 +318,13 @@ func recursiveExactRoot(value: int): int = recursiveExact(value, true)
 // argument tuple encountered on the back edge resolves to the reserved target ID. It neither
 // creates a duplicate function nor recursively expands the source tree in memory.
 
-func <T> mutuallyLeft(value: T, continue: bool): T {
-    if continue { return mutuallyRight(value, false) }
+func <T> mutuallyLeft(value: T, again: bool): T {
+    if again { return mutuallyRight(value, false) }
     return value
 }
 
-func <T> mutuallyRight(value: T, continue: bool): T {
-    if continue { return mutuallyLeft(value, false) }
+func <T> mutuallyRight(value: T, again: bool): T {
+    if again { return mutuallyLeft(value, false) }
     return identity(value)
 }
 
@@ -405,9 +405,9 @@ func deterministicRoot(value: bool): bool {
 // order produce repeatable local function IDs. A local type ID or function ID is not a persistent
 // cache key and is not stable across unrelated workspaces or type insertion order.
 
-func declarationA<T>(value: T): T = value
+func <T> declarationA(value: T): T = value
 
-func declarationB<T>(value: T): T = value
+func <T> declarationB(value: T): T = value
 
 // expect: declaration_identity_not_spelling | Different declarations | instance keys remain distinct
 func distinctDeclarations(value: int): int = declarationA(value) + declarationB(value)
@@ -519,7 +519,7 @@ func branchRoot(value: byte): byte = branchForward(value, true)
 // declaration identities or permit a branch-local type to leak into another call.
 
 func <T> loopForward(values: []T): []T {
-    for value in values { identity(value) }
+    for val value in values { identity(value) }
     return boxArray(values)
 }
 
@@ -652,13 +652,13 @@ func <T> recursiveExact(value: T, again: bool): T {
 // expect: recursive_exact_key | recursiveExact<int> self-edge | identity<int>
 func recursiveExactRoot(value: int): int = recursiveExact(value, true)
 
-func <T> mutuallyLeft(value: T, continue: bool): T {
-    if continue { return mutuallyRight(value, false) }
+func <T> mutuallyLeft(value: T, again: bool): T {
+    if again { return mutuallyRight(value, false) }
     return value
 }
 
-func <T> mutuallyRight(value: T, continue: bool): T {
-    if continue { return mutuallyLeft(value, false) }
+func <T> mutuallyRight(value: T, again: bool): T {
+    if again { return mutuallyLeft(value, false) }
     return identity(value)
 }
 

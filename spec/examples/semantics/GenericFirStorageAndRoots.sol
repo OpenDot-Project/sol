@@ -431,7 +431,8 @@ func twoAllocatingArguments(): Pair<String, String> = pair(makeString(), makeStr
 // 76. A branch-local reference is rooted only along reachable live edges.
 // expect: stack map accounts for joins and kills without treating stale slot bits as a strong root.
 func branchRoot(flag: bool, first: String, second: String): String {
-    val chosen = if (flag) first else second
+    var chosen = first
+    if (flag) { chosen = second }
     Gc.collect()
     chosen
 }

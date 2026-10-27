@@ -255,7 +255,7 @@ func <T> firstOrFallback(values: []T, fallback: T): T {
 
 // expect: loop.infinite-no-fallthrough | SourceBound | NativeAdmitted<int> | termination-proof-independent-of-T
 func <T> loopWithExplicitExit(value: T): T {
-    while true {
+    for {
         if shouldStop() { break }
         continue
     }

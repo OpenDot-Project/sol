@@ -327,7 +327,7 @@ func boundIndeterminateBlocksWinner(value: NamedText): String {
 // 5. Ref and out use exact storage evidence
 // -----------------------------------------
 
-func exchange<T>(ref left: T, out right: T): () { right = left }
+func <T> exchange(ref left: T, out right: T): () { right = left }
 
 func exchange(ref left: String, out right: String): () { right = left }
 
@@ -384,7 +384,7 @@ func refOutMappingDoesNotReorderStorage(): () {
 // 6. Defaults and varargs are later ranking criteria
 // -------------------------------------------------
 
-func genericDefault<T>(first: T, second: T = first): T = first
+func <T> genericDefault(first: T, second: T = first): T = first
 
 func genericDefault(first: String, second: String = first): String = first
 
@@ -398,7 +398,7 @@ func defaultCountBreaksEqualConversions(value: String): String {
     return genericDefault(value, value)
 }
 
-func vararg<T>(head: T, vararg rest: T): T = head
+func <T> genericVarargs(head: T, vararg rest: T): T = head
 
 func varargOrdinaryArityWins(value: String): String {
     // expect: vararg.no-expansion | Selected | target=fixedOrVararg(String) uses-vararg=false

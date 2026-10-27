@@ -238,7 +238,10 @@ func nullableField(box: NullableField<String>): String? = box.value
 
 // 21. Generic struct identity does not imply class identity.
 
-struct Point<T>(val x: T, val y: T)
+struct Point<T> {
+    val x: T
+    val y: T
+}
 
 func pointRead(point: Point<int>): int = point.x
 
@@ -246,7 +249,9 @@ func pointRead(point: Point<int>): int = point.x
 
 // 22. Generic ref struct storage requires a region proof.
 
-ref struct Borrowed<T>(val value: ReadOnlySpan<T>)
+ref struct Borrowed<T> {
+    val value: ReadOnlySpan<T>
+}
 
 func borrowedRead(value: Borrowed<int>): int = value.value[0]
 
@@ -254,9 +259,9 @@ func borrowedRead(value: Borrowed<int>): int = value.value[0]
 
 // 23. The anti-constraint does not authorize heap escape.
 
-func <T: allows ref struct> identityRefLike(value: T): T = value
+func <T> identityRefLike(value: T): T where T: allows ref struct = value
 
-class HeapHolder<T: allows ref struct>(val value: T)
+class HeapHolder<T>(val value: T) where T: allows ref struct {}
 
 // expect: allows-ref-struct.storage | Source: Rejected(ref-like value stored in heap owner) | FIR: NoInstance.
 
@@ -335,8 +340,7 @@ func outsideHidden(owner: HiddenMethod<String>): int = owner.choose(1)
 // 31. Accessor visibility is separate from property visibility.
 
 class RestrictedProperty<T>(initial: T) {
-    public var value: T = initial
-        private set
+    public var value: T { private set } = initial
 }
 
 // expect: visibility.accessor | Source: public read of T may bind; external write is rejected | FIR: Rejected(SOL2400).
@@ -344,8 +348,7 @@ class RestrictedProperty<T>(initial: T) {
 // 32. Generic property reads do not execute the getter during inference.
 
 class Getter<T>(val stored: T) {
-    var result: T
-        get() = stored
+    var result: T { get = stored }
 }
 
 func readGetter(value: Getter<String>): String = value.result
@@ -373,8 +376,8 @@ func compoundCounter(counter: Counter<int>, delta: int): () {
 // 35. Generic indexer argument mapping is call-like.
 
 class Indexed<T> {
-    operator fun get(index: int): T = element
-    operator fun set(index: int, value: T): () { }
+    operator func get(index: int): T = element
+    operator func set(index: int, value: T): () { }
 }
 
 func indexRead(value: Indexed<String>): String = value[0]
@@ -413,8 +416,8 @@ func <T: std.order.Ordering> compareOnly(left: T, right: T): int = left.compareT
 // 40. Delegated properties select protocol members after substitution.
 
 class Delegate<T>(val value: T) {
-    operator fun getValue(thisRef: Any?, property: SolProperty<*>): T = value
-    operator fun setValue(thisRef: Any?, property: SolProperty<*>, next: T): () { }
+    operator func getValue(thisRef: Object?, property: SolProperty<T>): T = value
+    operator func setValue(thisRef: Object?, property: SolProperty<T>, next: T): () { }
 }
 
 class Delegated<T>(value: T) {
@@ -428,8 +431,8 @@ func delegatedRead(value: Delegated<String>): String = value.item
 // 41. Delegated getter and setter effects are separate.
 
 class EffectfulDelegate<T, E: Throwable>(val value: T) {
-    operator fun getValue(thisRef: Any?, property: SolProperty<*>): T throws E = value
-    operator fun setValue(thisRef: Any?, property: SolProperty<*>, next: T): () throws E { }
+    operator func getValue(thisRef: Object?, property: SolProperty<T>): T throws E = value
+    operator func setValue(thisRef: Object?, property: SolProperty<T>, next: T): () throws E { }
 }
 
 // expect: delegate.effects | Source: Getter and setter contribute substituted effects at their respective access sites | FIR: Rejected(SOL2400).

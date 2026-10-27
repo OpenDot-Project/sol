@@ -378,7 +378,7 @@ func nominalRejected(value: Payload): Payload = identity<Payload>(value)
 // expect: class/member/object generic specialization is outside this matrix and rejected by FIR.
 class Box<T> {
     val item: T
-    init(item: T) { this.item = item }
+    constructor(item: T) { this.item = item }
     func get(): T = item
 }
 func genericOwnerRejected(box: Box<int>): int = box.get()
@@ -522,7 +522,7 @@ func recursiveInt(value: int): int = recursiveIdentity<int>(value, 3)
 // type reflection would require a new source, metadata, security, and ABI contract.
 // expect: the compiler specializes statically selected calls only and never emits a dynamic generic
 // dispatcher or hidden runtime type token for this signature.
-func <T> openCaller<U>(value: U): T = identity<T>(fail<U>())
+func <T, U> openCaller(value: U): T = identity<T>(fail<U>())
 
 // The following matrix is intentionally closed. Types not listed here must remain unsupported
 // until their exact layout, storage, passing, root, return, and operation contracts are defined.
