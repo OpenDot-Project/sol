@@ -135,6 +135,7 @@ indexes, but it never sorts or reevaluates the source expressions.
 For example:
 
 ```sol
+module docs.generic_fir_specialization
 func pair(first: int, second: int): int = first * 10 + second
 func mark(value: int): int { println(value); value }
 

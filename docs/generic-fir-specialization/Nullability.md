@@ -71,7 +71,7 @@ type graph, and it is not an instruction to reinterpret a non-null value after i
 
 Repeated nullable constructors collapse to one layer:
 
-```sol
+```text
 String?       // canonical nullable String
 String??      // same canonical identity as String?
 T??           // same canonical identity as T?
@@ -122,6 +122,7 @@ closed replacement node for that rewrite; the algorithm does not recursively app
 entry to the contents of that replacement during the same pass.
 
 ```sol
+module docs.generic_fir_specialization
 func <T> echo(value: T): T = value
 func <U> maybe(value: U?): U? = value
 ```
@@ -193,6 +194,7 @@ null array and an empty array are observably different. The former has no length
 present; the latter has length zero. An array with nullable elements is still a present container.
 
 ```sol
+module docs.generic_fir_specialization
 func elementMaybe(): []String? = ["Sol", null]
 func containerMaybe(): ([]String)? = null
 func bothMaybe(): ([]String?)? = null
@@ -211,6 +213,7 @@ Generic substitution can introduce element nullability even if the declaration h
 nullable suffix at the array site:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> copy(values: []T): []T = values
 ```
 
@@ -270,6 +273,7 @@ mutate the declared type or generic type argument. For a stable local `value: St
 of `value != null` can use `String`; the declaration remains `String?` outside that proven region.
 
 ```sol
+module docs.generic_fir_specialization
 func size(value: String?): int = {
     if value == null { 0 } else { value.length }
 }
@@ -552,7 +556,7 @@ status updates before it can be called implemented.
 When a review comment says “nullable array,” ask which constructor position is nullable. Use these
 four forms as the minimum terminology:
 
-```sol
+```text
 []String       // present container, present String elements
 []String?      // present container, nullable String elements
 ([]String)?    // nullable container, present String elements

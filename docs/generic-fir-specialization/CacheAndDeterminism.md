@@ -49,6 +49,7 @@ One instance key identifies one source generic declaration and one complete orde
 closed resolved type identities. For:
 
 ```sol
+module docs.generic_fir_specialization
 func <Key, Value> select(key: Key, value: Value): Value = value
 ```
 

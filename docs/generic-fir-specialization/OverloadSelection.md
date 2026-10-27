@@ -143,6 +143,7 @@ An enclosing type context can solve a generic parameter that appears in the sele
 example:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> construct(): T
 
 func makeText(): String {

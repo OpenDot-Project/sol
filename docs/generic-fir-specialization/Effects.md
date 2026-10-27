@@ -41,6 +41,7 @@ parameter positions are ordered. Effect membership is not ordered. For example, 
 have the same effect membership even though their text order differs:
 
 ```sol
+module docs.generic_fir_specialization
 func readA(): String throws DiskFailure, NetworkFailure
 func readB(): String throws NetworkFailure, DiskFailure
 ```
@@ -108,6 +109,7 @@ When `E` also appears in an ordinary parameter or result position, those positio
 The declared effect is then substituted using the same `E` identity:
 
 ```sol
+module docs.generic_fir_specialization
 func <T, E: Throwable> transform(
     value: T,
     callback: (T) -> String throws E
@@ -387,6 +389,7 @@ eligible for native output.
 Consider a callback-taking declaration whose effect parameter is also in its declared effect set:
 
 ```sol
+module docs.generic_fir_specialization
 func <E: Throwable> invoke(callback: () -> String throws E): String throws E = callback()
 func readDisk(): String throws DiskFailure = "disk"
 func app(): String throws DiskFailure = invoke({ readDisk() })
@@ -442,6 +445,7 @@ collapsed into one “effects observed at runtime” list.
 Suppose a generic exception type is used as an effect:
 
 ```sol
+module docs.generic_fir_specialization
 class ReadFailure<T>(val item: T): Exception("read")
 func <T> read(value: T): T throws ReadFailure<T> = value
 ```

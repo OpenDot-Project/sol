@@ -139,6 +139,8 @@ reserve an instance.
 ### Example
 
 ```sol
+module docs.generic_specialization_lowering
+
 func <T> identity(value: T): T = value
 
 func mainBody(): () {
@@ -243,6 +245,8 @@ program.
 ### Nested substitution example
 
 ```sol
+module docs.generic_specialization_lowering
+
 func <T> identity(value: T): T = value
 func <T> relay(value: T): T = identity(value)
 ```

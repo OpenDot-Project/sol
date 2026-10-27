@@ -108,6 +108,7 @@ not reserve a second body.
 For example:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> repeat(value: T, again: bool): T {
     if (again) {
         return repeat(value, false)

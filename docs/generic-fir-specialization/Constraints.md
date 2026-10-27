@@ -52,18 +52,21 @@ construct is outside the current subset.
 A function can put one bound beside a type parameter:
 
 ```sol
+module docs.generic_fir_specialization
 func <T: Named> labelOf(value: T): String = value.name()
 ```
 
 The `where` clause can declare one or several bounds:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> labelOf(value: T): String where T: Named = value.name()
 ```
 
 The inline bound and every matching `where` bound contribute to the same requirement set:
 
 ```sol
+module docs.generic_fir_specialization
 func <T: Named> stableLabel(value: T): String
     where T: Stable, T: Comparable<T> = value.name()
 ```
@@ -87,6 +90,7 @@ A type parameter is identified by its declaration owner plus its zero-based ordi
 only a display name. These parameters are different even though both are written `T`:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> first(value: T): T = value
 func <T> second(value: T): T = value
 ```
@@ -118,6 +122,7 @@ named `name` does not prove that the receiver implements `Named`.
 Every bound contributes independently:
 
 ```sol
+module docs.generic_fir_specialization
 interface Named { func name(): String }
 interface Identified { func id(): int }
 func <T> inspect(value: T): String where T: Named, T: Identified = value.name()
@@ -183,6 +188,7 @@ must still obey ref-like storage, return, capture, field, array, and escape rest
 For example, permission to accept a ref-like argument does not mean this operation is safe:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> capture(value: T): () where T: allows ref struct {
     val callback = { value }
 }
@@ -346,6 +352,7 @@ virtual dispatch, and member identity would also have to be composed and indepen
 The following examples distinguish source constraints from native type support:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> identity(value: T): T = value
 func <T: Object> referenceIdentity(value: T): T = value
 ```
@@ -369,6 +376,7 @@ argument because ref-like values have no supported slot and call ABI in this fir
 A bound can make member lookup well-defined for source analysis. For example:
 
 ```sol
+module docs.generic_fir_specialization
 interface Named { func name(): String }
 func <T: Named> describe(value: T): String = value.name()
 ```

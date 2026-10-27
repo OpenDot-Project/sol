@@ -544,9 +544,10 @@ public static class FirVerifier
                 }
                 if (sourceBinding.ReturnType is null || Substitute(sourceBinding.ReturnType) != call.Type)
                 { Fail("Call result type differs from overload resolution.", call.Origin); }
-                if (sourceBinding.ParameterTypes.Length != target.Parameters.Length)
+                if (target.RuntimeFunction == FirRuntimeFunction.None
+                    && sourceBinding.ParameterTypes.Length != target.Parameters.Length)
                 { Fail("Call parameter signature differs from the selected specialization.", call.Origin); }
-                else
+                else if (target.RuntimeFunction == FirRuntimeFunction.None)
                 {
                     for (int index = 0; index < sourceBinding.ParameterTypes.Length; index++)
                     {

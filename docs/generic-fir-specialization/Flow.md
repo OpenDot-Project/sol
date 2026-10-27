@@ -73,6 +73,7 @@ A generic parameter is identified by its declaration owner and ordinal, not by t
 name it. In the declarations below, `T@identity/0` and `T@relay/0` are distinct identities:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> identity(value: T): T = value
 func <T> relay(value: T): T = identity(value)
 ```
@@ -109,6 +110,7 @@ to which each fact applies explicit.
 Generic pass-through locals should be uninteresting to the assignment engine:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> copy(value: T): T {
     val first: T = value
     var second: T
@@ -176,6 +178,7 @@ does not.
 Consider:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> lastOrDefault(values: []T, fallback: T): T {
     var result: T = fallback
     for val item in values { result = item }
@@ -243,6 +246,7 @@ When FIR builds a closed caller, it applies the caller substitution to the inner
 generic pass-through:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> relay(value: T): T = identity(value)
 func root(value: String): String = relay(value)
 ```

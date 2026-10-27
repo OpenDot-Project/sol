@@ -53,6 +53,7 @@ equality does not.
 The identity model is important for nested calls. Consider:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> identity(value: T): T = value
 func <Outer> forward(value: Outer): Outer = identity(value)
 ```
@@ -106,6 +107,7 @@ Arguments are ordered by the target declaration's generic parameter ordinal. The
 For example:
 
 ```sol
+module docs.generic_fir_specialization
 func <T, U> chooseSecond(first: T, second: U): U = second
 func <A, B> reorder(valueA: A, valueB: B): B = chooseSecond<B, A>(valueB, valueA)
 ```
@@ -122,6 +124,7 @@ closes it.
 ### Same-spelling parameters
 
 ```sol
+module docs.generic_fir_specialization
 func <T> idA(value: T): T = value
 func <T> idB(value: T): T = idA(value)
 ```
@@ -349,6 +352,7 @@ They are design inputs until an executable semantic/native regression harness ex
 Use this source pair:
 
 ```sol
+module docs.generic_fir_specialization
 func <T> identity(value: T): T = value
 func <Outer> forward(value: Outer): Outer = identity(value)
 func run(value: String): String = forward(value)
@@ -417,7 +421,7 @@ shape. Reconstructing generic arguments only from the final parameter and result
 The source call's syntax spelling is also not an identity field. These calls can have the same
 instance key if they select the same declaration and type tuple:
 
-```sol
+```text
 identity(value)
 identity<String>(value)
 ```
