@@ -344,6 +344,23 @@ An immutable local captured by a closure can be copied only if its representatio
 the copy. A mutable `var` uses a shared cell when multiple closures or the creating frame must observe
 the same storage. Copying each closure's own snapshot would change program behavior.
 
+Lexical analysis now exposes `LambdaCaptures` and `GetLambdaCaptures(lambda)` as a source-level
+inventory. Each entry identifies the resolved `LocalSymbol`, every reference in that lambda, and the
+combined read/write access. A mutable local is classified as shared-cell storage; an immutable local
+is classified as a value-copy candidate. If a nested lambda refers to a local outside more than one
+lambda boundary, the inventory includes that same local identity for each environment that must
+provide it. Shadowed locals remain separate because capture ownership follows the resolved symbol,
+not its spelling. `ref` access is read/write and `out` access is write-only in this inventory.
+Ref/out parameters are classified as borrowed locations, and captured local functions retain a
+separate callable-environment classification instead of being mistaken for value copies or cells.
+Implicit receiver and member captures are not `LocalSymbol` entries; they require a separate
+receiver/environment analysis and are not represented by this lexical API.
+
+This metadata is lexical evidence, not a closure conversion or an escape proof. It does not certify
+that a captured location or ref-like value can escape, define allocation/root placement, or create a
+runtime cell. Native FIR still rejects capturing lambdas until a verified environment layout and
+Yellow Tea ownership path are implemented.
+
 A closure environment may contain captured values, shared cells, a receiver, and nested closure
 references. It must retain source identity and concrete type metadata needed by the runtime. The
 environment is distinct from a function's code pointer; a bare pointer cannot recover its captured

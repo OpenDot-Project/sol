@@ -64,8 +64,9 @@ internal sealed partial class BodyBindingBuilder
             {
                 var type = LocalType(local);
                 var callable = parent.Callable;
-                bool byref = callable?.Parameters.Any(p => p.PassingMode is AstPassingMode.Ref or AstPassingMode.Out
-                    && ReferenceEquals(p.NameOrigin.Element, local.Origin.Element)) == true;
+                bool byref = local.PassingMode is AstPassingMode.Ref or AstPassingMode.Out
+                    || callable?.Parameters.Any(p => p.PassingMode is AstPassingMode.Ref or AstPassingMode.Out
+                        && ReferenceEquals(p.NameOrigin.Element, local.Origin.Element)) == true;
                 if (byref || type is not null && MayContainBorrow(type)) { Report("SOL2262", "A closure cannot capture ref/out storage or a ref-like value.", reference); }
             }
         }

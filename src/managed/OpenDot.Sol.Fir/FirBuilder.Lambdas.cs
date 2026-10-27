@@ -49,6 +49,7 @@ internal sealed partial class FirBuilder
         var lambdaScope = _analysis.Sources.Lexical.Scopes
             .SingleOrDefault(scope => ReferenceEquals(scope.Owner, lambda));
         if (lambdaScope is null) { return false; }
+        if (!_analysis.Sources.Lexical.GetLambdaCaptures(lambda).IsEmpty) { return false; }
 
         foreach (var atom in lambda.Descendants().OfType<AstAtom>())
         {
@@ -57,7 +58,7 @@ internal sealed partial class FirBuilder
             if (atom.SyntaxKind != NodeKind.NameExpression) { continue; }
 
             var binding = _analysis.Sources.Lexical.GetBinding(atom);
-            if (binding.CapturesOuterLocal || binding.Lookup.Locals.Any(local =>
+            if (binding.Lookup.Locals.Any(local =>
                 !IsWithinScope(local.ScopeId, lambdaScope.Id)))
             { return false; }
             if (binding.Lookup.Locals.Any(local => local.Kind == LocalSymbolKind.Function))

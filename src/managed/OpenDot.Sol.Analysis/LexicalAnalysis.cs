@@ -17,6 +17,7 @@ public sealed class LexicalAnalysis
     private readonly Dictionary<AstNode, int> _scopeOf;
     private readonly Dictionary<AstAtom, NameBinding> _bindings;
     private readonly Dictionary<AstNode, AstSnapshot> _files;
+    private readonly Dictionary<AstLambda, ImmutableArray<LambdaCapture>> _capturesByLambda;
 
     private LexicalAnalysis(LexicalBuilder builder)
     {
@@ -40,6 +41,11 @@ public sealed class LexicalAnalysis
                 diagnostics.Add(new("SOL2002", "Ambiguous value name: " + reference.Spelling, reference.Origin.Source, reference.Origin.Span));
             }
         }
+        LambdaCaptures = LambdaCaptureAnalysis.Create(Scopes, _scopeOf, _files, _bindings.Values,
+            builder.Cancellation);
+        IEqualityComparer<AstLambda> lambdaComparer = ReferenceEqualityComparer.Instance;
+        _capturesByLambda = LambdaCaptures.GroupBy(capture => capture.Lambda, lambdaComparer)
+            .ToDictionary(group => group.Key, group => group.ToImmutableArray(), lambdaComparer);
         Diagnostics = diagnostics.OrderBy(d => d.Source.Path, StringComparer.Ordinal).ThenBy(d => d.Span.Start).ToImmutableArray();
     }
 
@@ -47,7 +53,17 @@ public sealed class LexicalAnalysis
     public ImmutableArray<LexicalScope> Scopes { get; }
     public ImmutableArray<Diagnostic> Diagnostics { get; }
     public IEnumerable<NameBinding> Bindings => _bindings.Values;
+    /// <summary>Lexical local captures grouped by lambda; this inventory does not prove escape safety.</summary>
+    public ImmutableArray<LambdaCapture> LambdaCaptures { get; }
     public bool HasErrors => Declarations.HasErrors || Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
+
+    /// <summary>Returns captures for an owned lambda, including an empty result for a noncapturing lambda.</summary>
+    public ImmutableArray<LambdaCapture> GetLambdaCaptures(AstLambda lambda)
+    {
+        ArgumentNullException.ThrowIfNull(lambda);
+        if (!_scopeOf.ContainsKey(lambda)) { throw new ArgumentException("The lambda belongs to another lexical snapshot.", nameof(lambda)); }
+        return _capturesByLambda.GetValueOrDefault(lambda, []);
+    }
 
     public static LexicalAnalysis Create(AnalysisSession declarations, CancellationToken cancellationToken = default)
     {

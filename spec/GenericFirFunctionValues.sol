@@ -407,6 +407,9 @@ func <E: Throwable> invokeCallback(callback: () -> () throws E): () throws E {
 // lifetime permit it. Captured mutable `var` storage uses a shared cell when reads/writes must
 // observe the same variable. Separate lambdas capturing the same mutable variable share one cell;
 // they must not receive independent snapshots.
+// LexicalAnalysis exposes the resolved local capture inventory per lambda, including nested-lambda
+// environment propagation and read/write access. This records source bindings and candidate storage
+// policy only; it does not prove escape safety, select a native layout, or authorize code generation.
 //
 // A captured receiver or local may keep an object reachable after the creating stack frame returns.
 // The environment layout must identify every managed reference slot so Yellow Tea can scan it. A
