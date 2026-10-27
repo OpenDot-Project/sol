@@ -89,6 +89,13 @@ identity contributes evidence. A repeated path to the exact same type identity i
 the paths imply conflicting type arguments, the candidate is rejected. Invariance prevents a
 projection from changing `Reader<Derived>` into `Reader<Base>`.
 
+Expected-result projection works in the opposite direction. Incompatible routes are ignored while
+the solver checks other constructed bases. If more than one route can satisfy the expected type but
+the routes produce different generic evidence, the expected type does not select a route. It adds no
+evidence at that projection; independent input evidence may still solve the call, and the specialized
+result is then checked for conversion to the expected type. If the remaining parameters have no
+evidence, inference stays unresolved.
+
 Generic bounds may themselves provide projections. For a parameter `T: Reader<String>`, the
 parameter's bound is traversed after its enclosing fixed substitution. Every inline and `where`
 bound participates. Constraint satisfaction remains separate from inference and is checked after

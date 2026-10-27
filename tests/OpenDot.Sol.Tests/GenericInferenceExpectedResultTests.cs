@@ -51,6 +51,32 @@ public sealed class GenericInferenceExpectedResultTests
     }
 
     [Fact]
+    public void ExpectedResultDoesNotChooseBetweenDifferentBaseProjectionEvidence()
+    {
+        var analysis = Analyze("interface Parent<T> {}\n"
+            + "class Projected<T>: Parent<T>, Parent<String> {}\n"
+            + "func <T> make(value: T): Projected<T> = throw RuntimeException()\n"
+            + "func use(value: int): Parent<String> = make(value)");
+
+        Assert.False(analysis.HasErrors,
+            string.Join('\n', analysis.Diagnostics.Select(diagnostic => diagnostic.Code + " " + diagnostic.Message)));
+        var call = Assert.Single(analysis.Calls, binding => binding.Target.Name == "make");
+        Assert.Equal("int", Assert.Single(call.TypeArguments).Name);
+    }
+
+    [Fact]
+    public void ExpectedResultAloneDoesNotInferAcrossDifferentBaseProjectionEvidence()
+    {
+        var analysis = Analyze("interface Parent<T> {}\n"
+            + "class Projected<T>: Parent<T>, Parent<String> {}\n"
+            + "func <T> make(): Projected<T> = throw RuntimeException()\n"
+            + "func use(): Parent<String> = make()");
+
+        Assert.DoesNotContain(analysis.Calls, binding => binding.Target.Name == "make");
+        Assert.Contains(analysis.Diagnostics, diagnostic => diagnostic.Code == "SOL2221");
+    }
+
+    [Fact]
     public void ExpectedResultDoesNotNarrowAGenericReturnToADerivedType()
     {
         var analysis = Analyze("interface Parent<T> {}\n"

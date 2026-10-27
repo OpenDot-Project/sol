@@ -117,7 +117,11 @@ module source.spec.generic_inference
 // Expected-result matching runs in the opposite direction. If the generic result pattern is
 // `Derived<T>` and the expected result is `Base<String>`, the compiler may project the pattern
 // through `Derived<T>`'s substituted bases to `Base<T>` and infer T as String. It then separately
-// verifies that the specialized result `Derived<String>` converts to the expected type.
+// verifies that the specialized result `Derived<String>` converts to the expected type. An
+// incompatible projection path is discarded while other paths are checked. If multiple compatible
+// paths yield different inference evidence, the expected type does not choose one arbitrarily and
+// contributes no evidence for that projection; other input evidence may still solve the parameters,
+// after which the final result conversion is checked. Without other evidence, inference is unresolved.
 //
 // Arrays, fixed arrays, tuples, nullable wrappers, and nominal generic applications are structurally
 // matched by their constructor and ordered element types. Fixed-array length and function parameter

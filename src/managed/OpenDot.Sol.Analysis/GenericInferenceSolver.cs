@@ -309,9 +309,10 @@ internal sealed partial class GenericInferenceSolver
             if (!SameEvidence(selected.Evidence, matches[index].Evidence, orderedParameters)
                 || !SameEffectConstraints(selected.Effects, matches[index].Effects))
             {
-                // Multiple compatible-looking base paths that infer different facts are
-                // ambiguous. Keep the original solver state untouched.
-                return false;
+                // The expected type does not identify one route. It contributes no inference
+                // fact here; independent input evidence can still close the call, after which
+                // the specialized result is checked for conversion to the expected type.
+                return true;
             }
         }
 
