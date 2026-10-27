@@ -57,10 +57,7 @@ public sealed partial class TypeSpecialization
         if (source.Kind == ResolvedTypeKind.Bottom) { return IntrinsicConversion.Reference; }
         if (!visited.Add((source.Id, target.Id))) { return IntrinsicConversion.None; }
         if (source.Kind == ResolvedTypeKind.Function && target.Kind == ResolvedTypeKind.Function
-            && source.ParameterModes.SequenceEqual(target.ParameterModes) && source.Arguments.Length == target.Arguments.Length
-            && source.Arguments.Take(source.Arguments.Length - 1).SequenceEqual(target.Arguments.Take(target.Arguments.Length - 1))
-            && Conversion(source.Arguments[^1], target.Arguments[^1], new(), depth + 1, cancellation) != IntrinsicConversion.None
-            && source.Effects.All(effect => target.Effects.Any(budget => Conversion(effect, budget, new(), depth + 1, cancellation) != IntrinsicConversion.None)))
+            && FunctionShapeConverts(source, target, depth, cancellation))
         { return IntrinsicConversion.Reference; }
         if (target.IsNullable)
         {
@@ -103,6 +100,39 @@ public sealed partial class TypeSpecialization
             return IntrinsicConversion.Boxing;
         }
         return IntrinsicConversion.None;
+    }
+
+    private bool FunctionShapeConverts(ResolvedType source, ResolvedType target, int depth,
+        CancellationToken cancellation)
+    {
+        if (source.Arguments.Length == 0 || source.Arguments.Length != target.Arguments.Length
+            || !source.ParameterModes.SequenceEqual(target.ParameterModes)) { return false; }
+
+        int parameterCount = source.ParameterModes.Length;
+        for (int index = 0; index < parameterCount; index++)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var sourceParameter = source.Arguments[index];
+            var targetParameter = target.Arguments[index];
+            if (source.ParameterModes[index] is AstPassingMode.Ref or AstPassingMode.Out)
+            {
+                if (!ReferenceEquals(sourceParameter, targetParameter)) { return false; }
+                continue;
+            }
+
+            // A function accepting a broader input can stand in for one accepting a narrower
+            // input. Conversion therefore runs from the target parameter to the source parameter.
+            if (Conversion(targetParameter, sourceParameter, new(), depth + 1, cancellation)
+                == IntrinsicConversion.None) { return false; }
+        }
+
+        if (Conversion(source.Arguments[^1], target.Arguments[^1], new(), depth + 1, cancellation)
+            == IntrinsicConversion.None) { return false; }
+
+        // An actual callable may promise fewer checked failures than its target contract permits,
+        // but it may not introduce an effect that the target type cannot cover.
+        return source.Effects.All(effect => target.Effects.Any(budget =>
+            Conversion(effect, budget, new(), depth + 1, cancellation) != IntrinsicConversion.None));
     }
 
     public ConstraintCheck CheckConstraints(AstDeclaration definition, IReadOnlyList<ResolvedType> arguments,

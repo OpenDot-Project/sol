@@ -327,7 +327,7 @@ func <T> artifactIdentity(value: T): T = value
 // Scenario group: schema_invalidation
 func <T> schemaIdentity(value: T): T = value
 
-// expect: FIR JSON schema 5 is an inspection contract, not a persistent generic cache schema.
+// expect: FIR JSON schema 6 is an inspection contract, not a persistent generic cache schema.
 // expect: A future cache payload requires explicit format version and verifier compatibility.
 
 // 26. Source-language edition and semantic rules belong to binding dependencies.
@@ -537,7 +537,7 @@ func <T> errorIdentity(value: T): T = value
 // Scenario group: version_axes
 func <T> versionIdentity(value: T): T = value
 
-// expect: FIR JSON schema 5, language edition 2026, LLVM 23.1.3, and SolRT ABI/layout have separate identities.
+// expect: FIR JSON schema 6, language edition 2026, LLVM 23.1.3, and SolRT ABI/layout have separate identities.
 // expect: Bumping one version invalidates only the outputs that depend on it, but never weakens verification.
 
 // 49. AOT and ORC share semantic selection but not final code cache identity.

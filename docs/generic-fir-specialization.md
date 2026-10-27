@@ -26,12 +26,11 @@ C++ API through the existing C++/CLI bridge. It is not produced by generating or
 This statement describes the available path; it does not mean every generic source program can be
 lowered.
 
-The current slice substitutes already-bound body facts. It does not rerun complete overload
-resolution, body typing, flow analysis, effect inference, escape analysis, borrowing, or definite
-assignment independently for every concrete instance. That gap is explicit: substitution is not
-per-instance semantic rebinding. Any source construct whose correctness depends on that missing
-proof is rejected at the native FIR boundary, remains deferred in source analysis, or is described
-as a future requirement in the specification.
+Closed generic instances receive a fresh body-analysis pass under their concrete substitution. The
+pass rebinds supported expressions and calls and recomputes the flow/effect facts represented by the
+current analysis surface. This does not cover every language construct: unsupported specialized
+operations, owner/member semantics, borrowing, and runtime layouts remain gated. FIR rejects any
+instance whose required source or ABI proof is outside that implemented surface.
 
 ## Contract and implementation map
 
@@ -51,11 +50,11 @@ as a future requirement in the specification.
 | Nullability and bottom type | [Nullability contract](generic-fir-specialization/Nullability.md) | Source typing requirements are documented; nullable native representations remain outside the slice. |
 | Primitive and array ABI | [Primitive ABI](generic-fir-specialization/PrimitiveAbi.md) | Admission is intentionally finite and target-specific. |
 | Recursion and termination | [Recursion and limits](generic-fir-specialization/RecursionAndLimits.md) | Exact keys are reused; distinct keys consume bounded resources. |
-| JSON and diagnostics | [JSON and diagnostic contract](generic-fir-specialization/JsonAndDiagnostics.md) | Documents schema 5 metadata, source identity, origins, and phase-specific diagnostics. |
+| JSON and diagnostics | [JSON and diagnostic contract](generic-fir-specialization/JsonAndDiagnostics.md) | Documents schema 6 function values, signatures/effects, source identity, origins, and phase-specific diagnostics. |
 | Artifact and runtime boundaries | [Artifact contract](generic-fir-specialization/Artifacts.md), [native artifacts](library-artifacts.md) | The generic slice does not create C ABI or external `.solib` generic exports. |
 | Generic owners and members | [Owner/member contract](generic-fir-specialization/OwnersAndMembers.md), [member resolution](member-resolution.md) | Only methods on stateless, non-generic top-level objects enter generic FIR; other members remain outside it. |
 | Storage, arrays and GC roots | [Storage and root contract](generic-fir-specialization/StorageAndRoots.md), [Yellow Tea ABI](yellow-tea/compiler-runtime-abi.md) | Generic collections, spans, nullable layouts and full per-instance root maps remain outside the slice. |
-| Function values, lambdas and closures | [Function-value contract](generic-fir-specialization/FunctionValues.md) | Source analysis covers some contextual values; generic indirect FIR and closure lowering remain unsupported. |
+| Function values, lambdas and closures | [Function-value contract](generic-fir-specialization/FunctionValues.md) | FIR/LLVM support exact-signature free-function and stateless-object references, including closed generic references; closures, adapters, and captures remain gated. |
 | Runtime and collectors | [Yellow Tea](yellow-tea/index.md), [runtime ABI](yellow-tea/compiler-runtime-abi.md) | This specialization slice does not broaden runtime layouts or GC root rules. |
 
 ## Pipeline and invariants

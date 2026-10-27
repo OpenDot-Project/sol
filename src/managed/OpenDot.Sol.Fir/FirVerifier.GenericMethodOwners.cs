@@ -134,6 +134,20 @@ public static partial class FirVerifier
                     if (!MatchesGenericMethodOwnerCall(call.Origin.Element, callerSource, targetSource, instance.Owner))
                     { Fail("Generic method owner edge is not a direct same-owner or singleton-qualified call.", call.Origin); }
                 }
+
+                foreach (var reference in EnumerateGenericMethodReferences(caller.Body))
+                {
+                    if (reference.Target < 0 || reference.Target >= program.Functions.Length) { continue; }
+                    var target = program.Functions[reference.Target];
+                    if (!sources.TryGetValue(target.Origin.Element, out var targetSource)
+                        || !program.Analysis.Sources.Types.GetTypeParameters(targetSource).Any()) { continue; }
+                    if (GetGenericMethodOwner(targetSource) is null) { continue; }
+                    if (!instances.ContainsKey(reference.Target))
+                    { Fail("Generic method function reference does not target a registered closed owner instance.", reference.Origin); continue; }
+                    // Source correspondence independently proves that this reference names the
+                    // selected declaration and carries its inferred closed arguments.
+                    incoming.Add(reference.Target);
+                }
             }
 
             foreach (var instance in instances.Values)
@@ -302,6 +316,66 @@ public static partial class FirVerifier
                     case FirArrayLength length: pending.Push(length.Array); break;
                     case FirArrayIndex index: pending.Push(index.Array); pending.Push(index.Index); break;
                     case FirArrayLiteral array: foreach (var element in array.Elements) { pending.Push(element); } break;
+                    case FirIndirectCall indirectCall:
+                        pending.Push(indirectCall.Function);
+                        foreach (var argument in indirectCall.Arguments) { pending.Push(argument.Value); }
+                        break;
+                }
+            }
+        }
+
+        private IEnumerable<FirFunctionReference> EnumerateGenericMethodReferences(FirNode root)
+        {
+            var pending = new Stack<FirNode>();
+            var visited = new HashSet<FirNode>(ReferenceEqualityComparer.Instance);
+            pending.Push(root);
+            while (pending.TryPop(out var node))
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if (!visited.Add(node)) { continue; }
+                if (visited.Count > 16_000_000)
+                {
+                    Fail("Generic method owner graph exceeded its 16,000,000-node verification limit.", node.Origin);
+                    yield break;
+                }
+                if (node is FirFunctionReference reference)
+                {
+                    yield return reference;
+                    continue;
+                }
+                if (node is FirCall call)
+                {
+                    foreach (var argument in call.Arguments) { pending.Push(argument.Value); }
+                    continue;
+                }
+                switch (node)
+                {
+                    case FirBlock block: foreach (var statement in block.Statements) { pending.Push(statement); } break;
+                    case FirDeclare { Initializer: { } initializer }: pending.Push(initializer); break;
+                    case FirStore store: pending.Push(store.Value); break;
+                    case FirEvaluate evaluate: pending.Push(evaluate.Value); break;
+                    case FirReturn { Value: { } value }: pending.Push(value); break;
+                    case FirIf conditional:
+                        pending.Push(conditional.Condition); pending.Push(conditional.Then);
+                        if (conditional.Else is { } otherwise) { pending.Push(otherwise); }
+                        break;
+                    case FirLoop loop:
+                        if (loop.Initializer is { } loopInitializer) { pending.Push(loopInitializer); }
+                        if (loop.Condition is { } condition) { pending.Push(condition); }
+                        pending.Push(loop.Body);
+                        if (loop.Update is { } update) { pending.Push(update); }
+                        break;
+                    case FirArrayForEach iteration: pending.Push(iteration.Array); pending.Push(iteration.Body); break;
+                    case FirIntrinsic intrinsic: foreach (var argument in intrinsic.Arguments) { pending.Push(argument); } break;
+                    case FirUnary unary: pending.Push(unary.Value); break;
+                    case FirBinary binary: pending.Push(binary.Left); pending.Push(binary.Right); break;
+                    case FirArrayLength length: pending.Push(length.Array); break;
+                    case FirArrayIndex index: pending.Push(index.Array); pending.Push(index.Index); break;
+                    case FirArrayLiteral array: foreach (var element in array.Elements) { pending.Push(element); } break;
+                    case FirIndirectCall indirectCall:
+                        pending.Push(indirectCall.Function);
+                        foreach (var argument in indirectCall.Arguments) { pending.Push(argument.Value); }
+                        break;
                 }
             }
         }

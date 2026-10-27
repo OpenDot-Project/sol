@@ -21,6 +21,7 @@ internal sealed partial class GenericInferenceSolver
     private sealed record EffectSetConstraint(
         ImmutableArray<ResolvedType> Templates,
         ImmutableArray<ResolvedType> Actuals,
+        GenericInferenceRelation Relation,
         string Origin,
         int Depth);
 
@@ -71,24 +72,29 @@ internal sealed partial class GenericInferenceSolver
         }
 
         var open = templates.Where(type => ContainsInferenceParameter(type, parameterSet)).ToArray();
-        if (open.Length == 0 || templates.Length != actuals.Length) { return false; }
+        if (open.Length == 0) { return false; }
 
-        var remaining = actuals.ToList();
-        foreach (var fixedEffect in templates.Where(type => !ContainsInferenceParameter(type, parameterSet)))
-        {
-            _cancellation.ThrowIfCancellationRequested();
-            int index = remaining.FindIndex(actual => actual == fixedEffect);
-            if (index < 0) { return false; }
-            remaining.RemoveAt(index);
-        }
-        if (open.Length != remaining.Count) { return false; }
+        // The relation determines which side must be covered. For an actual callback passed to a
+        // formal callback (Input), every actual effect needs one formal budget member; unused
+        // formal members are permitted. For an expected callback result, every source effect
+        // pattern needs one target budget member; unused target members are permitted. Exact
+        // matching consumes both complete sets.
+        if (constraint.Relation == GenericInferenceRelation.Exact && templates.Length != actuals.Length)
+        { return false; }
+        if (constraint.Relation == GenericInferenceRelation.Input && actuals.Length > templates.Length
+            || constraint.Relation == GenericInferenceRelation.Expected && templates.Length > actuals.Length)
+        { return false; }
+
+        var requiredCount = constraint.Relation == GenericInferenceRelation.Input ? actuals.Length : templates.Length;
+        var optionCount = constraint.Relation == GenericInferenceRelation.Input ? templates.Length : actuals.Length;
+        if (requiredCount == 0) { return false; }
 
         var currentEvidence = CloneEvidence(evidence, parameters);
-        var used = new bool[remaining.Count];
+        var used = new bool[optionCount];
         Dictionary<ResolvedType, Evidence>? unique = null;
         int validMappings = 0;
 
-        void Search(int patternIndex, Dictionary<ResolvedType, Evidence> current,
+        void Search(int requiredIndex, Dictionary<ResolvedType, Evidence> current,
             List<EffectSetConstraint> pendingNested)
         {
             _cancellation.ThrowIfCancellationRequested();
@@ -98,29 +104,44 @@ internal sealed partial class GenericInferenceSolver
                     "Generic effect matching exceeds the 4096-state search budget.");
             }
             if (validMappings > 1) { return; }
-            if (patternIndex == open.Length)
+            if (requiredIndex == requiredCount)
             {
                 var completed = CloneEvidence(current, parameters);
                 if (!TryResolveNestedEffectSets(pendingNested, parameters, parameterSet,
                         fixedMap, completed, budget)) { return; }
                 var completeMap = KnownSubstitution(parameters, fixedMap, completed, out bool conflict);
-                if (conflict || HasUnresolvedConstraint(parameters, completeMap)) { return; }
+                bool stillOpen = templates.Any(template => ContainsInferenceParameter(
+                    _types.Substitute(template, completeMap, _cancellation), parameterSet));
+                if (conflict || stillOpen || HasUnresolvedConstraint(parameters, completeMap)) { return; }
                 validMappings++;
                 if (validMappings == 1) { unique = completed; }
                 return;
             }
 
-            for (int index = 0; index < remaining.Count && validMappings < 2; index++)
+            for (int index = 0; index < optionCount && validMappings < 2; index++)
             {
                 _cancellation.ThrowIfCancellationRequested();
                 if (used[index]) { continue; }
+                var pattern = constraint.Relation == GenericInferenceRelation.Input
+                    ? templates[index] : templates[requiredIndex];
+                var actual = constraint.Relation == GenericInferenceRelation.Input
+                    ? actuals[requiredIndex] : actuals[index];
                 var branch = CloneEvidence(current, parameters);
                 var branchMap = KnownSubstitution(parameters, fixedMap, branch, out bool branchConflict);
                 if (branchConflict) { continue; }
                 var discoveredNested = new List<EffectSetConstraint>();
-                if (!Collect(open[patternIndex], remaining[index], GenericInferenceRelation.Exact,
-                        constraint.Origin, parameterSet, branch, branchMap, discoveredNested,
-                        constraint.Depth + 1))
+                bool patternIsOpen = ContainsInferenceParameter(pattern, parameterSet);
+                bool compatible = patternIsOpen
+                    ? Collect(pattern, actual, constraint.Relation, constraint.Origin, parameterSet,
+                        branch, branchMap, discoveredNested, constraint.Depth + 1)
+                    : constraint.Relation switch
+                    {
+                        GenericInferenceRelation.Input => Converts(actual, pattern),
+                        GenericInferenceRelation.Expected => Converts(pattern, actual),
+                        GenericInferenceRelation.Exact => pattern == actual,
+                        _ => false,
+                    };
+                if (!compatible)
                 { continue; }
                 branchMap = KnownSubstitution(parameters, fixedMap, branch, out branchConflict);
                 if (branchConflict || HasKnownUnsatisfiedConstraint(parameters, branchMap)
@@ -130,7 +151,7 @@ internal sealed partial class GenericInferenceSolver
                     : new List<EffectSetConstraint>(pendingNested);
                 childConstraints.AddRange(discoveredNested);
                 used[index] = true;
-                Search(patternIndex + 1, branch, childConstraints);
+                Search(requiredIndex + 1, branch, childConstraints);
                 used[index] = false;
             }
         }

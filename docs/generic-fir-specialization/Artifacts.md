@@ -340,7 +340,7 @@ native-object and linked-output cache entries.
 
 ## Container compatibility and trust
 
-FIR serialization and the solib manifest are separate formats. FirJson schema 5 records ordered
+FIR serialization and the solib manifest are separate formats. FirJson schema 6 records ordered
 function and call type arguments. The current solib manifest is schema 2 and independently pins
 its compiler, target, runtime, and payload compatibility. Updating one schema does not imply that
 the other schema changed.
@@ -379,7 +379,7 @@ Use these checks as phase boundaries when investigating a new generic artifact r
 
 1. Confirm the command parser selected the intended backend, artifact, and runtime linkage.
 2. Confirm source analysis selected one target and recorded a complete ordered type tuple.
-3. Inspect FIR JSON schema 5 for function SpecializationArguments and call TypeArguments.
+3. Inspect FIR JSON schema 6 for function SpecializationArguments and call TypeArguments.
 4. Confirm the verifier binds each FIR expression and call back to the selected source analysis.
 5. Check that graph roots match the requested bin entry or concrete library wrappers.
 6. Confirm that no open generic type reaches an LLVM operation or exported symbol.
@@ -399,7 +399,7 @@ The current bounded slice does not establish:
 
 - specialization of generic owner/member layouts, constructors, accessors, or operators;
 - per-instance complete rebinding and rechecking of every generic body;
-- generic function values, closures, runtime type arguments, or reflective construction;
+- exported generic function values, closures, runtime type arguments, or reflective construction;
 - every built-in type's native layout or C ABI;
 - a stable public SolRT ABI or Yellow Tea object-layout version;
 - a generic symbol ABI for DLLs, archives, or solib consumers;

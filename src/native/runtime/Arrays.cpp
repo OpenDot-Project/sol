@@ -7,9 +7,10 @@ using namespace OpenDot::Sol::Runtime;
 
 namespace
 {
-constexpr std::array<std::uint32_t, 11> Widths{1, 1, 1, 2, 4, 4, 8, 8, 4, 8, 8};
+// Element kind 11 is reserved for managed-reference arrays; kind 12 stores raw function pointers.
+constexpr std::array<std::uint32_t, 13> Widths{1, 1, 1, 2, 4, 4, 8, 8, 4, 8, 8, 8, 8};
 const auto Elements = [] {
-    std::array<TypeDescriptor, 10> result{};
+    std::array<TypeDescriptor, 13> result{};
     for (std::size_t index = 0; index < result.size(); ++index)
     {
         result[index] = {Widths[index], 16, 200 + index, 4, 0, nullptr, nullptr, nullptr, nullptr, nullptr};
@@ -17,7 +18,7 @@ const auto Elements = [] {
     return result;
 }();
 const auto ArrayTypes = [] {
-    std::array<TypeDescriptor, 10> result{};
+    std::array<TypeDescriptor, 13> result{};
     for (std::size_t index = 0; index < result.size(); ++index)
     {
         result[index] = {32, 16, 220 + index, 2, 0, &sol_rt_object_type, nullptr, nullptr, nullptr, nullptr};

@@ -25,7 +25,7 @@ module source.spec.generic_fir_specialization
 //   captured call values. Effectful or unsupported default expressions remain outside the native slice.
 // - The FIR verifier independently checks the source declaration, closed type arguments and
 //   constraints, substituted signature/effects, selected call binding, exact target instance, and
-//   argument origins. `FirJson` records function and call type arguments in schema 5.
+//   argument origins. `FirJson` records function and call type arguments in schema 6.
 // - Verified instances use the existing LLVM 23.1.3 C++ API path for AOT and ORC. This is code
 //   generation from constructed LLVM objects, not LLVM text input.
 // - This first slice substitutes the already-bound body facts; it does not rerun full source
@@ -243,7 +243,7 @@ module source.spec.generic_fir_specialization
 //
 // No on-disk specialization cache schema or cross-version cache compatibility is implied by this
 // source contract. Until such a schema is versioned, specialization caches are compilation-local
-// and discarded after the build. FIR JSON schema 5 records ordered function and call type arguments;
+// and discarded after the build. FIR JSON schema 6 records ordered function and call type arguments;
 // `.solib` schema 2 is not silently
 // extended by writing unversioned generic records into them.
 

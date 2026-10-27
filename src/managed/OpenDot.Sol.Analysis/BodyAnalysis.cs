@@ -15,7 +15,14 @@ public enum BodyBindingStatus { Bound, Invalid, Deferred }
 
 /// <summary>A source-owned expression fact, not an executable intermediate representation.</summary>
 public sealed record ExpressionBinding(AstExpression Expression, ResolvedType? Type,
-    BodyBindingStatus Status, bool IsWritable, bool IsStorage, ImmutableArray<ResolvedType> Effects);
+    BodyBindingStatus Status, bool IsWritable, bool IsStorage, ImmutableArray<ResolvedType> Effects)
+{
+    /// <summary>The selected source declaration when this expression is a function value.</summary>
+    public AstFunction? FunctionValueTarget { get; init; }
+
+    /// <summary>Closed or enclosing-instance arguments selected for a generic function value.</summary>
+    public ImmutableArray<ResolvedType> FunctionValueTypeArguments { get; init; } = [];
+}
 
 public sealed record BodySummary(AstCallable Declaration, ResolvedType? ReturnType,
     bool CanCompleteNormally, BodyBindingStatus Status, ImmutableArray<ResolvedType> EscapingEffects);

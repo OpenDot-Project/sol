@@ -451,7 +451,9 @@ internal sealed partial class BodyBindingBuilder
         {
             var written = parameters[index].Children.OfType<AstType>().FirstOrDefault();
             if (written is null || index >= formal.ParameterModes.Length) { continue; }
-            constraints.Add(new(formal.Arguments[index], Written(written), GenericInferenceRelation.Exact,
+            var relation = formal.ParameterModes[index] is AstPassingMode.Ref or AstPassingMode.Out
+                ? GenericInferenceRelation.Exact : GenericInferenceRelation.Expected;
+            constraints.Add(new(formal.Arguments[index], Written(written), relation,
                 "argument " + argumentIndex + " lambda parameter " + index));
         }
 
@@ -466,7 +468,7 @@ internal sealed partial class BodyBindingBuilder
         var marker = Types.GetPrimitive("int");
         var formalEffectSet = Types.GetFunction([], marker, [], formal.Effects);
         var actualEffectSet = Types.GetFunction([], marker, [], actual.Effects);
-        constraints.Add(new(formalEffectSet, actualEffectSet, GenericInferenceRelation.Exact,
+        constraints.Add(new(formalEffectSet, actualEffectSet, GenericInferenceRelation.Input,
             "argument " + argumentIndex + " lambda checked effects"));
     }
 

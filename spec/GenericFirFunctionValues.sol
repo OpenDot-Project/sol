@@ -13,10 +13,10 @@ module source.spec.generic_fir_function_values
 // 3. A function value has one concrete function type, including passing modes and effects.
 // 4. A lambda or anonymous function creates a function value and may capture lexical storage.
 //
-// These objects are not interchangeable. Emitting one closed direct-call instance does not imply
-// that the compiler can erase, store, return, pass, capture, compare, or dynamically dispatch a
-// generic function value. A lambda whose contextual parameter/result types are generic evidence is
-// still a lambda expression with its own flow, effect, capture, and lifetime obligations.
+// These objects are not interchangeable. A generic function value is closed at its source site by
+// the expected function type and points to one monomorphic instance; it is not a universally
+// quantified runtime value. A lambda whose contextual parameter/result types are generic evidence
+// is still a lambda expression with its own flow, effect, capture, and lifetime obligations.
 //
 // Current implementation status:
 //
@@ -26,12 +26,17 @@ module source.spec.generic_fir_function_values
 //   evidence and then analyze the selected lambda normally.
 // - Direct calls to closed module-level generic free functions can produce verified monomorphic FIR
 //   instances for the admitted native type/body subset.
-// - FIR currently has direct `FirCall` and `FirFunction` nodes, but no function-reference, closure,
-//   indirect-call, or generic-function-value node. Native admission rejects closures and
-//   function-value specialization. A source-level function-type result does not bypass that gate.
-// - Generic body substitution reuses already-bound source facts. It does not rerun full semantic
-//   analysis for each substitution; any proof that depends on a callback's concrete behavior remains
-//   outside the current generic native guarantee.
+// - FIR has `FirFunctionReference` and `FirIndirectCall` nodes for eligible module-level functions
+//   and stateless top-level object methods whose native signature matches exactly, including closed
+//   generic instances, ref/out modes, and checked effects. The LLVM C++ bridge lowers them as typed
+//   function pointers and indirect calls. Stateless object methods have no instance storage,
+//   constructor, base, initializer, virtual dispatch, `this`, or `super` use.
+//   Lambdas, captures, receiver-bound references, nullable callbacks, and arrays of closure values
+//   remain outside native FIR; a source function type alone does not prove closure layout, ABI
+//   compatibility, escape safety, or GC ownership.
+// - A generic function value records the ordered type arguments selected by expected-type inference.
+//   FIR verifies that the reference points to that exact closed instance and includes it in the
+//   specialization reachability graph. Generic bodies are rebound under closed arguments before FIR.
 //
 // The requirements below are normative language/compiler contracts. An expected outcome marked
 // `Future` or `FIR: Rejected` is not an assertion that today's compiler accepts the complete example.
@@ -47,14 +52,14 @@ func <T> identity(value: T): T = value
 
 func <U> passThrough(value: U): U = value
 
+func inferredText(value: String) = value
+
 func <T, U> sameNameDifferentOwners(value: T, other: U): (T, U) = (value, other)
 
-// At a direct call, selection determines one owner and one closed substitution. A local variable
-// also named T or U cannot capture or replace a declaration-owned type parameter.
-//
-// A future generic function-value representation must preserve this owner identity until an
-// explicit instantiation rule closes it. It must not infer identity from `identity`, `T`, or the
-// function's printed signature.
+// At a direct call or generic function-value selection, each parameter keeps its declaration owner
+// and ordinal. A local variable also named T or U cannot capture or replace a declaration-owned
+// type parameter. Expected-type inference closes every selected target parameter before a function
+// value is formed; it never infers identity from `identity`, `T`, or printed signatures.
 
 // 2. Direct generic calls are monomorphic after selection
 // ------------------------------------------------------
@@ -95,59 +100,145 @@ val integerExchange: (ref int, out int) -> () = { ref left: int, out right: int 
 
 func <T> useTypedParameter(value: T, operation: (T) -> T): T = operation(value)
 
-// expect: Source typing can determine the direct signature; indirect invocation is not currently
-// represented by verified FIR; native result: Rejected(SOL2400).
+// expect: Source typing determines a closed function signature. An indirect invocation from a
+// generic instance is FIR-ready when the specialized parameter/result ABI and effects are supported.
 
-// 4. Assigning a generic declaration to a function value is not an ordinary direct call
-// --------------------------------------------------------------------------------------
+// 4. Assigning a generic declaration to a function value closes it from context
+// -----------------------------------------------------------------------------
 //
-// A source name can refer to a generic overload group. Using that name in a value context requires
-// a rule that determines which declaration and which concrete type arguments the value denotes.
-// Ordinary direct-call inference is not sufficient: a function value may escape the expression and
-// be invoked many times, after the original expected type and local inference context are gone.
+// A generic function name in a value context needs an expected function type. Sol uses that type
+// to infer the declaration-owned type arguments and then performs ordinary directional function
+// conversion. Every generic parameter must have exactly one solution and satisfy its constraints.
+// No reference suffix is introduced: explicit generic arguments remain part of call syntax.
 
 func valueFromExpectedType(): () {
     val transform: (String) -> String = identity
 }
 
-// expect: Source: Deferred until generic-reference value conversion is specified; no monomorphic
-// closure may be fabricated from the expected type implicitly.
+// expect: Source: Bound; the expected signature closes the selected target as identity<String>.
+// FIR: Ready when the closed body and exact native signature are supported; no wrapper is created.
 
-func ambiguousValueGroup(): () {
-    val chooser: (String) -> String = choose
+func inferredResultFunctionValue(): () {
+    val transform: (String) -> String = inferredText
 }
+
+// expect: Source body analysis has inferred inferredText's result as String. Function-value
+// conversion consumes that resolved signature; it does not execute the body to discover a type.
+
+func <E: Throwable> readText(): String throws E = "text"
+
+func valueFromExpectedEffects(): () {
+    val read: () -> String throws IOException = readText
+}
+
+// expect: Source: Bound; expected effect budget contributes an upper bound and closes E to a
+// compatible Throwable subtype. The value retains its declared effect set; creation does not throw.
 
 func <T> choose(value: T): T = value
 func choose(value: String): String = value
 
-// expect: Source: Deferred unless the overload-to-value rule provides a unique candidate after
-// conversion, effects, generic inference, and visibility; declaration order is not a tie breaker.
+func chooseFunctionValueOverload(): () {
+    val callback: (String) -> String = choose
+}
 
-// When a future conversion is admitted, the selected value must state whether it is a closed
-// monomorphic wrapper, an erased generic function plus runtime descriptors, or another explicitly
-// specified representation. It cannot silently change the overload's evaluation, exception, or
-// dispatch semantics.
+// expect: Both candidates close to the same exact function type; the final nongeneric tie preference
+// selects choose(String). If a generic candidate has a strictly better conversion, it still wins.
 
-// 5. Explicitly closing a generic function value needs a declared syntax rule
-// ---------------------------------------------------------------------------
-//
-// Direct calls support explicit type arguments in the call syntax. The language has not defined a
-// separate generic function-reference expression syntax in this contract. Implementations must not
-// invent a cast, a suffix, a fabricated zero-argument call, or a hidden closure at a value site.
-//
-// A future proposal for explicit closure of a generic declaration must specify:
-//
-// - how the declaration is resolved when names are overloaded or imported;
-// - how every generic parameter is assigned a closed, source-owned type identity;
-// - whether an expected function type may supply additional constraints after explicit arguments;
-// - how visibility, checked effects, ref/out modes and receiver binding are retained;
-// - whether the result is a direct code pointer, a wrapper closure, or an erased dictionary call;
-// - the stable source origin and diagnostic when the result cannot be represented.
-//
-// Until then, an attempted generic function reference remains Deferred or rejected at the phase
-// that owns the missing rule. It must not enter the specialization work queue as if it were a direct
-// call.
+func <T> createWithoutSignature(): int = 1
 
+func uninferredGenericFunctionValue(): () {
+    val callback: () -> int = createWithoutSignature
+}
+
+// expect: Deferred; T occurs nowhere in the expected callable type, so the target cannot be closed.
+
+func <T: Throwable> constrainedIdentity(value: T): T = value
+
+func constraintRejectsGenericFunctionValue(): () {
+    val callback: (String) -> String = constrainedIdentity
+}
+
+// expect: Rejected(SOL2206); String does not satisfy the closed Throwable constraint.
+
+func equallyRanked(value: Object): Dog { for {} }
+func equallyRanked(value: Animal): Animal { for {} }
+
+func ambiguousOverload(): () {
+    val callback: (Dog) -> Animal = equallyRanked
+}
+
+// expect: Both candidates convert by an intrinsic reference conversion. BodyAnalysis reports
+// ambiguity and retains no selected function-value target.
+
+// 4a. Contextual selection for a function overload group
+// -----------------------------------------------------
+//
+// Candidate compatibility uses ordinary function conversion, including contravariant value
+// parameters, covariant results, exact ref/out storage, and checked-effect coverage. Inference is
+// transactional per candidate. A generic candidate with missing or indeterminate evidence keeps
+// the group Deferred; a provably incompatible candidate is removed. Defaults and bodies provide no
+// inference evidence. Declarations imported from different modules remain ambiguous.
+//
+// Conversion rank is Identity, intrinsic Reference, then Boxing. The nongeneric preference applies
+// only after conversion ranks tie. Declaration order never breaks a tie. An overloaded value without
+// an expected signature remains Deferred. The backend cannot select a different candidate.
+
+func selectOverload(): () {
+    val callback: (String) -> int = choose
+}
+
+// expect: Candidate resolution is based on the expected function type and all visible same-module
+// declarations. If no candidate converts, report SOL2206; equal best candidates report SOL2212.
+
+// 5. A generic function value is monomorphic, not a generic runtime closure
+// -------------------------------------------------------------------------
+//
+// The selected declaration and ordered closed type arguments identify a function instance. The
+// value carries its concrete function type and checked effects; it does not carry type descriptors,
+// a dictionary, or open generic parameters. A backend must not synthesize a dummy call, a hidden
+// closure, or an erased dispatch path.
+//
+// A generic reference can be returned by a generic factory. Rebinding the factory body under its
+// concrete arguments must close the nested reference before FIR is built.
+
+func <T> makeIdentity(): (T) -> T = identity
+
+func useMonomorphicFactory(): (String) -> String = makeIdentity<String>()
+
+// expect: makeIdentity<String> returns a function pointer to identity<String>; FIR contains both
+// closed instances and proves the nested reference edge is reachable from the ordinary entry.
+
+// Stateless top-level object methods have the same receiver-free ABI as module-level functions.
+// The eligibility check applies to every partial declaration of the object, not only to the
+// particular method chosen as a function value. No receiver, singleton address, or hidden closure
+// environment is placed in the FIR value.
+object IdentityOperations {
+    func <T> identity(value: T): T = value
+    func describe(value: String): String = value
+}
+
+func useStatelessObjectMethodValue(): (String) -> String = IdentityOperations.identity
+
+// expect: The expected function type closes identity<String>. FIR records the selected method and
+// its ordered type argument; direct and indirect calls use the same receiver-free function target.
+
+func useStatelessObjectDirectCall(): String = IdentityOperations.describe("sol")
+
+// expect: The selected object method is emitted without an implicit receiver only because its
+// complete top-level object declaration is stateless and the method does not use this or super.
+
+object StatefulOperations {
+    val prefix = "sol"
+    func <T> identity(value: T): T = value
+}
+
+func statefulObjectMethodValue(): () {
+    val callback: (String) -> String = StatefulOperations.identity
+}
+
+// expect: Source selection and FIR reject this receiver-free representation. Object fields,
+// constructors, bases, initialization, non-function members, virtual methods, this, and super are
+// outside the receiver-free object method boundary, including members in other partial parts.
 // 6. Expected types and generic call inference have different scopes
 // -------------------------------------------------------------------
 //
@@ -166,8 +257,8 @@ func cannotInferEscapingValue(): () {
     val callback: (int) -> int = identity
 }
 
-// expect: The first form has an actual argument and may infer T=int. The second form requires the
-// unimplemented generic-reference conversion rule; it is not equivalent to calling identity(0).
+// expect: The first form has an actual argument and may infer T=int. The second form closes
+// identity<T> as identity<int> from the expected function type; neither form fabricates a call.
 
 // An implementation must report ambiguity or Deferred when a value conversion has multiple valid
 // generic substitutions. It cannot select a substitution using a declaration's default generic
@@ -182,10 +273,10 @@ func cannotInferEscapingValue(): () {
 // the defined conversion vector and any generic-specificity tie rules. It never invokes a getter,
 // default expression, lambda, or candidate body to discover a type.
 //
-// A single best candidate may be converted only if its generic parameters can be completely closed
-// and its body can be emitted by the chosen representation. If no candidate applies, the value
-// expression is rejected. If candidates tie, it is Ambiguous. If analysis is incomplete for a
-// candidate, the result is Deferred instead of choosing a lower-ranked overload.
+// A single best candidate is selected only after its generic parameters can be completely closed.
+// FIR then independently admits or rejects the selected body and representation. If no candidate
+// applies, the value expression is rejected. If candidates tie, it is Ambiguous. If analysis is
+// incomplete for a candidate, the result is Deferred instead of choosing a lower-ranked overload.
 //
 // A native rejection after source selection does not permit fallback to a lower-ranked function.
 // A `String -> String` expected type cannot silently change a selected generic function into a
@@ -362,24 +453,21 @@ func <T> forbiddenCapture(value: T): () -> T where T: allows ref struct {
 // - declared checked effects and exceptional flow snapshots;
 // - closure environment lifetime, GC roots, and thread-transfer rules.
 //
-// Current verified FIR has no indirect-call node. A source `operation(value)` can be analyzed by
-// body analysis in some cases, but generic native instance construction rejects this function-value
-// use until an indirect-call and closure/runtime contract is implemented.
+// A closed generic instance may invoke a supported function-typed parameter through
+// `FirIndirectCall`; each concrete specialization must pass signature and effect verification.
+// Lambda-created closure values, receiver-bound methods, and non-identity function adapters remain
+// outside the native subset until their environment, ABI, and GC contracts exist. An array can hold
+// a non-null function value when that value has the existing receiver-free code-pointer ABI. Its
+// element storage is pointer-sized but is not a managed reference and does not add a GC root.
 
 // 16. Default arguments and varargs are attached to declarations, not closure values
 // ----------------------------------------------------------------------------------
 //
-// A direct call can map named/default/vararg arguments against a selected source declaration. A
-// function value has a callable signature; it does not by itself carry an unambiguous originating
-// declaration's default-expression scope or a generic overload set.
-//
-// A future design must decide whether a function reference preserves declaration defaults in a
-// wrapper, requires callers to fill all parameters, or exposes a canonical function-type call rule.
-// For varargs it must specify the logical element sequence, named-array form, expansion, and
-// ownership. It must also retain evaluation order and not run defaults at value creation.
-//
-// Until that decision is made, source call argument mapping must not be reused as evidence that a
-// function value can be invoked with omitted arguments or expanded varargs.
+// A function type carries no declaration default-expression metadata. An indirect call must supply
+// every function-type parameter; it never evaluates a selected declaration's omitted defaults.
+// A vararg source parameter becomes one array-valued parameter in the function type. An indirect
+// call supplies that array as one argument and does not expand elements. Direct calls keep their
+// ordinary named/default/vararg mapping and source-order evaluation rules.
 
 // 17. Function value identity is not generic instance cache identity
 // ------------------------------------------------------------------
@@ -397,13 +485,17 @@ func <T> forbiddenCapture(value: T): () -> T where T: allows ref struct {
 // 18. Function type compatibility is explicit, not guessed by the backend
 // -------------------------------------------------------------------------
 //
-// Source compatibility must specify parameter contravariance, result covariance, nullability,
-// ref/out invariance, and checked-effect subset rules independently. Generic substitution may
-// change any nested type occurrence, including function-type parameters and effects.
+// A function value is compatible with a target function type when arity and passing modes match,
+// each target value parameter converts to the corresponding source parameter (contravariance), the
+// source result converts to the target result (covariance), each ref/out parameter has identical
+// storage type, and every source checked effect is covered by a target effect budget. A target may
+// permit additional checked effects that the source never raises.
 //
-// Until full variance rules are implemented, the compiler may accept only exact structural
-// function-type identity. It cannot use an LLVM pointer cast, equal machine widths, or an erased
-// code-pointer representation to claim source-level compatibility.
+// These checks run after generic substitution and recurse through nested function types. Each value
+// parameter reverses the conversion direction; each result preserves it. Nominal generic arguments
+// remain invariant. Nullability, boxing, and ref/out storage continue to follow their ordinary
+// source conversion rules. An LLVM pointer cast, equal machine widths, or erased code pointer cannot
+// establish source compatibility.
 //
 // Function types are not nominal objects solely because they have the same rendered signature.
 // Ownership, nullability, generic parameter owners, passing modes, result type, and effects all
@@ -435,12 +527,39 @@ func <T> forbiddenCapture(value: T): () -> T where T: allows ref struct {
 // its representation, ownership, lifetime, exception behavior, and versioning rules. AOT and ORC
 // use the same source-level semantics even if they lower code pointers differently.
 
+// 20a. Non-null arrays of receiver-free function values
+// ------------------------------------------------------
+//
+// A managed array may store non-null function values whose closed signature uses the existing raw
+// code-pointer ABI. This includes direct module references, closed generic references, eligible
+// stateless-object methods, and typed function-value parameters. The array type remains ordinary
+// `[]F`; array indexing loads one pointer of the function signature, and an indirect invocation
+// checks its exact parameter modes, result, and checked effects. Empty arrays require an explicit
+// function element type. Iteration copies each code pointer into its value slot.
+//
+// The Yellow Tea element descriptor records pointer width and scalar layout with no managed-reference
+// scan shape. The array itself remains a managed object and must be rooted while its elements are
+// evaluated and initialized. Function code addresses are not object references; tracing them as
+// `Header*` values would retain arbitrary objects or read invalid headers. This contract does not
+// permit null function values, closure environments, receiver-bound values, adapters, or borrowed
+// code from an unloadable ORC unit. A value that requires such an environment remains FIR-rejected.
+
+// 20b. Array conformance and runtime qualification
+// -------------------------------------------------
+//
+// Qualification covers literal construction, empty typed arrays, generic closed targets, indexed
+// invocation, function-array parameters, iteration, AOT and ORC execution, and scalar-pointer GC
+// behavior. The runtime test deliberately stores the bit pattern of a managed object address in a
+// callback slot, then collects: the object must be reclaimed while the array remains live. A separate
+// callable round trip proves that the array preserves the exact function address and ABI. These
+// runtime checks are distinct from source binding and independent FIR verification.
+
 // 21. Required future validation matrix
 // -------------------------------------
 //
-// Before function values enter generic native FIR, qualification must exercise:
+// Before broad function-value support is considered complete, qualification must exercise:
 //
-// - direct calls and generic function references under explicit and inferred concrete types;
+// - expected-type inference, generic function references, constraints, missing evidence, and specialization reachability;
 // - overload groups with a unique winner, an ambiguity, a deferred candidate, and native rejection;
 // - lambda header, positional, anonymous, trailing, nested, bottom, nullable and checked-effect forms;
 // - immutable-copy and mutable-shared-cell captures, nested captures, receiver capture, and escape;

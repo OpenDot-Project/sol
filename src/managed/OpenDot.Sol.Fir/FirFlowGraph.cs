@@ -16,7 +16,7 @@ public sealed record FirFlowBlock(int Id, AstOrigin Origin, ImmutableArray<int> 
     ImmutableArray<FirCallSite> Calls, bool Returns);
 
 /// <summary>A resolved call and its declared exception set at one FIR operation.</summary>
-public sealed record FirCallSite(int Target, AstOrigin Origin, ImmutableArray<ResolvedType> Effects);
+public sealed record FirCallSite(int? Target, AstOrigin Origin, ImmutableArray<ResolvedType> Effects);
 
 /// <summary>CFG side table owned by FIR; this is not a second intermediate language.</summary>
 public sealed class FirFlowGraph
@@ -131,6 +131,8 @@ public sealed class FirFlowGraph
             {
                 case FirRead read:
                     var node = New(read.Origin); node.Reads.Add(read.Slot); Edge(before, node.Id); return node.Id;
+                case FirFunctionReference:
+                    return before;
                 case FirCallValueReference:
                     // Its source evaluation already completed earlier in this call plan.
                     return before;
@@ -159,6 +161,16 @@ public sealed class FirFlowGraph
                     { completed.Writes.Add(((FirRead)argument.Value).Slot); }
                     if (call.Type.Kind == Analysis.ResolvedTypeKind.Bottom) { return New(call.Origin).Id; }
                     return completed.Id;
+                case FirIndirectCall call:
+                    before = Expression(call.Function, before);
+                    foreach (var argument in call.Arguments)
+                    { if (argument.Mode != AstPassingMode.Out) { before = Expression(argument.Value, before); } }
+                    var invoked = New(call.Origin); Edge(before, invoked.Id);
+                    invoked.Calls.Add(new(null, call.Origin, call.Function.Type.Effects));
+                    foreach (var argument in call.Arguments.Where(argument => argument.Mode == AstPassingMode.Out))
+                    { invoked.Writes.Add(((FirRead)argument.Value).Slot); }
+                    if (call.Type.Kind == Analysis.ResolvedTypeKind.Bottom) { return New(call.Origin).Id; }
+                    return invoked.Id;
                 default: return before;
             }
         }

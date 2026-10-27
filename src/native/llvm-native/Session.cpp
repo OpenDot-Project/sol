@@ -135,7 +135,7 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
         Require(data >= 0 && data <= 1000000, "Invalid LLVM size/index.");
         return static_cast<unsigned>(data);
     };
-    if (op >= Operation::Alloca)
+    if ((op >= Operation::Alloca && op <= Operation::FPExt) || op == Operation::IndirectCall)
     {
         Require(Builder.GetInsertBlock() && !Builder.GetInsertBlock()->hasTerminator(),
                 "No unterminated LLVM insertion block.");
@@ -222,6 +222,17 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
         }
         return Add({nullptr, function});
     }
+    case Operation::FunctionType: {
+        Require(llvm::FunctionType::isValidReturnType(Type(type)), "Invalid indirect function result type.");
+        std::vector<llvm::Type *> parameters;
+        parameters.reserve(args.size());
+        for (auto arg : args)
+        {
+            Require(llvm::FunctionType::isValidArgumentType(Type(arg)), "Invalid indirect function parameter type.");
+            parameters.push_back(Type(arg));
+        }
+        return Add({llvm::FunctionType::get(Type(type), parameters, false)});
+    }
     case Operation::Parameter: {
         count(1);
         auto *function = llvm::dyn_cast<llvm::Function>(val(0));
@@ -299,6 +310,22 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
             inputs.push_back(val(i));
         }
         return Add({nullptr, Builder.CreateCall(function, inputs)});
+    }
+    case Operation::IndirectCall: {
+        Require(!args.empty(), "Missing indirect call target.");
+        auto *signature = llvm::dyn_cast<llvm::FunctionType>(Type(type));
+        Require(signature && val(0)->getType()->isPointerTy()
+                    && signature->getNumParams() == args.size() - 1,
+                "Indirect call signature or target mismatch.");
+        std::vector<llvm::Value *> inputs;
+        inputs.reserve(args.size() - 1);
+        for (std::size_t i = 1; i < args.size(); ++i)
+        {
+            Require(val(i)->getType() == signature->getParamType(static_cast<unsigned>(i - 1)),
+                    "Indirect call argument type mismatch.");
+            inputs.push_back(val(i));
+        }
+        return Add({nullptr, Builder.CreateCall(signature, val(0), inputs)});
     }
     case Operation::Return:
         Require(args.size() <= 1, "Invalid return.");

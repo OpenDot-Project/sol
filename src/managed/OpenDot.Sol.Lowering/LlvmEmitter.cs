@@ -132,6 +132,12 @@ public sealed partial class LlvmEmitter
             case FirStore store: Store(Expression(store.Value), Address(store.Slot)); break;
             case FirEvaluate evaluation: Expression(evaluation.Value); break;
             case FirReturn ret:
+                if (ret.Value is { Type.Kind: ResolvedTypeKind.Bottom } bottom)
+                {
+                    Expression(bottom);
+                    if (!_terminated) { Op(LlvmOperation.Unreachable); _terminated = true; }
+                    break;
+                }
                 if (ret.Value is null || FirVerifier.IsEmpty(ret.Value.Type))
                 { if (ret.Value is not null) { Expression(ret.Value); } EndRoots(); Op(LlvmOperation.Return); }
                 else { var returned = Expression(ret.Value); EndRoots(); Op(LlvmOperation.Return, args: [returned.Operand]); }
@@ -164,6 +170,8 @@ public sealed partial class LlvmEmitter
         {
             case FirConstant constant: return Constant(constant);
             case FirRead read: return new(type, Op(LlvmOperation.Load, T(type), [Address(read.Slot)], type == "ptr" ? 1 : 0), read.Type);
+            case FirFunctionReference reference:
+                return new("ptr", _functions["sol_fn_" + reference.Target], reference.Type);
             case FirCallValueReference reference:
                 if (!_callEvaluations.TryPeek(out var frame) || reference.EvaluationIndex < 0
                     || reference.EvaluationIndex >= frame.Values.Length || !frame.Captured[reference.EvaluationIndex])
@@ -185,6 +193,7 @@ public sealed partial class LlvmEmitter
                 return new(type, Op(LlvmOperation.Load, T(type), [location], type == "ptr" ? 1 : 0), index.Type);
             case FirArrayLiteral array: return ArrayLiteral(array);
             case FirCall call: return EmitCall(call);
+            case FirIndirectCall call: return EmitIndirectCall(call);
             case FirIntrinsic intrinsic:
                 var inputs = intrinsic.Arguments.Select(Expression).ToArray();
                 if (!intrinsic.ParameterOrder.IsEmpty) { inputs = inputs.Zip(intrinsic.ParameterOrder).OrderBy(p => p.Second).Select(p => p.First).ToArray(); }

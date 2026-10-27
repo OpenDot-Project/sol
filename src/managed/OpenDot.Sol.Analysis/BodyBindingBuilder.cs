@@ -142,7 +142,8 @@ internal sealed partial class BodyBindingBuilder
 
     private sealed record Value(ResolvedType? Type, bool Writable = false, bool Storage = false,
         LocalSymbol? Local = null, DeclarationSymbol? Symbol = null, ResolvedType? Receiver = null,
-        string? Literal = null, bool IsType = false);
+        string? Literal = null, bool IsType = false,
+        ImmutableArray<ResolvedType> FunctionValueTypeArguments = default);
     private sealed record Context(AstCallable? Callable, ResolvedType? Result, AstLambda? Lambda = null,
         ResolvedType? LambdaType = null, int LoopDepth = 0, bool Cleanup = false,
         List<State>? Exits = null, List<State>? Breaks = null, List<State>? Continues = null,

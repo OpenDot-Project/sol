@@ -458,7 +458,8 @@ specialization:
   operator specialization;
 - generic receiver layout, vtables, virtual dispatch, interface dispatch, or constructed-base
   member code generation;
-- generic function values, delegates, lambdas, closure conversion, and runtime type parameters;
+- open/runtime-polymorphic generic function values, delegates, lambdas, closure conversion, and
+  runtime type parameters; closed monomorphic generic function references are covered separately;
 - generic public C exports, generic `.solib` ABI, cross-module cache identity, and precompiled
   downstream instances;
 - nullable, fixed-array, tuple, arbitrary nominal, ref-like, half, quad, nested-array, or otherwise

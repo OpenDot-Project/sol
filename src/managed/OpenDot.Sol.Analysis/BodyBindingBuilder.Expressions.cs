@@ -27,7 +27,7 @@ internal sealed partial class BodyBindingBuilder
             var value = expression switch
             {
                 AstAtom atom => Atom(atom, state, context, expected, read),
-                AstMember member => Member(member, state, context, read),
+                AstMember member => Member(member, state, context, read, expected),
                 AstCall call => SafeCall(call, state, context, expected),
                 AstOperation operation => Operation(operation, state, context, expected),
                 AstSequence sequence => Sequence(sequence, state, context, expected),
@@ -42,7 +42,14 @@ internal sealed partial class BodyBindingBuilder
             var status = Diagnostics.Count != errors ? BodyBindingStatus.Invalid
                 : value.Type is null || _deferred.Contains(expression) ? BodyBindingStatus.Deferred : BodyBindingStatus.Bound;
             Expressions[expression] = new(expression, value.Type, status, value.Writable, value.Storage,
-                state.Effects.OrderBy(t => t.Id).ToImmutableArray());
+                state.Effects.OrderBy(t => t.Id).ToImmutableArray())
+            {
+                FunctionValueTarget = value.Type?.Kind == ResolvedTypeKind.Function
+                    ? value.Symbol?.Parts[0] as AstFunction : null,
+                FunctionValueTypeArguments = value.Type?.Kind == ResolvedTypeKind.Function
+                    && !value.FunctionValueTypeArguments.IsDefault
+                    ? value.FunctionValueTypeArguments : [],
+            };
             if (value.Type?.Kind == ResolvedTypeKind.Bottom) { state.Reachable = false; }
             return value;
         }
@@ -105,14 +112,19 @@ internal sealed partial class BodyBindingBuilder
             return new(type, local.IsMutable, local.Kind != LocalSymbolKind.ConstructorProperty, local);
         }
         var symbols = lookup.Declarations.Candidates;
-        if (symbols.Length == 1) { return SymbolValue(symbols[0], ContainingType(atom), atom, state, context, read); }
+        if (symbols.Length == 1)
+        { return SymbolValue(symbols[0], ContainingType(atom), atom, state, context, read, expected: expected); }
         if (symbols.IsEmpty && ContainingType(atom) is { } receiver)
         {
             var inherited = FindMembers(receiver, atom.Spelling, atom).ToArray();
             if (inherited.Length == 1) { return SymbolValue(inherited[0].Symbol, inherited[0].DeclaringType, atom, state, context, read); }
+            if (inherited.Length > 1 && inherited.All(member => member.Symbol.Kind == SymbolKind.Function))
+            { Defer(atom); return new(null); }
+            if (inherited.Length > 1) { Report("SOL2212", "Ambiguous inherited value name.", atom); return new(null); }
         }
         if (symbols.IsEmpty) { Report("SOL2211", "Unresolved value name: " + atom.Spelling, atom); }
         else if (symbols.Any(s => s.Kind != SymbolKind.Function)) { Report("SOL2212", "Ambiguous value name.", atom); }
+        else { return OverloadedFunctionValue(atom, symbols, expected); }
         return new(null);
     }
 

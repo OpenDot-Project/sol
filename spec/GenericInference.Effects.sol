@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative generic effect inference contract; bounded unique recursive set matching is implemented.
+// Status: normative generic effect inference contract; bounded unique recursive relation-aware set matching is implemented.
 module source.spec.generic_inference.effects
 
 // Generic parameters and checked effect sets
@@ -28,7 +28,9 @@ module source.spec.generic_inference.effects
 //
 // 1. It is also solved from an ordinary parameter/result position. Substitution closes the effect.
 // 2. It occurs in an expected callback effect set. Bounded unordered matching may infer multiple
-//    parameters when exactly one mapping exists between constructed patterns and actual identities.
+//    parameters when exactly one relation-compatible mapping exists between required source
+//    patterns and actual/expected identities. A callback actual may contain fewer effects than its
+//    formal budget; unused open formal patterns still require independent evidence.
 // 3. It occurs only in the actual lambda body's effect set. Candidate-local contextual lambda
 //    checking may contribute an upper/lower relation under the declared function contract.
 // 4. It occurs in multiple unordered effects with more than one possible pairing. The candidate is
@@ -36,7 +38,7 @@ module source.spec.generic_inference.effects
 //
 // The current implementation handles case 1 when the variable also occurs in supported structural
 // parameter/result positions. Candidate-local lambda analysis handles case 2 when the complete
-// mapping is unique. If comparing constructed effect identities exposes another function-type
+// relation-aware mapping is unique. If comparing constructed effect identities exposes another function-type
 // effect set, the matcher recursively solves that set under the same search budget. Ambiguous or
 // incomplete nested evidence stays deferred. This is not complete flow/catch or native effect
 // verification.

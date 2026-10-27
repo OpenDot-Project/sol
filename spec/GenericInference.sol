@@ -235,14 +235,17 @@ module source.spec.generic_inference
 //
 // Checked effects are part of a function type. An ordinary generic call substitutes written effect
 // types after inference. Effect parameters are not matched positionally because an effect list is
-// an unordered set. Bounded top-level inference accepts a unique complete bijection after
-// structural matching and constraints; ambiguous or nested function-type sets remain unresolved.
+// an unordered set. Bounded inference accepts one complete relation-aware mapping: an actual
+// callback's effects can be a subset of its formal budget, and a generic result's effects can be a
+// subset of the expected budget. Open effect patterns that remain unmatched still need independent
+// evidence; ambiguity or nested unresolved sets remain deferred.
 // RuntimeException and its subtypes remain unchecked and do not add a required effect.
 //
 // When a generic call returns a function value, the expected function type may constrain the
-// generic result and function parameter/result shapes. Parameter passing modes are exact. A
-// function that may throw a checked exception cannot be inferred into an expected callback whose
-// effect budget excludes it.
+// generic result and function parameter/result shapes. Value parameters are contravariant, results
+// are covariant, and nested function shapes reverse direction at each value-parameter boundary.
+// Parameter passing modes are exact; ref/out storage types are invariant. A function that may throw
+// a checked exception cannot be inferred into an expected callback whose effect budget excludes it.
 //
 // A lambda body can add effects only after its contextual function type is known. Candidate-local
 // lambda analysis must retain separate flow, effects, and diagnostics for each possible target or

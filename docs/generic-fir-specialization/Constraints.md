@@ -43,9 +43,10 @@ types. It rejects ref-like types and nominal user types as generic type argument
 constraint does not add a native layout for its implementing type.
 
 Generic owners, generic methods, generic constructors, generic property accessors, generic operators,
-open type arguments, generic function values, and cross-container generic exports are not admitted
-by this FIR slice. A source candidate may be valid while native emission reports that the selected
-construct is outside the current subset.
+open type arguments, and cross-container generic exports are not admitted by this FIR slice. A
+module-level generic function may be used as a monomorphic value when its expected function type
+closes every parameter and the resulting body and signature are supported. A source candidate may
+still be valid while native emission reports that its selected construct is outside the subset.
 
 ## 3. Constraint forms
 
@@ -260,10 +261,11 @@ the members guaranteed by those bounds. This is a source semantic capability. It
 the generic member call has a native lowering or that the concrete implementation can be dispatched
 without a generic dictionary, vtable, or boxing operation.
 
-The full per-specialization source-rebind pass remains future work. Current FIR substitutes existing
-bound types and then applies its independent verifier. That verifier prevents open types and mismatched
-source signatures from reaching LLVM; it does not recreate every source overload/member decision for
-each closed argument.
+Closed generic instances run a fresh `BodyAnalysis` under the concrete substitution before FIR is
+built. This rebinds the operation and call forms represented by that analysis path, then the
+independent verifier checks source correspondence and native support. It does not provide generic
+member dispatch through bounds, owner layouts, or every operation in the language; those remain
+outside the verified subset.
 
 ## 12. Constraint recheck at the FIR boundary
 
@@ -599,7 +601,7 @@ end-to-end success message:
 - ABI evidence shows supported scalar/String forms lower through their existing representations.
 - Runtime evidence shows array/String references retain the expected GC root behavior.
 - Error evidence shows unsupported native types do not turn into source constraint errors.
-- Serialization evidence shows function and call type arguments appear under FIR schema 5.
+- Serialization evidence shows function and call type arguments appear under FIR schema 6.
 - Build evidence shows the managed FIR assembly compiles with the current SDK and analyzers.
 - CI evidence shows the branch's mandatory workflow has exercised the changed paths.
 

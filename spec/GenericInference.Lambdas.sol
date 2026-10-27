@@ -67,15 +67,20 @@ module source.spec.generic_inference.lambdas
 
 // Function variance and inference
 // -------------------------------
-// Function parameter modes must match. Sol generic nominal applications are invariant. Function
-// parameter/result conversion relations follow the function-type conversion contract only after
-// the generic variables are solved. An inference implementation cannot assume arbitrary nominal
-// variance for callback wrappers.
+// Function types are contravariant in value parameters and covariant in their result. Ref/out
+// parameter modes must match and their storage types are invariant. Checked effects use the
+// separate function-effect subset relation. Nominal generic applications remain invariant.
 //
-// If a generic variable appears in both the callback parameter and result, collect the respective
-// structural constraints without treating the result position as an ordinary lower bound. The
-// expected function type and actual lambda shape provide the direction. The resulting unique
-// substitution must make the whole function type convertible.
+// When an actual function value is matched against a generic formal function parameter, inference
+// reverses the evidence direction for each value parameter and keeps the direction for the result.
+// When a generic function result is matched against an expected function type, parameter evidence
+// likewise reverses while result evidence keeps the expected-result direction. Each nested
+// function-valued parameter reverses direction again. A ref/out slot contributes exact identity
+// evidence instead of directional evidence.
+//
+// If T occurs in both a callback parameter and result, the solver retains both bounds and chooses T
+// only when one source type satisfies them and the final function conversion succeeds. This rejects
+// a callback whose parameter is too narrow or whose result is too broad.
 
 // Ref/out callback parameters
 // ---------------------------

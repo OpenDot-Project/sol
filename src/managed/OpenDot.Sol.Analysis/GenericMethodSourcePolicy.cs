@@ -16,9 +16,14 @@ internal static class GenericMethodSourcePolicy
 
     internal static bool IsSupportedGenericObjectMethod(AstFunction function, SourceAnalysis analysis)
     {
+        return function.TypeParameters.Any() && IsSupportedStatelessObjectMethod(function, analysis);
+    }
+
+    internal static bool IsSupportedStatelessObjectMethod(AstFunction function, SourceAnalysis analysis)
+    {
         ArgumentNullException.ThrowIfNull(function);
         ArgumentNullException.ThrowIfNull(analysis);
-        if (!function.TypeParameters.Any() || function.ReturnsByReference || function.Body.Kind == AstBodyKind.Missing
+        if (function.ReturnsByReference || function.Body.Kind == AstBodyKind.Missing
             || function.IsCheckedOperator || function.Origin.Element.Tokens.Any(token => token.Kind == SyntaxKind.OperatorKeyword)
             || function.Modifiers.Any(IsVirtualModifier) || function.Annotations.Any())
         { return false; }

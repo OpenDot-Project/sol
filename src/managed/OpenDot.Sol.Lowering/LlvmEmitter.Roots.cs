@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using OpenDot.Sol.Analysis;
 using OpenDot.Sol.Ast;
 using OpenDot.Sol.Fir;
 
@@ -15,7 +16,8 @@ public sealed partial class LlvmEmitter
     private void BeginRoots(FirFunction function)
     {
         _rootCount = 0;
-        var slots = function.Slots.Where(s => Type(s.Type) == "ptr" && !(s.IsParameter && s.Mode is AstPassingMode.Ref or AstPassingMode.Out)).ToArray();
+        var slots = function.Slots.Where(s => IsManagedReference(s.Type)
+            && !(s.IsParameter && s.Mode is AstPassingMode.Ref or AstPassingMode.Out)).ToArray();
         _rootCapacity = Math.Max(1, checked(slots.Length + CountTemporaryRoots(function.Body!)));
         long arrayType = Op(LlvmOperation.ArrayType, T("ptr"), data: _rootCapacity);
         _roots = Op(LlvmOperation.Alloca, arrayType, data: 8);
@@ -30,13 +32,13 @@ public sealed partial class LlvmEmitter
     private long RootAddress(int index) => Gep(T("ptr"), _roots, Int(index, "i64"));
     private Value KeepAlive(Value value)
     {
-        if (value.Type != "ptr") { return value; }
+        if (value.Type != "ptr" || !IsManagedReference(value.SourceType)) { return value; }
         if (_rootCount >= _rootCapacity) { throw new InvalidOperationException("FIR root inventory is incomplete."); }
         Call("sol_gc_store_ref", RootAddress(_rootCount++), value.Operand); return value;
     }
     private void Store(Value value, long address)
     {
-        if (value.Type == "ptr") { Call("sol_gc_store_ref", address, value.Operand); }
+        if (value.Type == "ptr" && IsManagedReference(value.SourceType)) { Call("sol_gc_store_ref", address, value.Operand); }
         else { Op(LlvmOperation.Store, args: [value.Operand, address]); }
     }
     private void EndRoots() => Call("sol_gc_pop_frame", _rootFrame);
@@ -44,7 +46,7 @@ public sealed partial class LlvmEmitter
     // A prepass counts syntactic root sites. Each loop iteration reuses those stack slots.
     private static int CountTemporaryRoots(FirNode node)
     {
-        int own = node is FirExpression expression && Type(expression.Type) == "ptr" ? 1 : 0;
+        int own = node is FirExpression expression && IsManagedReference(expression.Type) ? 1 : 0;
         if (node is FirArrayLiteral) { ++own; } // Partially initialized array before evaluating its elements.
         IEnumerable<FirNode> children = node switch
         {
@@ -53,10 +55,20 @@ public sealed partial class LlvmEmitter
             FirIf n => n.Else is null ? [n.Condition, n.Then] : [n.Condition, n.Then, n.Else],
             FirLoop n => new FirNode?[] { n.Initializer, n.Condition, n.Body, n.Update }.OfType<FirNode>(),
             FirArrayForEach n => [n.Array, n.Body],
-            FirCallValueReference => [], FirUnary n => [n.Value], FirBinary n => [n.Left, n.Right], FirArrayLength n => [n.Array],
+            FirFunctionReference or FirCallValueReference => [],
+            FirIndirectCall n => new FirNode[] { n.Function }.Concat(n.Arguments.Select(argument => argument.Value)),
+            FirUnary n => [n.Value], FirBinary n => [n.Left, n.Right], FirArrayLength n => [n.Array],
             FirArrayIndex n => [n.Array, n.Index], FirArrayLiteral n => n.Elements,
             FirIntrinsic n => n.Arguments, FirCall n => n.Arguments.Select(a => a.Value), _ => [],
         };
         return checked(own + children.Sum(CountTemporaryRoots));
     }
+
+    private static bool IsManagedReference(ResolvedType type) => type.Kind switch
+    {
+        ResolvedTypeKind.Array or ResolvedTypeKind.Nominal => true,
+        ResolvedTypeKind.Nullable => IsManagedReference(type.Arguments[0]),
+        ResolvedTypeKind.Function => false,
+        _ => FirVerifier.IsString(type),
+    };
 }

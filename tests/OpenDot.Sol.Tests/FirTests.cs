@@ -16,7 +16,8 @@ public sealed class FirTests
         AstTestSources.Parse("import std.stdio\n" + declarations + "\nobject Main { func main(args: []String) throws IOException { " + body + " } }")], TestContext.Current.CancellationToken);
     private static VerifiedFirProgram Valid(FirCompilation compilation)
     {
-        Assert.NotNull(compilation.Program);
+        Assert.True(compilation.Program is not null,
+            string.Join('\n', compilation.Diagnostics.Select(diagnostic => diagnostic.Code + " " + diagnostic.Message)));
         Assert.Empty(compilation.Diagnostics);
         return compilation.Program;
     }
@@ -63,12 +64,20 @@ public sealed class FirTests
     [InlineData("println(default<int>())")]
     [InlineData("println(overflow())", "func overflow(): byte = 256")]
     [InlineData("println(1)", "val globalValue = 42")]
-    [InlineData("stop()", "func stop(): ! { for {} }")]
     public void UnsafeOrUnqualifiedSourceNeverProducesVerifiedFir(string body, string declarations = "")
     {
         var result = Compile(body, declarations);
         Assert.Null(result.Program);
         Assert.NotEmpty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void BottomCallsAreValidAndDoNotReturnNormally()
+    {
+        var program = Valid(Compile("stop()", "func stop(): ! { for {} }"));
+        string llvm = LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains("Unreachable", llvm, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("ret void", llvm, System.StringComparison.Ordinal);
     }
 
     [Theory]
@@ -86,7 +95,7 @@ public sealed class FirTests
         string json = FirJson.Serialize(program, TestContext.Current.CancellationToken);
         using var document = JsonDocument.Parse(json);
         Assert.True(document.RootElement.GetProperty("verified").GetBoolean());
-        Assert.Equal(5, document.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(6, document.RootElement.GetProperty("schema").GetInt32());
         Assert.DoesNotContain("<solrt>", json);
         Assert.NotEmpty(document.RootElement.GetProperty("flow").EnumerateArray());
         Assert.Equal(json, FirJson.Serialize(program, TestContext.Current.CancellationToken));

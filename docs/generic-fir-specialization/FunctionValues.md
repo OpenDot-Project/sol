@@ -6,11 +6,12 @@ This guide defines the boundary between a direct generic call, a function value,
 closure. These forms can share the same visible parameter and result types, but they have different
 selection, lifetime, execution, and ABI requirements.
 
-The current implementation has a bounded native FIR path for selected module-level generic free
-function calls. It does not have a native representation for function references, closure
-environments, generic function values, or indirect calls. Source body analysis can understand
-selected function-value and lambda shapes, but source analysis alone does not authorize native
-emission.
+The current implementation has bounded native FIR paths for selected module-level generic free
+function calls and for monomorphic values of generic module-level functions or methods on eligible
+stateless top-level `object` declarations. It does not have a native representation for closure
+environments, receiver-bound method values, or lambda closures.
+Source body analysis can understand additional function-value and lambda shapes, but source analysis
+alone does not authorize native emission.
 
 The normative examples are in [GenericFirFunctionValues.sol](../../spec/GenericFirFunctionValues.sol)
 and [the semantic case matrix](../../spec/examples/semantics/GenericFirFunctionValues.sol). This page
@@ -23,14 +24,15 @@ listed scenarios have been executed.
 |---|---|---|
 | Generic function declaration | One source declaration with owner-scoped type parameters | Source declaration and constraints are available to analysis. |
 | Direct generic call | One selected declaration and one ordered, closed type-argument list | Bounded monomorphic FIR specialization is implemented. |
-| Function value | A callable value with one resolved function type and possibly an environment | No verified FIR node or native ABI. |
+| Generic function value | A generic declaration closed to one concrete function type at the value site | Bounded monomorphic FIR specialization is implemented for eligible free functions and stateless singleton methods. |
+| Function value with an environment | A callable value with a receiver or captured lexical storage | No verified FIR node or native ABI. |
 | Lambda or anonymous function | A source expression with contextual parameter/result types, effects, flow and captures | Partial source body analysis; native closure conversion is rejected. |
 
 The distinctions are observable. A direct call executes a selected function now. A function value
 can be stored, returned, passed to another function, or invoked after the expression that created
-it. A closure can retain locals beyond their lexical stack frame. A generic function value may need
-to preserve type parameters after the expression site has disappeared. These are not consequences
-of simple type substitution.
+it. A closure can retain locals beyond their lexical stack frame. Sol closes a generic function
+value at its source site; the stored value is monomorphic and carries no open generic parameters.
+That rule does not define closure environments or polymorphic runtime dispatch.
 
 ## Status vocabulary
 
@@ -66,49 +68,118 @@ can proceed into native lowering. The current backend builds LLVM structures thr
 
 This path produces a normal direct call edge. It does not create a function pointer, descriptor,
 closure environment, trampoline, virtual dispatch entry, or runtime generic dictionary. The
-implemented generic body facts are substituted from source analysis; full per-instance semantic
-rebinding remains future work.
+Each closed instance gets a fresh `BodyAnalysis` pass under its type substitution. That pass rechecks
+the body bindings, overload/operator choices, effects, and flow facts represented by the current
+analysis surface. This is not complete support for every language construct: unsupported specialized
+operations still stop at the verified FIR boundary.
 
-## Function values are not inferred by calling a function
+## Closing a generic function value from context
 
 The expression `identity` in a value context is not equivalent to `identity(0)`. The latter is a
-call that evaluates an argument and returns a value. The former requests a callable object or code
-reference. It needs a rule that selects an overload, closes generic parameters, preserves declared
-effects, and specifies whether the result carries an environment.
+call that evaluates an argument and returns a value. The former selects a declaration and requests a
+callable code reference. It does not execute the target, evaluate defaults, or create a closure.
 
-The language does not currently specify a generic reference suffix or a runtime-polymorphic function
-value. The implementation must not invent syntax such as an ad hoc type-argument suffix, synthesize
-a dummy call, or create an invisible closure as a convenience. A proposal must define the surface
-syntax and semantics before a backend chooses a representation.
+No reference suffix is needed. A generic function name in a value context uses the expected function
+type to infer every generic type parameter. For example, `val callback: (String) -> String =
+identity` selects the closed `identity<String>` instance. An explicit generic argument list belongs
+to call syntax; the compiler does not invent a second reference syntax.
 
-An expected function type can constrain a future value conversion, but it must not execute the
-target or evaluate declaration defaults. The target may escape and be invoked in a different context.
-Any inference performed at the value expression must close all required generic parameters and
-remain valid for every invocation permitted by the resulting type.
+Inference follows the direction of function-value conversion: the selected source function must
+convert to the expected target type. Value parameters reverse the relation, results preserve it,
+ref/out parameters require exact storage identity, and source checked effects must fit the target
+effect budget. Every generic parameter must have one solution and satisfy its declared constraints.
+The resulting value is monomorphic even when stored or returned.
+
+If a parameter cannot be inferred uniquely, candidate analysis stays deferred. If the closed
+signature or constraints are incompatible, that candidate is inapplicable. Candidate bodies,
+defaults, and code-generation support do not contribute inference evidence. No dummy call executes
+the target to discover its type.
 
 ## Candidate selection in a value context
 
-An overloaded function name in a value position is a candidate group. A future conversion rule must
-filter candidates by visibility, parameter count, parameter types/modes, result type, and declared
-effect compatibility. It must then apply one documented ranking relation over the complete
-candidate set.
+An overloaded function name in a value position is a candidate group. `BodyAnalysis` selects a
+candidate when an expected function type exists and every candidate that could affect the result is
+either decidable or explicitly deferred. Eligible candidates are module-level functions or methods
+declared on a stateless top-level `object`, with explicit parameter types and a result type that is
+either declared or inferred by ordinary body analysis. Such object methods have no hidden receiver in FIR: the object has no instance state,
+constructors, bases, initialization, or non-function members, and the method group cannot use
+`this`, `super`, or virtual dispatch. Generic candidates are closed
+from the expected function type and their constraints are checked before ranking. Candidate
+compatibility uses the resolved function conversion rules, including variance, ref/out identity,
+and checked-effect coverage. Candidate bodies and defaults do not contribute evidence. The selected
+declaration, function type, and ordered generic arguments are recorded on `ExpressionBinding`.
+
+Candidates rank by identity, intrinsic reference conversion, then boxing. If conversion ranks tie,
+an otherwise equivalent non-generic declaration is preferred; it does not beat a generic candidate
+with a strictly better conversion. Remaining equal best candidates produce `SOL2212`; no applicable
+candidate produces `SOL2206`. Declaration order does not break ties. An overloaded name without an
+expected function type remains deferred. A candidate whose signature, inference result, or
+constraints remain indeterminate keeps the group deferred because it could change the winner.
+Receiver-bound or signature-incomplete candidates also remain deferred. Declarations imported from
+multiple modules remain ambiguous. A single non-generic function reference retains the existing
+source behavior without overload ranking.
 
 Candidate analysis is non-executing. It does not run a getter, default expression, lambda body,
-constructor, or generic body to learn whether a candidate fits. Candidate-local inference facts are
-isolated and are published only after one candidate wins. Deferred candidates cannot be silently
-discarded when they could change the result.
+constructor, or generic body to learn whether a candidate fits. An expression-body result already
+inferred by ordinary body analysis is part of the function's resolved signature; inspecting that
+type does not execute the body or use its operations as generic argument evidence. Candidate-local
+inference facts are isolated and are published only after one candidate wins. Deferred candidates
+cannot be silently discarded when they could change the result.
 
 | Candidate result | Required behavior |
 |---|---|
-| One unique applicable candidate | Convert only if all generic arguments and ABI obligations are closed. |
-| No applicable candidate | Report a source value-conversion error. |
-| Equal best candidates | Report ambiguity with candidate origins. |
-| A candidate remains semantically deferred | Preserve Deferred if the candidate could alter the winner. |
-| Winner is outside native FIR | Reject native emission for that winner; never fall back to another overload. |
+| One unique applicable candidate | Record source binding and closed generic arguments; FIR admits an eligible free-function or stateless-object target with an exact native signature. |
+| No applicable candidate | Report `SOL2206` at the value expression. |
+| Equal best candidates | Report `SOL2212`; do not record a winner. |
+| A candidate remains semantically deferred | Preserve Deferred if the candidate could alter the result. |
+| A generic candidate with missing or indeterminate evidence | Preserve Deferred; do not discard a possible winner. |
+| A receiver-bound group | Preserve Deferred; no bound receiver or closure is fabricated. |
+| Declarations come from multiple modules | The source lookup reports `SOL2002`; imported modules do not form one overload set. |
+| A selected function value has no verified native ABI | Reject with `SOL2400`; adapters, closures, open generic targets, and receiver captures are not fabricated. |
 
-The detailed ranking rules belong to generic call and overload analysis. A backend must not choose a
-candidate based on code-generation convenience, symbol order, declaration order, or whether its body
-happens to be lowerable.
+This ranking is a bounded source-analysis rule for free functions and eligible stateless-object
+methods. A backend must not
+choose a candidate based on code-generation convenience, symbol order, declaration order, or whether
+its body happens to be lowerable.
+
+## Verified native function values
+
+Verified FIR represents a supported named function value as `FirFunctionReference(target, type)`.
+The target may be a generic module-level function or eligible stateless-object method only after it
+has a source body, one ordered closed
+specialization argument list, a closed supported signature, and an exact match between its parameter
+modes, parameter types, result type, and checked effects. The verifier checks that target
+specialization arguments match source inference. A reference from an ordinary function roots that
+instance in the FIR specialization graph; a reference from another generic instance adds a graph
+edge. Overload selection is completed in source analysis, and FIR does not choose a different
+overload to suit code generation.
+
+`FirIndirectCall` carries the function expression, declaration-ordered arguments, result type, and
+source origin. Its verifier checks arity, parameter indexes, exact value/ref/out types and modes,
+the return type, and the function type's checked effects. Out arguments produce CFG writes only after
+the call; ref arguments are read before it. The flow graph records a null direct target with the
+function type's declared effect set. The LLVM 23.1.3 C++ bridge creates a `FunctionType` and emits
+`CreateCall` with the function pointer. Source expressions and calls are matched back to their
+resolved AST bindings before verified FIR is returned.
+
+The native ABI admits monomorphic function values as locals, parameters, return values,
+direct-call arguments, and indirect-call targets, including references to closed generic instances.
+It also admits non-null arrays of those values. A function array stores the raw code pointer at
+pointer width; the Yellow Tea element descriptor has no reference scan shape. `[]((int) -> int)`
+can therefore hold a direct reference or an eligible closed generic reference, and `callbacks[i](x)`
+loads the exact signature before an indirect call. Nested arrays use a normal traced array reference at
+each outer level and retain the scalar/no-scan function-pointer descriptor at the leaf. Empty arrays
+require the function element type.
+The array object itself remains a managed root during allocation and initialization, but code
+addresses are never passed to the collector as `Header*` references.
+
+Receiver-bound method values, variance adapters, nullable function values, and lambda/anonymous-
+function closures remain outside the subset. A source-valid function reference conversion may still
+be rejected by FIR when its signature is not exact; no ABI cast is used as a substitute for an
+adapter. A capturing lambda cannot be stored merely because its source type matches a function
+array. Closures need their own environment layout, escape and thread-transfer rules, and GC tracing
+contract; the static function-pointer path does not claim those properties. See the executable
+array cases in [FunctionValueArrayStorage.sol](../../spec/examples/semantics/FunctionValueArrayStorage.sol).
 
 ## Function types and identity
 
@@ -121,9 +192,17 @@ budget. A conversion cannot erase a checked effect merely because an LLVM callin
 not encode exceptions. A callback that can throw `IOException` cannot be assigned to a context that
 promises no checked effect unless a source rule handles that effect.
 
-Sol has not completed general function variance and effect conversion. Until those rules are
-implemented, exact structural function-type identity is a safe boundary. Machine-code pointer
-compatibility, equal word size, or a cast does not establish source compatibility.
+Function compatibility is directional. Parameter modes and arity must match. Value parameters are
+contravariant, results are covariant, ref/out storage types must be identical, and the source
+function's checked effects must fit inside the target effect budget. A target may allow extra effects
+that the source never raises. Nested function values apply the same rules recursively, so every
+value-parameter edge reverses direction. Generic nominal applications remain invariant.
+
+The generic inference solver collects bounds with the same direction: value-parameter occurrences
+reverse input/expected relations, result occurrences preserve them, and ref/out occurrences require
+exact identity. The fully specialized function type is checked for conversion after a unique type
+substitution has been selected. A machine-code pointer cast, equal word size, or wrapper omission
+does not establish source compatibility.
 
 For a function type containing ref or out, both the mode and exact storage type matter. Ref/out
 arguments cannot be widened, boxed, copied to a temporary, or represented by a read-only closure
@@ -148,8 +227,8 @@ must restore temporary expressions, locals, flow facts, diagnostics, and effects
 lambda is then analyzed under the final selected type substitution.
 
 This candidate-local source analysis does not mean the lambda can be emitted inside a generic FIR
-instance. If the generic body invokes a callback, current verified FIR has no indirect-call node and
-the native gate rejects the function-value operation.
+instance. A closed generic instance may invoke a supported function-typed parameter through
+`FirIndirectCall`; creating a lambda or closure remains outside the native subset.
 
 ## Generic lambdas versus contextually typed lambdas
 
@@ -178,9 +257,10 @@ callback can escape, store the address, capture it in another closure, transfer 
 or return it, the source contract must prove that each path is safe. Unknown indirect calls are
 conservative sinks until their effect and escape contract is available.
 
-The current body analyzer has ref/out call and assignment facts for supported forms. That does not
-qualify a native function-value call; the FIR call node is a direct target ID and the verifier checks
-the direct source binding.
+The body analyzer and verified indirect-call node preserve exact ref/out modes and caller storage.
+The verifier rejects non-storage, immutable, copied, or mode-mismatched arguments. An indirect out
+argument is written in CFG only after the call, so an exception edge cannot claim it was assigned
+normally. Escape analysis remains conservative: callbacks cannot capture or retain borrowed locations.
 
 ## Checked callback effects
 
@@ -193,25 +273,25 @@ For a generic effect parameter, substitution preserves the owning parameter iden
 is selected. The concrete effect must be a `Throwable` subtype and must fit the caller's checked
 budget after any catches or cleanup are applied. Effect sets are not matched positionally.
 
-The current source analysis includes checked effects for some function-value calls and lambda
-bodies. The generic native specialization verifier now validates selected direct-call effect
-metadata, but it cannot lower an indirect callback invocation. Runtime exception dispatch and source
-catch/finally/defer lowering remain separate backend requirements.
+Function types preserve checked effects through source binding, FIR verification, and indirect-call
+CFG metadata. The verifier checks that every effect is a `Throwable` subtype and that the source
+invocation fits the caller's declared budget. Native exception dispatch and source catch/finally/defer
+lowering remain separate backend requirements; carrying an effect set does not implement Windows
+exception delivery.
 
 ## Defaults and varargs
 
-Defaults and varargs belong to a selected declaration. A function type does not, by itself, identify
-the declaration whose default expression scope should be used. A generic function reference may
-also be overloaded across declarations with different defaults or vararg positions.
+Defaults and varargs belong to a selected declaration. A function type does not carry declaration
+default-expression metadata. Calling through a function value therefore requires every function-type
+parameter; the indirect call does not synthesize omitted defaults or evaluate a declaration's default
+expression. A source function's vararg parameter is represented in its function type as one array
+parameter. An indirect call supplies that array as one argument and does not expand elements.
 
-A future reference conversion must decide whether a generated wrapper preserves defaults, requires
-the caller to pass every function-type parameter, or has another explicit rule. It must define the
-vararg's source-level sequence and whether a call passes a named array, expanded elements, or both.
-Defaults are call-time expressions evaluated in the declaring callable's parameter scope; a value
-conversion cannot eagerly execute them.
-
-Until that rule exists, the generic direct-call argument mapper cannot be used as proof that a
-function value accepts omitted arguments or a vararg expansion.
+This rule does not reuse the direct-call argument mapper. Defaults remain available only when the
+source calls a declaration directly, and vararg expansion remains a direct-call mapping operation.
+The current FIR subset admits positional arguments only. A vararg target is called by passing its
+already-formed array parameter; it is not expanded at the indirect-call site. Named arguments and
+trailing-lambda mapping are not encoded in a function type and are rejected by this FIR path.
 
 ## Capture and closure environments
 
@@ -255,10 +335,17 @@ must not extend a stack borrow.
 
 ## Indirect call execution
 
-An indirect call evaluates the target once, evaluates arguments once in source order, performs
-declared default/vararg mapping if allowed, and invokes the concrete function type. It needs explicit
-exceptional and normal flow edges. Ref/out effects update the caller's storage state only according
-to the callback's normal-return contract.
+An indirect call evaluates the target once, evaluates positional arguments once in source order, and
+invokes the concrete function type. The current verifier requires exact arity, parameter order,
+passing mode, parameter type, and result type. It does not perform named/default/vararg mapping at
+the function-value boundary. A vararg declaration's array parameter is one ordinary function-type
+parameter.
+
+The FIR flow graph records an indirect call with no direct target and the function type's declared
+effect set. `ref` locations are read before the call; `out` locations become assigned only after the
+normal call edge. This represents the declared function contract, not proof that an arbitrary
+implementation actually writes each `out` location. Body verification and source binding must keep
+the target signature anchored to the selected declaration.
 
 Before execution, the compiler/runtime must validate or guarantee a non-null callable target. It
 must preserve the actual target identity through control flow and optimization. A nullable function
@@ -270,15 +357,18 @@ correctly. AOT and ORC may lower the call differently, but cannot change these s
 
 ## Current FIR representation
 
-The existing FIR model has `FirFunction`, `FirCall`, slots, statements, and expression nodes for the
-admitted native subset. A direct generic `FirCall` records its ordered closed `TypeArguments` and
-the exact monomorphic function ID. There is no `FirFunctionReference`, `FirClosure`, `FirIndirectCall`,
-closure environment, or runtime generic descriptor.
+The FIR model includes `FirFunctionReference(target, type)` and
+`FirIndirectCall(function, arguments, result, origin)`, in addition to direct `FirCall` and ordinary
+slots/statements. A direct generic `FirCall` records ordered closed `TypeArguments` and its exact
+monomorphic function ID. A supported generic function reference points to the same closed instance;
+the specialization graph records it as a root or edge so it cannot be omitted from code generation.
 
-`FirVerifier` requires calls to be anchored to a source call binding and checks the selected target,
-type arguments, concrete signature, effects, source origins, and reachability. This model proves a
-direct call edge. A local variable with a function type cannot be treated as the ID of an arbitrary
-source function without a new FIR node and independent verification rules.
+`FirVerifier` independently checks the reference against the source-selected declaration and exact
+closed signature. It checks indirect-call arity, parameter order, passing modes, exact types, result,
+effects, source correspondence, and writable caller storage for `ref`/`out`. The supported closure-
+free ABI is a raw code pointer with an exact signature. It does not represent an environment,
+receiver-bound method, nullable callable, or runtime generic dictionary. Capturing lambdas and
+closure environments remain rejected before LLVM lowering.
 
 `SOL2400` is the current native source-admission diagnostic for a shape outside this verified subset.
 `SOL2402` identifies an independent FIR verifier failure. `SOL2403` identifies a generic
@@ -288,9 +378,12 @@ must not be reported as one.
 ## LLVM and artifact boundary
 
 The LLVM backend consumes verified FIR and constructs LLVM objects through the LLVM 23.1.3 C++ API
-bridge. Function-value support must extend the verified FIR model and lowerer first. Creating a
-function pointer by casting a direct function symbol is not a source-level implementation of
-closure conversion.
+bridge. The admitted raw function references lower to the target's exact code pointer, and indirect
+calls use an LLVM `FunctionType` and `CreateCall`; no signature cast is used to emulate a source
+conversion. Arrays of supported function values store pointer-width scalar elements whose Yellow Tea
+descriptor has no managed-reference scan shape. Nested arrays retain normal tracing at each array
+reference level. This representation is valid only for the non-null, receiver-free function-pointer
+subset described above.
 
 AOT and ORC need consistent callback semantics. ORC executes in a separate guest process; process
 isolation does not transfer an untracked host pointer or a managed closure automatically. A future
@@ -409,12 +502,12 @@ receives them.
 
 ## Required conformance matrix
 
-Before generic function values are admitted to native FIR, qualification should include the
+Before broad function-value support is considered complete, qualification should include the
 following dimensions:
 
 | Dimension | Positive and negative cases |
 |---|---|
-| Generic target | Explicit closed arguments, inferred direct calls, open/foreign argument rejection |
+| Generic target | Expected-type inference, constraint rejection, missing evidence, closed specialization reachability |
 | Value conversion | Unique candidate, no candidate, ambiguous candidates, deferred candidate |
 | Lambda typing | Named, positional, typed, anonymous, trailing, nested, expected-result and bottom forms |
 | Effects | Matching checked budget, missing checked budget, unchecked exception, effect substitution |
@@ -432,10 +525,10 @@ does not prove that Yellow Tea sees every captured reference.
 
 ## Completion gates
 
-Function values can enter generic native FIR only after all relevant gates are implemented together:
+Broad function-value support is complete only after all relevant gates are implemented together:
 
-1. The language defines generic function references, overload-to-value ranking, function variance,
-   effect compatibility, defaults/varargs, and any polymorphic-lambda syntax.
+1. The language defines monomorphic generic function references, overload-to-value ranking, function
+   variance, effect compatibility, default/vararg restrictions, and polymorphic-lambda syntax.
 2. Source analysis produces stable target, type-argument, effect, capture, escape, and call-flow facts
    with source origins and deterministic candidate outcomes.
 3. FIR represents direct references, closures, indirect calls, and environment operations without
@@ -450,6 +543,13 @@ Function values can enter generic native FIR only after all relevant gates are i
 8. Positive and negative conformance cases run under the project's authorized regression, sanitizer,
    and fuzz workflows before the status page broadens its claim.
 
-Until these gates pass, the native generic feature remains a direct-call specialization slice. The
-language specifications may describe future function-value semantics, but public status must keep
-those semantics separate from current executable behavior.
+The bounded generic-reference and indirect-call path is implemented for module-level signatures
+that exactly match their native target, including closed generic references inferred from an
+expected function type. Generic vararg declarations use an array-valued function parameter, while
+generic `ref` and `out` parameters preserve their passing modes and `out` writes enter definite-
+assignment analysis after the indirect call. A non-null array may store these raw function pointers;
+its element descriptor has scalar pointer width and no Yellow Tea scan shape. The array may contain
+direct references or a function value passed through a typed parameter, but every produced value
+still uses the receiver-free code-pointer ABI. Capturing lambdas, receiver-bound methods, nullable
+function values, and non-identity adapters remain outside it. This does not define closure storage or
+make arbitrary function-shaped values safe to place in a managed array.

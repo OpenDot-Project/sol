@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative checked-effect candidate contract; bounded single-pattern inference is implemented.
+// Status: normative checked-effect candidate contract; bounded relation-aware set matching is implemented.
 module source.spec.generic_inference.effect_candidates
 
 // Generic checked effects on callback candidates
@@ -45,22 +45,30 @@ module source.spec.generic_inference.effect_candidates
 // ----------------------
 //
 // Let P be the formal effect set after fixed substitutions and A be the actual callback's checked
-// effect set. Split P into closed patterns F and open patterns O. A valid match must:
+// effect set. The relation determines which side must be covered:
 //
-// 1. match each fixed pattern in F to one equal constructed effect in A;
-// 2. preserve multiplicity only where source declaration rules require it; ordinary set members
-//    are deduplicated before this stage;
-// 3. derive constraints for O from the remaining actual effects without using array order;
-// 4. solve every resulting type bound and declared Throwable constraint;
-// 5. recheck the complete closed set after substitution; and
-// 6. prove that only one mapping is valid.
+// - For an actual callback passed to a formal callback, every member of A must fit one distinct
+//   member of P. Extra formal effect budgets may remain unused.
+// - For a generic callback result checked against an expected function type, every source pattern
+//   in P must fit one distinct budget in A. Extra expected budgets may remain unused.
+// - For an exact relation, both sets are complete and their normalized member counts must match.
 //
-// After fixed members are matched, bounded body analysis searches complete one-to-one mappings for
-// all open patterns. A unique assignment supplies exact constructed-type evidence for each pattern;
-// owner constraints are checked before evidence is published.
+// A closed pattern is checked using the corresponding source effect conversion. An open pattern
+// contributes directional structural evidence. A mapping is complete only when all required
+// members have one-to-one assignments and every open pattern relevant to that assignment closes
+// after substitution. An unmatched open formal pattern that remains unresolved cannot be ignored
+// merely because the actual set fits the other fixed budgets; inference remains missing. Duplicate
+// identical effects are removed before matching, and the algorithm never uses source order.
 //
-// If there are no remaining effects for one open pattern, that variable is missing. An empty actual
-// set does not infer `E = !`, Object, Throwable, RuntimeException, or a zero-member effect type.
+// Bounded body analysis explores the complete required-side assignment. It checks nested effect
+// sets, type bounds, and declared Throwable constraints before publishing evidence. If more than
+// one complete mapping remains, the candidate is ambiguous/deferred even when one mapping happens
+// to be visited first.
+//
+// If there are no actual effects for one open input pattern, that variable is missing. An empty
+// actual set does not infer `E = !`, Object, Throwable, RuntimeException, or a zero-member effect
+// type. A fixed broad budget may accept an actual effect without inferring an unrelated open E; that
+// candidate remains incomplete until E receives independent evidence.
 //
 // If there are two open patterns and one actual effect, a required parameter is missing. If two open
 // patterns and two actual effects can pair in multiple ways, the candidate is ambiguous/deferred.

@@ -300,7 +300,7 @@ second overload search. The table gives representative cases:
 | `add<T>(left, right: T) = left + right` with `Number` overloads for `Number` and `Object` | `Number` | Rejected after source selection | Closed source rebinding ranks `Number + Number` over `Number + Object`; FIR rejects the nominal body with `SOL2400` and does not retry a weaker overload |
 | `forward<T>(value: T) = id(value)` | `String` | Admitted for supported direct generic calls | Caller substitution closes the callee arguments |
 | generic member on `Box<T>` | any | Rejected | Generic owners and receiver substitution are not in this slice |
-| generic function value | any | Rejected or deferred | Indirect generic dispatch has no admitted FIR contract |
+| generic function value | a uniquely inferred closed signature | Admitted for supported free-function and stateless-object targets | FIR records the selected specialization and verifies the exact indirect-call ABI; missing evidence is deferred |
 
 The line between source rebinding and FIR admission is intentional. A closed instance can change
 operator and overload applicability; source analysis reruns those selections under the substitution.

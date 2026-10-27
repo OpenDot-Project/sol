@@ -13,9 +13,11 @@ The wider specialization boundary is described by the
 
 Development builds admit a narrow native specialization slice for direct calls to module-level
 generic free functions. The selected type arguments must be closed and supported by verified FIR.
-The current type set includes selected primitives, `String`, and one-level arrays whose elements
-are selected primitives or `String`. Bodies are constructed from already-bound source facts; the
-compiler does not perform complete per-instance source rebinding.
+The current type set includes selected primitives, `String`, nested managed arrays with supported
+leaf elements, and non-null receiver-free function pointers in arrays. Function pointer elements
+have an eight-byte scalar descriptor with no managed-reference scan shape; this is not a closure
+environment layout. Bodies are constructed from already-bound source facts; the compiler does not
+perform complete per-instance source rebinding.
 
 The native runtime has provisional object, String and array headers, exact descriptor scan shapes
 for the generated bootstrap subset, registered shadow roots, cooperative polls, and insertion
@@ -24,7 +26,7 @@ barriers. Its descriptor layout is still provisional version 0. The
 and their unfinished limits. They do not establish a stable runtime ABI, full generic layout support,
 or a latency guarantee.
 
-Generic nominal layouts, arbitrary nullable types, nested arrays, generic collections, spans,
+Generic nominal layouts, arbitrary nullable types, fixed arrays, generic collections, spans,
 ref-like storage, broad closures, and general borrow analysis remain outside the native generic
 slice. The generic FIR verifier checks the admitted source/type/call facts; it does not yet prove the
 complete layout, descriptor, root-liveness, or borrow contract described here.
@@ -129,8 +131,10 @@ reference item that stays live across a call or poll needs a root. A `var` loop 
 copy; writing an element requires explicit indexing.
 
 The current runtime has a 32-byte array prefix with count, stride and element type. The descriptor
-scan shape distinguishes supported String arrays from scalar arrays. This does not establish support
-for nested arrays, fixed arrays, nullable element arrays or arbitrary value-layout elements.
+scan shape distinguishes reference arrays from scalar arrays. Nested managed arrays trace inner
+array objects; a function-pointer leaf uses an eight-byte scalar descriptor and does not trace its
+code address. This does not establish support for fixed arrays, nullable element arrays or arbitrary
+value-layout elements.
 
 The intended `std.collections` APIs include `Vector<E>`, hash and ordered sets/maps, queues, deques,
 stacks, priority queues, `Span<T>` and `ReadOnlySpan<T>`. Imports and type signatures do not imply
@@ -297,7 +301,7 @@ Before lowering an instance, a future complete verifier must establish all of th
 
 Today, the source and FIR verifier cover a narrower type/call subset and the native bootstrap has
 specific qualified descriptor/root paths. The full checklist is a normative future requirement; it
-must not be described as already proven by schema-5 JSON or by successful parsing.
+must not be described as already proven by schema 6 JSON or by successful parsing.
 
 ## Artifact and compatibility consequences
 
@@ -404,7 +408,7 @@ payload changes; it does not authenticate a producer or confer verifier trust.
 | Subsystem | Current development inventory | Remaining proof before broader generic use |
 |---|---|---|
 | Object headers | Provisional object/String/array prefixes | Stable layout version, general type and partial field descriptors |
-| Array descriptors | Supported scalar/String one-level arrays | Nullable slots, nested arrays, fixed arrays, aggregate elements |
+| Array descriptors | Supported scalar/String/function-pointer leaves and nested managed-array references | Nullable slots, fixed arrays, aggregate elements, closure environments |
 | Root frames | Explicit attach/detach, registered roots and cooperative polls | Per-instance precise liveness through full CFG and exceptional cleanup |
 | Stores | Insertion barrier for generated supported references | Generic field/aggregate/collection writes with exact descriptor class |
 | Spans | Source contracts and semantic examples | End-to-end borrow owner, stack-map, ref/out, and escape verification |

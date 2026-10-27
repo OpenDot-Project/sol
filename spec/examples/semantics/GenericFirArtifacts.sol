@@ -563,7 +563,7 @@ object Main {
 //
 // case: FIR schema-four-reader
 // input: serialized verified FIR inspection output containing ordered function and call type args.
-// expected: a schema-aware reader recognizes schema 5; inspection alone is not trusted codegen.
+// expected: a schema-aware reader recognizes schema 6; inspection alone is not trusted codegen.
 
 // case: FIR schema-three-reader
 // input: consumer only understands schema 3.

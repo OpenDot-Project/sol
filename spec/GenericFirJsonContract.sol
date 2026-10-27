@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative inspection contract; the current serializer emits schema 5.
+// Status: normative inspection contract; the current serializer emits schema 6.
 module source.spec.generic_fir_json_contract
 
 // FIR JSON inspection and generic source identity
@@ -15,16 +15,18 @@ module source.spec.generic_fir_json_contract
 //
 // Current implementation status:
 //
-// - `FirJson.Serialize` emits root schema version 5 and `verified: true`.
+// - `FirJson.Serialize` emits root schema version 6 and `verified: true`.
 // - Function records carry `specializationArguments` as declaration-ordered type IDs.
 // - Call nodes carry `typeArguments` as declaration-ordered type IDs.
 // - Call argument arrays preserve explicit source order followed by omitted defaults in formal order.
 // - `FirCallValueReference` identifies a previously captured value in that call argument array.
-// - The `types` table describes IDs available in the producing analysis workspace.
+// - The `types` table describes IDs available in the producing analysis workspace, including function parameter modes and effects.
+// - `FirFunctionReference` and `FirIndirectCall` describe admitted noncapturing module-function values.
+// - Indirect flow-call records use a null `target` and preserve the function type's declared effects.
 // - FIR verification precedes `VerifiedFirProgram` construction and serialization.
 // - Node and flow spans carry source offsets, but no stable source-file key is serialized.
 // - Diagnostic codes SOL2400, SOL2402, and SOL2403 describe separate phase boundaries.
-// - Schema 5 is an implementation inspection revision, not the public Sol ABI version.
+// - schema 6 is an implementation inspection revision, not the public Sol ABI version.
 //
 // Full source file identity, reproducible cross-build IDs, cache serialization, debug path policy,
 // source-map packaging, and public diagnostic JSON remain separate contracts to be completed.
@@ -74,18 +76,18 @@ module source.spec.generic_fir_json_contract
 // --------------------
 //
 // The root `schema` field is the required compatibility discriminator.
-// The current emitted value is the integer 5.
+// The current emitted value is the integer 6.
 // A schema revision changes whenever a field is added, removed, renamed, retyped, or redefined.
 // A schema revision also changes when ordering or identity meaning changes observably.
 // Changes to comments in this spec alone do not change the serializer schema.
 // Changes to source language semantics do not automatically change the JSON schema.
 // Changes to FIR metadata can require both a schema change and a language-contract update.
 //
-// A schema-5 reader must reject a missing, non-integer, or unsupported `schema` value.
-// A reader must not infer schema 5 from the presence of `typeArguments`.
+// A schema-6 reader must reject a missing, non-integer, or unsupported `schema` value.
+// A reader must not infer schema 6 from the presence of `typeArguments`.
 // A reader must not silently ignore a future schema version while claiming full fidelity.
-// A writer must not emit a newer field layout while retaining schema value 5.
-// A change that preserves every serialized field meaning can retain schema 5.
+// A writer must not emit a newer field layout while retaining schema value 6.
+// A change that preserves every serialized field meaning can retain schema 6.
 // The project may choose a stricter revision policy than this minimum contract.
 //
 // The schema value is not `Sol 0.0.2`, the LLVM version, the runtime ABI version, or the language
@@ -97,9 +99,9 @@ module source.spec.generic_fir_json_contract
 // 4. Root record
 // --------------
 //
-// The schema-5 root has the following members:
+// The schema-6 root has the following members:
 //
-// - `schema`: integer 5 for the current inspection contract.
+// - `schema`: integer 6 for the current inspection contract.
 // - `verified`: boolean true because the serializer accepts only the verified wrapper.
 // - `entry`: integer function ID for an executable, or -1 for a library program.
 // - `library`: boolean indicating library mode for this compilation.
@@ -114,6 +116,8 @@ module source.spec.generic_fir_json_contract
 // A consumer must not treat a library's first function as an entry point.
 // An empty `flow` array is not sufficient evidence that no calls or effects exist.
 // A consumer joins records using IDs only within the same root document.
+// Object member names use lower camel case, including names inferred from C# record properties.
+// Readers must not depend on CLR property spelling or serializer implementation details.
 //
 // 5. Function record
 // ------------------
@@ -169,11 +173,16 @@ module source.spec.generic_fir_json_contract
 // 7. Type record
 // --------------
 //
-// A schema-5 type record contains `id`, `kind`, `name`, and `arguments`.
+// A schema-6 type record contains `id`, `kind`, `name`, `arguments`, `parameterModes`, and `effects`.
 // `id` is an integer owned by the current compilation's resolved-type interner.
 // `kind` is the textual `ResolvedTypeKind` variant name.
 // `name` is the resolved display name retained by the type object.
 // `arguments` is the ordered list of child type IDs exposed by that resolved type.
+// `parameterModes` is an ordered array of textual passing modes for function parameters.
+// `effects` is an ordered array of type IDs for the function type's checked effect set.
+// Non-function types serialize both arrays as empty arrays.
+// Function type `arguments` contains parameter type IDs followed by the result type ID.
+// Function metadata array lengths must match the parameter prefix of `arguments`.
 //
 // A type ID is suitable for local joins inside one inspection document.
 // A type ID is not a source spelling.
@@ -196,7 +205,7 @@ module source.spec.generic_fir_json_contract
 // type; acceptance into FIR is independently constrained by native verification.
 // An open type parameter is forbidden for an emitted closed specialization.
 // Type rendering must preserve constructor nesting and nullability when a future reader renders it.
-// Current schema-5 records are not required to provide a canonical textual spelling for every type.
+// Current schema-6 records are not required to provide a canonical textual spelling for every type.
 //
 // 8. Node envelope
 // ----------------
@@ -219,12 +228,12 @@ module source.spec.generic_fir_json_contract
 // 9. Node payloads: expressions
 // -----------------------------
 //
-// `FirConstant` carries `Spelling` as its value payload.
+// `FirConstant` carries `spelling` as its value payload.
 // Constant spelling is source-oriented inspection data and may not be a canonical literal format.
 // A numeric constant's spelling is not sufficient to recover its verified type by itself.
 // The node envelope's `type` ID is authoritative for that FIR expression.
 //
-// `FirRead` carries an integer `Slot` reference.
+// `FirRead` carries an integer `slot` reference.
 // The reference is local to the enclosing function and must name a declared slot.
 // It is not a source variable declaration ID.
 // It is not portable outside the enclosing function record.
@@ -234,8 +243,8 @@ module source.spec.generic_fir_json_contract
 // inside a default expression in a call plan. It reads the captured result of that earlier evaluation;
 // it does not repeat the source expression or read caller storage again.
 //
-// `FirUnary` carries the operator text in `Operation` and a nested `value` node.
-// `FirBinary` carries operator text in `Operation`, then nested `left` and `right` nodes.
+// `FirUnary` carries the operator text in `operation` and a nested `value` node.
+// `FirBinary` carries operator text in `operation`, then nested `left` and `right` nodes.
 // The operator text is a FIR operation label, not necessarily the source token spelling.
 // Operand and result type IDs are supplied by the nested node envelopes and parent envelope.
 //
@@ -253,6 +262,19 @@ module source.spec.generic_fir_json_contract
 // A non-generic call has an empty type argument array.
 // A generic call's target specialization tuple must agree with its call type argument tuple.
 // The verifier establishes that relationship before a `VerifiedFirProgram` exists.
+
+// `FirFunctionReference` carries a `target` dense function ID.
+// Current native FIR admits exact-signature references to supported module-level functions with an
+// emitted body, including generic targets closed by expected-function-type inference. Closures,
+// receiver-bound methods, open generic targets, and unsupported signature conversions are rejected
+// before serialization.
+// `FirIndirectCall` carries `function` as a nested function expression and `arguments` as ordered
+// records containing `parameter`, textual `mode`, and nested `value`.
+// Its argument records map positionally to the function type; named/default/vararg mapping belongs
+// to direct source calls and is not inferred for an indirect call.
+// The verifier checks the function expression type, arity, parameter modes, argument types,
+// result type, checked effects, source identity, and ref/out addressability.
+// Bottom-result indirect calls preserve non-returning control flow and have no value return.
 //
 // `FirIntrinsic` carries an operation name, parameter order array, and nested argument nodes.
 // `order` gives the mapping to the intrinsic's logical parameter positions.
@@ -281,6 +303,8 @@ module source.spec.generic_fir_json_contract
 // `FirEvaluate` carries one nested expression whose value is discarded.
 // `FirReturn` carries a nullable `value` expression.
 // `value: null` represents a return with no value in the admitted empty-tuple return subset.
+// A bottom-typed `value` is non-returning and may inhabit any expected result type.
+// The lowerer must emit unreachable control flow after it and must not emit a value return.
 //
 // `FirIf` carries `condition`, `then`, and nullable `else` nodes.
 // A null `else` means no explicit else block exists in FIR.
@@ -302,6 +326,8 @@ module source.spec.generic_fir_json_contract
 // `successors` identifies outgoing graph edges by block ID.
 // `returns` describes whether the block has a return edge under the flow contract.
 // `calls` lists call targets and effects observed in the block, plus source span offsets.
+// A direct call has an integer `target`; an indirect call serializes `target: null`.
+// Both call forms retain the declared effect type IDs in `effects`.
 //
 // Flow metadata is verification evidence, not an executable CFG serialization.
 // The record omits some implementation data required to rebuild a machine CFG.
@@ -329,7 +355,7 @@ module source.spec.generic_fir_json_contract
 // FIR function ID identifies the emitted instance only within its `functions` array.
 // Call target ID references that same local array.
 //
-// Schema 5 exposes ordered type IDs but not a stable declaration identity field.
+// schema 6 exposes ordered type IDs but not a stable declaration identity field.
 // Therefore the JSON can show a specialization's type tuple but cannot independently distinguish
 // two same-named declarations with the same tuple after source identity is discarded.
 // A consumer must retain the containing source bundle or separately retain its own file/span map.
@@ -458,7 +484,7 @@ module source.spec.generic_fir_json_contract
 // 18. Reader behavior
 // -------------------
 //
-// A schema-5 reader first validates the root schema and basic JSON kinds.
+// A schema-6 reader first validates the root schema and basic JSON kinds.
 // It then builds document-local maps for functions, types, and function-scoped slots.
 // It verifies IDs are in range before following references.
 // It verifies `entry` against the `library` mode before using it.
@@ -518,7 +544,7 @@ module source.spec.generic_fir_json_contract
 // 21. Implementation conformance obligations
 // --------------------------------------------
 //
-// An implementation claiming schema-5 conformance must:
+// An implementation claiming schema-6 conformance must:
 //
 // 1. Serialize only verified FIR values.
 // 2. Emit the exact root fields and meanings defined above.
@@ -534,7 +560,7 @@ module source.spec.generic_fir_json_contract
 // 12. Never convert a failed or truncated FIR build into `verified: true` output.
 // 13. Propagate cancellation distinctly from source diagnostics.
 // 14. Revise the schema when any observable field meaning changes.
-// 15. Avoid describing schema-5 IDs as stable ABI identities.
+// 15. Avoid describing schema-6 IDs as stable ABI identities.
 //
 // 22. Required specialized-function consistency
 // -----------------------------------------------
@@ -552,14 +578,14 @@ module source.spec.generic_fir_json_contract
 // - Every resource limit was respected without dropping graph edges.
 //
 // These invariants are not reconstructed from the JSON alone because source declaration identity
-// and full source binding facts are not serialized in schema 5.
+// and full source binding facts are not serialized in schema 6.
 // A consumer can perform structural checks, but cannot replace the in-process verifier.
 // A new producer must use its own verifier before claiming the same semantics.
 //
 // 23. Negative requirements
 // --------------------------
 //
-// It is non-conforming to persist a schema-5 Type ID and later assume it names the same type.
+// It is non-conforming to persist a schema-6 Type ID and later assume it names the same type.
 // It is non-conforming to derive a C export name from `specializationArguments` without a separate
 // versioned ABI naming rule.
 // It is non-conforming to treat the schema integer as an artifact or Sol language version.
@@ -590,7 +616,7 @@ module source.spec.generic_fir_json_contract
 // 25. Conformance summary
 // -----------------------
 //
-// Schema 5 is a readable, compiler-local structural view of verified FIR.
+// schema 6 is a readable, compiler-local structural view of verified FIR.
 // Its function and slot IDs are dense indices with explicitly local scopes.
 // Its type IDs are workspace-local references and have no durable meaning.
 // Its generic argument arrays preserve declaration ordinals.

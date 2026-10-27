@@ -334,6 +334,12 @@ public static partial class FirVerifier
 
                 switch (source)
                 {
+                    case AstAtom { SyntaxKind: NodeKind.NameExpression } name when actual is FirFunctionReference reference:
+                        MatchFunctionReference(reference, name);
+                        break;
+                    case AstMember member when actual is FirFunctionReference reference:
+                        MatchFunctionReference(reference, member);
+                        break;
                     case AstAtom { SyntaxKind: NodeKind.LiteralExpression } literal when actual is FirConstant constant:
                         if (constant.Spelling != literal.Spelling)
                         { Fail("FIR literal spelling differs from its source token.", actual.Origin); }
@@ -445,7 +451,10 @@ public static partial class FirVerifier
             _sourceCallMatches[source.Origin.Element] = _sourceCallMatches.GetValueOrDefault(source.Origin.Element) + 1;
             var binding = GetSourceCall(source);
             if (binding is null)
-            { Fail("FIR call has no source-bound overload selection.", source.Origin); return; }
+            {
+                if (actual is FirIndirectCall indirect) { MatchIndirectCall(indirect, source); return; }
+                Fail("FIR call has no source-bound overload selection.", source.Origin); return;
+            }
             var intrinsic = binding.Target is AstFunction function ? program.Catalog.Intrinsic(function) : null;
             if (intrinsic is { } intrinsicKind && actual is FirIntrinsic firIntrinsic)
             { MatchIntrinsic(firIntrinsic, source, binding, intrinsicKind); }

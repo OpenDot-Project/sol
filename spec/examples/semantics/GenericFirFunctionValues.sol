@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative examples; contextual lambda analysis exists, generic indirect FIR does not.
+// Status: normative examples; closed generic function references and indirect FIR are supported in a bounded subset.
 module examples.semantics.generic_fir_function_values
 
 // Generic direct calls, function references, and closures
@@ -12,6 +12,8 @@ module examples.semantics.generic_fir_function_values
 // should select a different function. No line in this file claims to have run as a test.
 
 func <T> identity(value: T): T = value
+
+func inferredText(value: String) = value
 
 func <T> applyOne(value: T, transform: (T) -> T): T = transform(value)
 
@@ -37,11 +39,40 @@ func inferredFromResult(): String = identity("result")
 func directGenericFunctionBody(): String = applyOne("text", { value -> value })
 // expect: Candidate-local lambda replay may bind T=String; generic indirect operation remains FIR rejected.
 
-// 2. A function name used as a value requires a separate conversion rule.
+// 2. A generic function name closes from an expected function type.
 func genericNameAsValue(): () {
     val callback: (String) -> String = identity
 }
-// expect: Source: Deferred; expected type is not an implicit generic instantiation syntax.
+// expect: Source: Bound; the expected function type closes the target as identity<String>; no explicit reference suffix is used.
+
+func inferredResultAsValue(): () {
+    val callback: (String) -> String = inferredText
+}
+// expect: Source: Bound; the ordinary expression-body result is String; no body execution occurs.
+
+// 2a. Stateless top-level object methods share the receiver-free function-value ABI.
+object IdentityOperations {
+    func <T> identity(value: T): T = value
+    func describe(value: String): String = value
+}
+
+func singletonMethodAsValue(): () {
+    val callback: (String) -> String = IdentityOperations.identity
+}
+// expect: Source: Bound; expected type closes identity<String>; FIR: Ready for the exact supported signature.
+
+func singletonMethodCall(): String = IdentityOperations.describe("sol")
+// expect: FIR: Ready only when the complete top-level object is stateless and the method uses no receiver.
+
+object StatefulOperations {
+    val prefix = "sol"
+    func <T> identity(value: T): T = value
+}
+
+func statefulSingletonMethodAsValue(): () {
+    val callback: (String) -> String = StatefulOperations.identity
+}
+// expect: Source: Deferred; FIR: Rejected(SOL2400); no receiver or singleton storage is fabricated.
 
 func genericValueCannotUseDummyCall(): () {
     val callback: (int) -> int = identity(0)
@@ -51,12 +82,12 @@ func genericValueCannotUseDummyCall(): () {
 func genericValueMustNotGuessType(): () {
     val callback = identity
 }
-// expect: Source: Deferred; no expected function type closes T and no polymorphic-value rule exists.
+// expect: Deferred; no expected function type closes T and no polymorphic runtime value is synthesized.
 
 func genericReferenceNeedsAllParameters(): () {
     val callback: (String) -> String = choose
 }
-// expect: Source: Deferred or Ambiguous according to completed value-overload ranking; no declaration-order choice.
+// expect: Source: Bound or Ambiguous according to generic inference and the final nongeneric tie preference; declaration order never chooses.
 
 // 3. A non-generic function reference is still a value conversion.
 func fixed(value: String): String = value
@@ -64,7 +95,7 @@ func fixed(value: String): String = value
 func fixedReference(): () {
     val callback: (String) -> String = fixed
 }
-// expect: Source: Bound only where function-reference conversion is implemented; FIR: Rejected until function values lower.
+// expect: Source: Bound; FIR: Ready for an exact supported signature and source body.
 
 func fixedWrongParameterReference(): () {
     val callback: (int) -> String = fixed
@@ -80,7 +111,7 @@ func fixedWrongResultReference(): () {
 func selectGenericOverload(): () {
     val callback: (String) -> String = choose
 }
-// expect: Deferred until generic reference conversion and value-overload ranking are specified.
+// expect: Generic and nongeneric candidates close to the same signature; the nongeneric final tie preference selects choose(String).
 
 func chooseAmbiguous(value: String): String = value
 func chooseAmbiguous(value: std.core.Object): String = "object"
@@ -93,7 +124,7 @@ func ambiguousOverloadValue(): () {
 func overloadValueNoFallback(): () {
     val callback: (String) -> String = choose
 }
-// expect: If generic candidate wins source ranking but is native-ineligible, FIR rejects that winner; it does not choose fixed(String).
+// expect: A strictly better generic candidate remains selected; if FIR cannot represent that exact winner, it rejects it instead of retrying another overload.
 
 // 5. Expected function types contextually type lambda parameters.
 func namedLambdaExpectedType(): () {
@@ -150,7 +181,7 @@ func immutableCapture(): () {
 func <T> genericCallbackParameter(value: T, callback: (T) -> T): T = callback(value)
 
 func genericCallbackUse(): int = genericCallbackParameter(2) { item -> item + 1 }
-// expect: Source binding may select T=int and contextually type lambda; indirect invocation means FIR: Rejected(SOL2400).
+// expect: Source binding may select T=int and contextually type lambda; indirect invocation has FIR support, but this lambda closure remains FIR: Rejected(SOL2400).
 
 func <T> callbackStoredForLater(callback: () -> T): () -> T = callback
 // expect: Returning the callback extends its lifetime; no generic closure ABI is implied by substitution.
@@ -162,7 +193,7 @@ func <T> callbackReturnedByLambda(seed: T): () -> T = { seed }
 func <E: Throwable> indirectEffect(callback: () -> () throws E): () throws E {
     callback()
 }
-// expect: Source effect is E; generic direct FIR cannot represent the indirect call today.
+// expect: Source effect is E; FIR retains the specialized indirect-call effect set. Native exception dispatch remains a separate backend requirement.
 
 func callbackEffectBudgetTooSmall(callback: () -> () throws IOException): () {
     callback()
@@ -172,7 +203,7 @@ func callbackEffectBudgetTooSmall(callback: () -> () throws IOException): () {
 func callbackUncheckedBudget(callback: () -> () throws RuntimeException): () {
     callback()
 }
-// expect: Unchecked classification follows RuntimeException; function-value FIR is still not available.
+// expect: Unchecked classification follows RuntimeException; the function value itself is not treated as a throwing creation step.
 
 func callbackCreationDoesNotInvoke(): () {
     val callback: () -> int = { throw IOException() }
@@ -212,19 +243,22 @@ func withDefault(value: int = 4): int = value
 func defaultFunctionValue(): () {
     val callback: (int) -> int = withDefault
 }
-// expect: Deferred until reference conversion specifies whether wrapper retains defaults.
+// expect: Bound; the reference has type (int) -> int. An indirect call must supply the int argument;
+// the default expression is only used by a direct call to withDefault.
 
 func withVararg(vararg values: int): int = values.length
 
 func varargFunctionValue(): () {
-    val callback: (int) -> int = withVararg
+    val callback: ([]int) -> int = withVararg
 }
-// expect: Deferred; a function type does not imply element expansion or named-array calling convention.
+// expect: Bound; vararg is one array-valued function parameter. An indirect call passes one []int;
+// it does not expand elements.
 
 func defaultsAtCreationAreWrong(): () {
     val callback: (int) -> int = withDefault
 }
-// expect: A future wrapper cannot evaluate default expression at value creation; it is call-time behavior.
+// expect: Creating the function value does not evaluate the default; only a direct omitted-argument
+// call evaluates it.
 
 // 11. Generic owner identity survives nested callback types.
 func <T> nestedSignature(value: T, callback: (T) -> (T) -> T): T = value
@@ -252,7 +286,7 @@ func nullableCallbackUse(): String? = nullableCallback<String> { null }
 // expect: Source nullable result remains String?; closure/FIR boundary rejects current native path.
 
 func bottomCallback(callback: () -> !): ! = callback()
-// expect: Bottom result has no normal return; callback invocation still needs an indirect-call node.
+// expect: Verified FIR preserves the bottom result as a no-return indirect call.
 
 func nullableFunctionValue(): () {
     val maybe: (() -> String)? = null
@@ -358,7 +392,7 @@ func genericCallAndValueAreDistinct(): () {
     val direct = identity<String>("x")
     val callable: (String) -> String = identity
 }
-// expect: Direct instance key identifies code; a future callable value additionally identifies conversion and optional environment.
+// expect: Direct and value references to identity<String> use the same closed function instance; this value has no environment or conversion adapter.
 
 // 21. Captured mutable aliases preserve one source variable.
 func sharedCaptureIdentity(): () {

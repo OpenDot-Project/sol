@@ -3,3 +3,4 @@
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("OpenDot.Sol.Fir")]
+[assembly: InternalsVisibleTo("OpenDot.Sol.Tests")]

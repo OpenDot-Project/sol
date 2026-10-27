@@ -210,7 +210,7 @@ public sealed class GenericFirSpecializationMatrixTests
         var second = FirJson.Serialize(Valid(source), TestContext.Current.CancellationToken);
 
         Assert.Equal(first, second);
-        Assert.True(first.Contains("\"schema\": 5", StringComparison.Ordinal));
+        Assert.True(first.Contains("\"schema\": 6", StringComparison.Ordinal));
         Assert.False(first.Contains("C:\\Users", StringComparison.OrdinalIgnoreCase));
     }
 

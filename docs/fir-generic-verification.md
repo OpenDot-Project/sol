@@ -22,10 +22,11 @@ body support.
 | --- | --- | --- |
 | Generic function declarations and call binding | Implemented for the currently supported analysis surface | Emitted only when a closed native specialization is admitted |
 | Ordered generic type arguments on a resolved call | Preserved by body-call binding | Recorded on `FirCall` and compared by the verifier |
-| Generic module-level free-function bodies | Body checked using declaration-owned type parameters | Existing bound facts are substituted into monomorphic FIR instances; per-instance source rebinding remains incomplete |
+| Generic module-level free-function bodies | Open bodies are checked using declaration-owned type parameters | Closed instances are rebound and rechecked through `BodyAnalysis`; unsupported body forms remain outside verified FIR |
 | Generic methods and generic owners | May be analyzed in source-level contexts | Rejected by the verified native subset |
 | Native type support | Broader than the native backend | Limited by `FirVerifier.Supported` and the selected ABI slice |
-| Generic function values and closure capture | Analysis may retain facts or defer | Not admitted by this specialization path |
+| Generic function values | Expected function type closes each type parameter; overloads are ranked after closure | Exact-signature free-function and stateless-object references are admitted for supported native layouts, including vararg arrays and ref/out modes |
+| Closure capture | Analysis may retain facts or defer | Not admitted; no environment object or capture-root ABI exists |
 | User-defined operator target | `BodyAnalysis` retains the selected overload and closed signature | Direct `FirCall` form is limited to nongeneric, non-lifted operators with exact operands and supported native layouts; nominal value types still stop with `SOL2400` |
 | Constraints | Checked during candidate selection | Rechecked when an instance is built and when FIR is verified |
 | Resource limits | Analysis and type interning have their own budgets | 4,096 instances, 16,000,000 specialized body nodes, and 128 type levels |
@@ -422,13 +423,15 @@ diagnostic limit.
 
 ## Serialization and observability
 
-`FirJson.Serialize` is deterministic for the same verified program. Schema 5 contains:
+`FirJson.Serialize` is deterministic for the same verified program. Schema 6 contains:
 
 - a function's `specializationArguments` as an ordered array of type IDs;
 - a call's `typeArguments` as an ordered array of type IDs;
 - ordered explicit/default call values and `FirCallValueReference` nodes for earlier captured formals;
+- `FirFunctionReference` target IDs and `FirIndirectCall` function/argument trees;
 - each function's source name, ID, signature, effects, slots, and body;
-- the resolved type table and derived flow graph.
+- function type parameter modes and checked effects in the resolved type table;
+- the derived flow graph, where indirect-call sites have a null direct target.
 
 An empty argument array means an ordinary function call or body. It does not mean that generic
 arguments are unknown. Unknown or default arrays should be rejected before serialization.
@@ -545,8 +548,9 @@ Do not begin with class layout or generic interface dispatch. Those features req
 substitution, constructed inheritance, receiver lookup, object layout, vtable dispatch, and runtime
 semantics that are outside this first free-function slice.
 
-Function values, closures, default parameters, expanded varargs, ref-like arguments, and generic
-export ABI should each have their own explicit design and verifier contract before admission.
+Function arrays, nullable callable values, closure conversion, receiver capture, broader default and
+vararg forms, ref-like arguments, and generic export ABI still need their own explicit design and
+verifier contracts before admission.
 
 ## Maintainer review checklist
 
@@ -676,7 +680,7 @@ The implementation is distributed across these source files:
 | `src/managed/OpenDot.Sol.Fir/FirBuilder.ForEach.cs` | Specialized iterable element types |
 | `src/managed/OpenDot.Sol.Fir/FirNodes.cs` | FIR call/function specialization metadata |
 | `src/managed/OpenDot.Sol.Fir/FirVerifier.cs` | Independent type, source, constraint, and call checks |
-| `src/managed/OpenDot.Sol.Fir/FirJson.cs` | Deterministic schema-5 inspection output |
+| `src/managed/OpenDot.Sol.Fir/FirJson.cs` | Deterministic schema-6 inspection output |
 | `src/managed/OpenDot.Sol.Lowering/LlvmEmitter.cs` | LLVM function declarations and ID-based calls |
 
 `docs/generic-calls.md` describes the broader source analysis surface. `spec/GenericFirSpecialization.sol`

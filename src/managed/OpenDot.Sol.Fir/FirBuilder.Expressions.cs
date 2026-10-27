@@ -22,12 +22,18 @@ internal sealed partial class FirBuilder
             case AstAtom { SyntaxKind: NodeKind.LiteralExpression } atom:
                 return new FirConstant(atom.Spelling, type, atom.Origin);
             case AstAtom { SyntaxKind: NodeKind.NameExpression } atom:
+                if (binding.FunctionValueTarget is not null)
+                {
+                    return FunctionReference(atom, binding.FunctionValueTarget, type);
+                }
                 var locals = _analysis.Sources.Lexical.Lookup(atom, atom.Spelling).Locals;
                 if (locals is [var capturedParameter] && _callValueReferences is { } references
                     && references.TryGetValue(capturedParameter, out int evaluationIndex))
                 { return new FirCallValueReference(evaluationIndex, type, atom.Origin); }
                 if (locals is [var local] && _slots.TryGetValue(local, out var slot)) { return new FirRead(slot.Id, slot.Type, atom.Origin); }
                 return Invalid(atom);
+            case AstMember member when binding.FunctionValueTarget is { } functionTarget:
+                return FunctionReference(member, functionTarget, type);
             case AstSequence { IsGrouping: true } grouping when grouping.Elements.SingleOrDefault() is { } inner:
                 return Expression(inner);
             case AstSequence { SyntaxKind: NodeKind.ArrayExpression } array:
@@ -54,7 +60,12 @@ internal sealed partial class FirBuilder
             case AstMember { Name: "length", Receiver: not null, IsSafe: false } member:
                 return new FirArrayLength(Expression(member.Receiver), type, member.Origin);
             case AstCall call:
-                if (BoundCall(call) is not { } selected) { return Invalid(call); }
+                if (BoundCall(call) is not { } selected)
+                {
+                    if (call.Target is { } callable && BoundExpression(callable)?.Type is { Kind: ResolvedTypeKind.Function } functionType)
+                    { return IndirectCall(call, callable, Specialize(functionType), type); }
+                    return Invalid(call);
+                }
                 if (call.Target is AstMember { IsSafe: true }) { return Invalid(call); }
                 if (selected.Target is AstFunction intrinsicTarget && _catalog.Intrinsic(intrinsicTarget) is { } intrinsic)
                 {

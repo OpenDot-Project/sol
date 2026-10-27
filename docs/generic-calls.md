@@ -42,8 +42,10 @@ source distribution. Partial base lists are combined without repeating identical
 `ClassifyConversion` distinguishes identity, intrinsic reference/nullable conversion, boxing, and
 absence of a supported intrinsic conversion. Nominal generic applications remain invariant. Numeric
 variables do not widen. Nullable values cannot silently become non-null values. Bottom converts to
-any value type; nullable bottom represents `null` and converts to nullable targets. This API does not
-search user-defined implicit conversions or implement general function variance/effect conversion.
+any value type; nullable bottom represents `null` and converts to nullable targets. Resolved
+function types support contravariant value parameters, covariant results, exact ref/out storage, and
+checked-effect budget coverage. This API does not search user-defined implicit conversions, and
+function type compatibility alone does not make a function value lowerable to native FIR.
 
 `CheckConstraints` checks one definition's ordered type arguments against inline and `where` bounds.
 Bounds are substituted before checking inherited nominal interfaces and classes. Multiple bounds must
@@ -81,7 +83,14 @@ There is no new Solc command or CLI emission mode for this analysis.
 Supported targets are module-level source functions, unqualified or qualified through imported
 module names/aliases. A local value shadowing a qualifier prevents module lookup. Functions from
 ambiguous imported modules are not silently combined into a new overload set. Member calls,
-constructors, local functions, function values, and compiler intrinsics remain `Deferred`.
+constructors, local functions, function values, and compiler intrinsics remain `Deferred` in this
+narrower `CallAnalysis` API. `BodyAnalysis` resolves an overloaded module-level function value when
+its expected function type uniquely selects a candidate; generic candidates must be fully closed by
+that type, and receiver-bound groups remain deferred. Stateless top-level object methods with no
+receiver state use the same expected-type selection when their declarations meet the source policy.
+Verified FIR lowers exact-signature closed references and indirect calls when parameter modes,
+types, result, and checked effects match the
+target's native signature. Closures and variance adapters remain outside the subset.
 
 Each candidate records the following independently:
 
@@ -156,8 +165,8 @@ readers; further explicit workspace queries may intern additional types.
 Receiver member analysis is available through `BodyAnalysis`, including constructed generic bases,
 inherited overload groups, and method inference. The direct `CallAnalysis` API still cannot consume
 an enclosing expected-result type. Complete protected receiver checks, cross-distribution access,
-all user conversions, checked-effect coverage, smart casts, definite assignment, ref escape, and
-full verified FIR remain future stages. A bounded closed generic free-function slice is now carried
-from `BodyAnalysis` into verified FIR; it does not add a stable generic binary ABI or make all
-body-analysis results executable. See [member resolution](member-resolution.md) and
+all user conversions, checked-effect proof for every source construct, smart casts, definite
+assignment, ref escape, and full verified FIR remain future stages. A bounded closed generic
+free-function slice is now carried from `BodyAnalysis` into verified FIR; it does not add a stable
+generic binary ABI or make all body-analysis results executable. See [member resolution](member-resolution.md) and
 [generic FIR lowering](generic-fir-specialization-lowering.md).

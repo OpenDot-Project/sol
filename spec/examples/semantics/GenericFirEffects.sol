@@ -487,7 +487,7 @@ func inferredNetworkEffect(): String throws NetworkFailure {
 // The JSON inspection schema is version 4. Each call and function includes type identity IDs for
 // generic arguments. IDs are compilation-local and do not define a stable artifact ABI.
 //
-// expect: fir-metadata-04 | Rule | schema=5
+// expect: fir-metadata-04 | Rule | schema=6
 //     | host-paths-serialized=false | type-IDs-stable-across-sessions=false
 
 // Library, artifact, and entry boundaries

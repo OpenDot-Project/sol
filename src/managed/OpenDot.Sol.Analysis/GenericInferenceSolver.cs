@@ -260,7 +260,21 @@ internal sealed partial class GenericInferenceSolver
 
         for (int index = 0; index < template.Arguments.Length; index++)
         {
-            if (!Collect(template.Arguments[index], actual.Arguments[index], GenericInferenceRelation.Exact,
+            GenericInferenceRelation nestedRelation;
+            if (template.Kind == ResolvedTypeKind.Function && index < template.ParameterModes.Length)
+            {
+                nestedRelation = template.ParameterModes[index] is AstPassingMode.Ref or AstPassingMode.Out
+                    ? GenericInferenceRelation.Exact
+                    : ReverseFunctionParameterRelation(relation);
+            }
+            else
+            {
+                nestedRelation = template.Kind == ResolvedTypeKind.Function
+                    ? relation
+                    : GenericInferenceRelation.Exact;
+            }
+
+            if (!Collect(template.Arguments[index], actual.Arguments[index], nestedRelation,
                     origin, parameters, buckets, fixedMap, effectConstraints, depth + 1)) { return false; }
         }
 
@@ -270,9 +284,17 @@ internal sealed partial class GenericInferenceSolver
             throw new TypeSpecializationException(SpecializationFailure.ResourceLimit,
                 "Generic inference exceeds the 4096 nested effect-relation budget.");
         }
-        effectConstraints.Add(new(template.Effects, actual.Effects, origin, depth + 1));
+        effectConstraints.Add(new(template.Effects, actual.Effects, relation, origin, depth + 1));
         return true;
     }
+
+    private static GenericInferenceRelation ReverseFunctionParameterRelation(GenericInferenceRelation relation) => relation switch
+    {
+        GenericInferenceRelation.Input => GenericInferenceRelation.Expected,
+        GenericInferenceRelation.Expected => GenericInferenceRelation.Input,
+        GenericInferenceRelation.Exact => GenericInferenceRelation.Exact,
+        _ => throw new ArgumentOutOfRangeException(nameof(relation)),
+    };
 
     private bool CollectExpectedProjection(ResolvedType template, ResolvedType actual,
         ImmutableArray<ResolvedType> projections, string origin, HashSet<ResolvedType> parameters,
@@ -329,7 +351,7 @@ internal sealed partial class GenericInferenceSolver
 
     private static bool SameEffectConstraints(List<EffectSetConstraint> left, List<EffectSetConstraint> right)
     {
-        static string Key(EffectSetConstraint constraint) => constraint.Origin + "|" + constraint.Depth + "|"
+        static string Key(EffectSetConstraint constraint) => constraint.Relation + "|" + constraint.Origin + "|" + constraint.Depth + "|"
             + string.Join(",", constraint.Templates.Select(type => type.Id).Order()) + "|"
             + string.Join(",", constraint.Actuals.Select(type => type.Id).Order());
         return left.Select(Key).OrderBy(key => key, StringComparer.Ordinal)

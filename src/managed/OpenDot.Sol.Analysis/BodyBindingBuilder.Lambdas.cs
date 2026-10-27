@@ -41,9 +41,13 @@ internal sealed partial class BodyBindingBuilder
             var passing = parameter.Children.FirstOrDefault(n => n.SyntaxKind == NodeKind.PassingMode)?.Origin.Text;
             var mode = passing == "ref" ? AstPassingMode.Ref : passing == "out" ? AstPassingMode.Out : AstPassingMode.Value;
             if (type is null) { Report("SOL2220", "An uncontextualized lambda parameter needs an explicit type.", parameter); return new(null); }
-            if (expected is not null && (mode != expected.ParameterModes[index]
-                || !ContainsInferenceParameter(expected.Arguments[index], inferenceParameters)
-                    && type != expected.Arguments[index]))
+            bool modeMatches = expected is null || mode == expected.ParameterModes[index];
+            bool parameterTypeMatches = expected is null
+                || ContainsInferenceParameter(expected.Arguments[index], inferenceParameters)
+                || (mode is AstPassingMode.Ref or AstPassingMode.Out
+                    ? type == expected.Arguments[index]
+                    : Converts(expected.Arguments[index], type));
+            if (!modeMatches || !parameterTypeMatches)
             { Report("SOL2220", "Lambda parameter type or mode differs from the expected signature.", parameter); }
             types.Add(type); modes.Add(mode);
             var name = parameter.Children.FirstOrDefault(n => n.SyntaxKind == NodeKind.Name)?.Origin.Text;

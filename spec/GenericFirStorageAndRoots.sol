@@ -22,16 +22,18 @@ module source.spec.generic_fir_storage_and_roots
 // Development builds have a restricted generic FIR slice for direct calls to module-level generic
 // free functions. It substitutes already-bound body facts and admits only type arguments supported
 // by the current verified native type set: selected primitives, String, empty tuple where the
-// function result requires it, and one-level arrays whose elements are selected primitives or
-// String. It is not a general generic type-layout engine.
+// function result requires it, and nested arrays with supported leaves: selected primitives,
+// String, or non-null receiver-free function pointers. The function-pointer element descriptor is
+// scalar: it has pointer width but no managed-reference scan shape. This does not admit a closure
+// environment or captured value. It is not a general generic type-layout engine.
 //
 // The existing native runtime has provisional object, String, and array headers, precise descriptor
 // scan shapes for the generated bootstrap subset, registered roots, polling, and insertion-barrier
 // stores. These mechanisms are experimental and do not establish ABI 1 or a latency guarantee.
 // Their current inventory is recorded in `docs/yellow-tea/current-implementation.md`.
 //
-// Generic nominal owners, structs containing T, arbitrary nullable representations, nested arrays,
-// `std.collections` implementations, `Span<T>`, `ReadOnlySpan<T>`, general ref-like lowering,
+// Generic nominal owners, structs containing T, arbitrary nullable representations, inline fixed
+// arrays, `std.collections` implementations, `Span<T>`, `ReadOnlySpan<T>`, general ref-like lowering,
 // per-instance borrow verification, and generic collection descriptors are not admitted by the
 // current native specialization slice. The collection signatures in `std/StandardLibrary.sol` are
 // intended surface contracts, not shipped implementations.
@@ -77,7 +79,8 @@ module source.spec.generic_fir_storage_and_roots
 // | Nullable value | Presence state plus concrete payload representation | Inspect the tag before scanning the payload. |
 // | Enum with payload | Tag plus active alternative's payload | Scan only the selected alternative. |
 // | Ref struct / span | Scoped value with borrowed storage provenance | Do not heap-trace the view as an owner; retain its base owner or stack lifetime proof. |
-// | Function value | Code identity plus environment ownership | Trace the managed environment, not the code address. |
+// | Receiver-free function value | Raw code pointer | Never scan its bits as a managed reference. |
+// | Closure value | Code pointer plus environment ownership | Trace the environment and its managed captures, not the code address. |
 // | `ref`/`out` location | Base owner plus location identity/offset | Keep the base alive; do not register a naked interior address as an object. |
 //
 // These categories may share an implementation ABI only if the descriptor and verifier preserve
@@ -173,10 +176,11 @@ module source.spec.generic_fir_storage_and_roots
 // | `[4]String` | Inline fixed array | No | Recursively scan its inline reference fields. |
 // | `[][]String` | No | Inner array values are references | Root outer owner and trace inner-array element slots. |
 //
-// The current native runtime supports qualified single-level scalar and String arrays. It has
-// descriptor-guided scanning for supported reference arrays and no scan for supported scalar
-// arrays. Nullable element arrays, nested arrays, inline fixed arrays, and arbitrary element
-// descriptors remain outside the current generic specialization boundary.
+// The current native runtime supports nested managed arrays with qualified primitive, String, and
+// non-null function-pointer leaves. Reference arrays trace their managed array elements; function
+// pointers use scalar pointer-width storage with no scan shape. Nullable element arrays, inline
+// fixed arrays, closure environments, and arbitrary element descriptors remain outside the current
+// generic specialization boundary.
 //
 // `for-in` over a supported array evaluates its source once, saves the fixed length, roots the array,
 // loads elements in index order, and copies each item into a source local. The loop item is not an
@@ -434,13 +438,14 @@ module source.spec.generic_fir_storage_and_roots
 // The accompanying `examples/semantics/GenericFirStorageAndRoots.sol` records the detailed case
 // matrix. At minimum, conformance must establish:
 //
-// - primitive, String, and supported one-level array specializations preserve the current admitted
+// - primitive, String, and supported nested-array specializations preserve the current admitted
 //   FIR/native subset without claiming generic aggregates are implemented;
 // - nullable array element and nullable container forms remain distinct under substitution;
 // - arrays of references trace only actual reference slots, while scalar values resembling addresses
 //   are never treated as roots;
-// - nested arrays, generic value layouts, generic collection instantiations, and ref-like values are
-//   rejected before native emission until their descriptors and lifetime proofs exist;
+// - nested arrays with unsupported leaf layouts, generic value layouts, generic collection
+//   instantiations, and ref-like values are rejected before native emission until their descriptors
+//   and lifetime proofs exist;
 // - reference stores through fields, arrays, structs, collection slots, roots, and ref/out aliases
 //   use the concrete barrier classification;
 // - collection resize/remove/failure paths do not publish stale, duplicate, or unrooted references;

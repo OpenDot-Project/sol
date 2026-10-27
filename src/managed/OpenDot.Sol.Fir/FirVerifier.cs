@@ -30,21 +30,35 @@ public static partial class FirVerifier
     internal static bool IsString(ResolvedType type) => type.Declaration is { ModuleName: "std.core", Name: "String", Arity: 0 };
     internal static bool Supported(ResolvedType type)
     {
-        if (IsEmpty(type)) { return true; }
-        var pending = new Stack<(ResolvedType Type, int Depth)>();
-        pending.Push((type, 0));
+        var pending = new Stack<(ResolvedType Type, int Depth, bool AllowsVoid)>();
+        pending.Push((type, 0, true));
         while (pending.TryPop(out var current))
         {
             if (current.Depth > 128) { return false; }
+            if (IsEmpty(current.Type) || current.Type.Kind == ResolvedTypeKind.Bottom)
+            {
+                if (current.AllowsVoid) { continue; }
+                return false;
+            }
             if (current.Type.Kind == ResolvedTypeKind.Primitive)
             {
                 if (current.Type.Name is "half" or "quad") { return false; }
                 continue;
             }
             if (IsString(current.Type)) { continue; }
-            if (current.Type.Kind != ResolvedTypeKind.Array || current.Type.Arguments.Length != 1)
-            { return false; }
-            pending.Push((current.Type.Arguments[0], current.Depth + 1));
+            if (current.Type.Kind == ResolvedTypeKind.Array && current.Type.Arguments.Length == 1)
+            {
+                pending.Push((current.Type.Arguments[0], current.Depth + 1, false));
+                continue;
+            }
+            if (current.Type.Kind == ResolvedTypeKind.Function && current.Type.Arguments.Length == current.Type.ParameterModes.Length + 1)
+            {
+                for (int index = 0; index < current.Type.ParameterModes.Length; index++)
+                { pending.Push((current.Type.Arguments[index], current.Depth + 1, false)); }
+                pending.Push((current.Type.Arguments[^1], current.Depth + 1, true));
+                continue;
+            }
+            return false;
         }
         return true;
     }
@@ -156,6 +170,8 @@ public static partial class FirVerifier
 
             if (source.Name != _function.Name) { Fail("Function name differs from its source declaration.", _function.Origin); }
             var genericParameters = program.Analysis.Sources.Types.GetTypeParameters(source);
+            CheckObjectMethodBoundary(source, genericParameters.Length);
+
             if (genericParameters.Length != _function.SpecializationArguments.Length)
             {
                 if (genericParameters.Length != 0 || !_function.SpecializationArguments.IsEmpty)
@@ -163,11 +179,6 @@ public static partial class FirVerifier
             }
             else if (genericParameters.Length != 0)
             {
-                var sourceFile = program.Analysis.Sources.Declarations.Files.Single(file => file.Nodes.OfType<AstFunction>()
-                    .Any(function => ReferenceEquals(function.Origin.Element, source.Origin.Element)));
-                if (HasTypeOwner(sourceFile, source)
-                    && !GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(source, program.Analysis.Sources))
-                { Fail("Generic member FIR is outside the stateless-object method subset.", _function.Origin); }
                 for (int index = 0; index < genericParameters.Length; index++)
                 {
                     var argument = _function.SpecializationArguments[index];
@@ -277,7 +288,8 @@ public static partial class FirVerifier
         private void CheckType(ResolvedType type, AstOrigin origin)
         {
             if (!TryValidateOwnership(type, origin)) { return; }
-            if (!Supported(type)) { Fail("Type is outside the verified native subset: " + type.Name, origin); }
+            if (!Supported(type)) { Fail("Type is outside the verified native subset: " + type.Kind + ":" + type.Name, origin); }
+            ValidateNestedFunctionEffects(type, origin);
         }
 
         private bool TryValidateOwnership(ResolvedType type, AstOrigin origin)
@@ -341,13 +353,6 @@ public static partial class FirVerifier
                 foreach (var argument in current.Arguments) { pending.Push(argument); }
                 foreach (var effect in current.Effects) { pending.Push(effect); }
             }
-            return false;
-        }
-
-        private static bool HasTypeOwner(AstSnapshot file, AstNode node)
-        {
-            for (var parent = file.GetParent(node); parent is not null; parent = file.GetParent(parent))
-            { if (parent is AstTypeDeclaration) { return true; } }
             return false;
         }
 
@@ -503,6 +508,7 @@ public static partial class FirVerifier
                 {
                     case FirConstant constant: Constant(constant); break;
                     case FirRead read: Exact(read.Type, Slot(read.Slot, read.Origin)?.Type, read.Origin); break;
+                    case FirFunctionReference reference: CheckFunctionReference(reference); break;
                     case FirCallValueReference reference: CheckCallValueReference(reference); break;
                     case FirUnary unary:
                         Expression(unary.Value); Exact(unary.Type, unary.Value.Type, unary.Origin);
@@ -541,6 +547,7 @@ public static partial class FirVerifier
                         foreach (var element in array.Elements) { Expression(element); Exact(element.Type, array.Type.Arguments[0], element.Origin); }
                         break;
                     case FirCall call: CheckCall(call); break;
+                    case FirIndirectCall call: CheckIndirectCall(call); break;
                     case FirIntrinsic intrinsic:
                         foreach (var argument in intrinsic.Arguments) { Expression(argument); }
                         if (!intrinsic.ParameterOrder.IsEmpty && (intrinsic.ParameterOrder.Length != intrinsic.Arguments.Length

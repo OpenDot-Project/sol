@@ -151,13 +151,22 @@ An uncontextualized integer or floating literal contributes the default source t
 target. Literal fitting does not permit an already typed numeric variable to widen implicitly.
 Binary128 literal rounding remains separately deferred.
 
-Function effect sets are unordered. The candidate binder can infer multiple open effect patterns
-when fixed effects match and there is exactly one complete one-to-one mapping that satisfies all
-generic bounds and constraints. It never pairs members by source position. Matching a constructed
-effect can expose another function-type effect set; the solver recursively matches that set under
-the same state budget. No mapping, multiple valid mappings, or incomplete evidence remains deferred
-or inapplicable as appropriate. Declared effects are substituted after successful type inference
-and checked by the separate effect analysis.
+Function effect sets are unordered. Inference uses a bounded relation-aware one-to-one mapping for
+the members that must be covered. An actual callback may use only part of the formal effect budget;
+unused open formal patterns still need independent evidence. A generic returned callback must fit
+inside the expected budget, which may also contain unused effects. The solver never pairs members
+by source position, requires every assigned open pattern to close, and accepts only one complete
+mapping satisfying generic bounds. Matching a constructed effect can expose another function-type
+effect set; the solver recursively matches it under the same state budget. No mapping, multiple
+valid mappings, or incomplete evidence remains deferred or inapplicable as appropriate. Declared
+effects are substituted after successful type inference and checked by the separate effect analysis.
+
+Function values contribute directional evidence through their complete function shape. Value
+parameter positions reverse input and expected-result bounds at every nested function boundary;
+result positions preserve the direction. Ref/out function parameters require exact storage types.
+The specialized function type is checked using contravariant value parameters, covariant results,
+and source checked effects contained by the target effect budget. Nominal generic applications remain
+invariant.
 
 Generic operator candidates use the same structural solver for operand evidence and a surrounding
 expected result. A return-only type parameter can be inferred from an expected type, with the
