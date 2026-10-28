@@ -2,8 +2,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Generic specialization and direct calls
 
-These APIs are available in the development SDK. The published Sol 0.0.1 component remains the
-initial CST frontend. This analysis does not generate code or certify function bodies.
+These analysis APIs are included in the Sol 0.1.0 managed component and source projects, but they are not a stable NuGet SDK. The APIs alone do not generate code or certify arbitrary function bodies.
 
 ## Type ownership and substitution
 

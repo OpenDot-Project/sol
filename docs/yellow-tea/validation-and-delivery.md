@@ -2,22 +2,22 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Validation and delivery
 
-Yellow Tea is currently a documented design. This page defines acceptance work, rather than claiming
-that the listed tests exist or pass. Native implementation follows verified compiler/FIR and ABI
-work; the current C# frontend test suite cannot certify native reachability or memory ordering.
+The runtime already has an experimental concurrent collector. This page defines the evidence needed to
+extend and qualify it; it is not a claim that each future gate has passed. See the [current implementation
+inventory](current-implementation.md) for what is present in Sol 0.1.0.
 
-## First implementation order
+## Implementation progress and remaining gates
 
-1. Define native descriptors, handle ownership, thread registration, and executable root-frame fixtures.
-2. Implement span allocation and a deterministic single-worker tracing baseline with resident work bits.
-3. Validate the insertion barrier and phase state machine with a bounded model.
-4. Add concurrent workers, thread handshakes, native transitions, and allocation assists.
-5. Add sealed-epoch weak promotion, concurrent registry retirement, and exclusive sweeping.
-6. Integrate generated roots/barriers with AOT code, Windows unwinding, and application startup.
-7. Qualify ORC using the same ABI, then measure span batching and locality optimizations independently.
+| Area | Current state | Remaining qualification |
+|---|---|---|
+| Descriptors, roots and barriers | Exact descriptors for the admitted runtime subset; generated root frames, strong/weak handles, insertion barriers and handshake participation. | General value layouts, closures, interface/object graphs and complete exceptional root ownership. |
+| Allocation and reclamation | 44 fixed size classes, reusable span slots, dedicated large regions, committed/reserved accounting and epoch-sealed sweep publication. | Broader concurrent refill/return races, allocator pressure and workload qualification. |
+| Concurrent collection | Background mark/sweep worker, resident mark/gray bits, bounded tracing and allocation assists, epoch-aware weak promotion. | Full language integration, scheduler diversity and complete pacing/locality measurements. |
+| Native execution | Restricted AOT and process-isolated ORC paths share SolRT; dynamic and explicit static linkage are exercised. | General source exception unwinding, full object construction and broad ABI coverage. |
+| Validation | ASan harnesses, deterministic state model, reachability comparisons, concurrency stress and compiler/runtime integration fixtures exist. | Expand coverage to every admitted layout and adversarial failure path; measure latency and throughput on stated workloads. |
 
-Steps may share fixtures, but later optimization results cannot substitute for earlier correctness
-gates. The native scalar path remains available as a comparison baseline.
+The collector is experimental. A passing fixture proves only the paths and states it exercises. Later
+performance results cannot replace correctness, ownership, or memory-ordering gates.
 
 ## Small-state model
 

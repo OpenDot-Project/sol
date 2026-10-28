@@ -3,78 +3,57 @@
 # Sol
 
 Sol is a Windows-only programming language and compiler project maintained by OpenDot Project.
-The compiler is implemented primarily in C# 14 on .NET 10. The native backend targets LLVM 23.1.3.
+Sol 0.1.0 introduces a verified FIR pipeline and a restricted native bootstrap. The language
+specification is broader than the syntax, analysis, runtime, and code-generation subsets implemented
+by this release.
 
-**Current release: [Sol 0.0.1](https://github.com/OpenDot-Project/sol/releases/tag/v0.0.1).**
+The compiler is primarily C# 14 on .NET 10. Native LLVM operations cross a thin C++20/CLI bridge
+to LLVM 23.1.3. The compiler package includes its private .NET 10 runtime; it uses neither
+.NET NativeAOT nor SDK self-contained publishing.
 
-Development source now targets 0.0.2. Its [release preparation](docs/release-notes/0.0.2.md)
-records the experimental native scope, component identities and publication gates.
-This release implements an initial lossless CST frontend. It can parse the supported syntax subset
-and produce JSON for inspection. Semantic analysis, native code generation, Yellow Tea garbage
-collection, and the standard library are still under development. It does not build runnable Sol programs.
+## Download Sol 0.1.0
 
-## Try the frontend
+- [Frontend component](https://github.com/OpenDot-Project/sol/releases/download/v0.1.0/sol-0.1.0-windows-x86_64.zip) provides source, AST, and verified FIR inspection. It does not include the native backend.
+- [Native component](https://github.com/OpenDot-Project/sol/releases/download/v0.1.0/sol-0.1.0-windows-x86_64-native.zip) adds LLVM/LLD, SolRT, AOT linking, and process-isolated ORC for the verified subset.
 
-Download the Windows x86-64 ZIP and its `.sha256` file from the release above. In PowerShell,
-from the directory containing both files:
+Download the matching SHA-256 file from the [Sol 0.1.0 release](https://github.com/OpenDot-Project/sol/releases/tag/v0.1.0) and verify the archive before extraction. The native component requires the Microsoft Visual C++ v14 x64 Redistributable. AOT EXE/DLL linking also needs the Windows SDK and MSVC libraries available through an x64 developer shell; ORC and library/container outputs do not use those SDK search paths.
 
-```powershell
-$archive = 'sol-0.0.1-windows-x86_64.zip'
-$expected = ((Get-Content "$archive.sha256" -Raw).Trim() -split '\s+')[0]
-if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $expected) { throw 'Checksum mismatch.' }
-Expand-Archive -LiteralPath $archive -DestinationPath .
-$solc = '.\sol-0.0.1-windows-x86_64\bin\solc.exe'
-& $solc --version --verbose
-```
+The shipped native subset includes a simple Main.main([]String) entry, scalar operations, immutable UTF-8 strings, single-level scalar/String arrays, selected std.stdio and std.math APIs, and closed module-level generic functions. It does not implement the complete language, exception unwinding, general object construction, arbitrary closures, or the complete standard library. See [release notes](docs/release-notes/0.1.0.md) and the [status page](docs/status.md) for exact boundaries.
 
-The component includes a private .NET 10 runtime assembled by our packaging scripts. You do not
-need to install .NET separately to run this component. Keep its `bin`, `managed`, and `runtime`
-directories together. This is a framework-dependent managed application with a bundled runtime;
-it does not use .NET NativeAOT or SDK self-contained publishing.
+## Parse a source file
 
-Create `example.sol`:
+Create example.sol:
 
 ```sol
 module examples.arithmetic
 
 func add(a, b: int) = a + b
-
 val numbers = [1, 2, 3]
-val sum = { x, y -> x + y }
-val positionalSum = { $0 + $1 }
 ```
+
+Run the frontend component or the native component:
 
 ```powershell
-& $solc .\example.sol --emit=cst -o .\example.cst.json
-Get-Content .\example.cst.json -Raw | ConvertFrom-Json
+solc .`example.sol --emit=cst -o .`example.cst.json
+Get-Content .`example.cst.json -Raw | ConvertFrom-Json
 ```
 
-Parsing succeeds for this example; it does not execute the functions or infer their semantic types.
-Every source declares its logical module explicitly. The module name does not have to match the file path.
+CST output preserves syntax and tokens; it does not by itself establish semantic validity. For a
+first native program and the exact supported subset, see [Verified FIR and native programs](docs/fir-native.md).
 
 ## Documentation
 
-- [Verified FIR and native AOT](docs/fir-native.md): development-only native bootstrap, build/run instructions, safety gates, and limitations.
-- [Library artifacts](docs/library-artifacts.md): development DLL/staticlib/Sol containers and isolated ORC execution.
-- [Standard library implementation](docs/standard-library.md): implemented APIs and remaining module coverage.
-- [Getting started](docs/getting-started.md): installation, package layout, and first CST output.
-- [Solc CLI](docs/cli.md): every currently accepted option, diagnostics, and output behavior.
-- [Frontend guide](docs/frontend.md): the supported grammar subset and C# API usage.
-- [PSI source views](docs/psi.md): typed source inspection available in development builds.
-- [Structural AST](docs/ast.md): source origins, parameter expansion, and normalized type spelling.
-- [Declaration analysis](docs/analysis.md): explicit modules, source imports, and partial composition.
-- [Types and lexical scopes](docs/source-binding.md): written type binding and source name lookup.
-- [Generic specialization and calls](docs/generic-calls.md): substitution, constraints, and direct-function overload analysis.
-- [Generic inference](docs/generic-inference.md): input/exact/expected bounds, invariant matching, and base projections.
-- [Receiver and member resolution](docs/member-resolution.md): constructed member lookup, inherited overload groups, and access limits.
-- [Argument contracts](docs/arguments.md): named/default/vararg rules and evaluation order.
-- [Source specification](spec/README.md): commented `.sol` contracts and [usage examples](spec/examples/README.md), including planned semantics.
-- [Architecture](docs/architecture.md): existing projects, ownership, and future compiler stages.
-- [Development and validation](docs/development.md): build, tests, coverage, DocFX, and packaging.
-- [Status and roadmap](docs/status.md): implemented capabilities and the order of upcoming work.
-- [Contributing](CONTRIBUTING.md) and [changelog](CHANGELOG.md).
+- [Getting started](docs/getting-started.md): packages, checksums, and the first parse.
+- [Solc CLI](docs/cli.md): the compiler's accepted command-line contract.
+- [Verified FIR and native programs](docs/fir-native.md): AOT, ORC, runtime linkage, and native limitations.
+- [Native and Sol library artifacts](docs/library-artifacts.md): bin, cdylib, staticlib, and solib.
+- [Standard library implementation](docs/standard-library.md): implemented APIs and remaining modules.
+- [Yellow Tea](docs/yellow-tea/index.md): collector design, implementation, and qualification limits.
+- [Source specification](spec/README.md): .sol language contracts and detailed examples, including features not implemented by this release.
+- [Architecture](docs/architecture.md), [development](docs/development.md), and [contributing](CONTRIBUTING.md).
+- [Changelog](CHANGELOG.md).
 
-These guides and generated API reference can be built locally with DocFX. See the development guide.
+DocFX builds these guides and the generated API reference. See the development guide for local validation.
 
 ## License and contact
 

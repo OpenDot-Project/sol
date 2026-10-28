@@ -3,7 +3,8 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
-$installed = Join-Path $root 'out/dependencies/qualified-installed/x64-windows-static'
+$dependencyRoot = if ($env:SOL_DEPENDENCY_ROOT) { [IO.Path]::GetFullPath($env:SOL_DEPENDENCY_ROOT) } else { Join-Path $root 'out/dependencies' }
+$installed = Join-Path $dependencyRoot 'qualified-installed/x64-windows-static'
 $catalogPath = Join-Path $PSScriptRoot 'native-advisories.json'
 $catalog = Get-Content $catalogPath -Raw | ConvertFrom-Json -AsHashtable
 $header = Join-Path $installed 'include/libxml2/libxml/xmlversion.h'
@@ -39,7 +40,7 @@ foreach ($platform in (Get-ChildItem (Join-Path $vs 'MSBuild/Microsoft/VC') -Dir
 if (-not $toolset) { throw 'Qualified native toolset unavailable.' }
 & (Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe') (Join-Path $root 'src/native/dependencies/dependencies.vcxproj') `
     /nologo /nodeReuse:false /p:Configuration=Release /p:Platform=x64 "/p:PlatformToolset=$($toolset.Name)" `
-    "/p:ZlibLibrary=$($zlib[0].FullName)" /p:EnableCppCoreCheck=true /p:RunCodeAnalysis=true /p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset
+    "/p:ZlibLibrary=$($zlib[0].FullName)" "/p:NativeDependencyRoot=$installed" /p:EnableCppCoreCheck=true /p:RunCodeAnalysis=true /p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset
 if ($LASTEXITCODE -ne 0) { throw 'Native dependency harness build failed.' }
 & (Join-Path $root 'out/native/dependency-tests/NativeDependencyTests.exe')
 if ($LASTEXITCODE -ne 0) { throw "Native dependency regression failed: $LASTEXITCODE" }

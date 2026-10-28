@@ -4,7 +4,7 @@
 
 The development branch includes `OpenDot.Sol.Psi`, a read-only program structure interface over
 the lossless CST. It exposes source declarations for tooling without loading LLVM or a C++/CLI
-bridge. This project is not included in the published Sol 0.0.1 component, and no stable NuGet SDK
+bridge. This project was not included in the initial Sol 0.0.1 component. The 0.1.0 compiler component carries the managed assemblies, but no stable NuGet SDK
 distribution is promised yet. Reference the project from a source checkout to use it.
 
 PSI views retain the existing `SyntaxNode` and `SourceText`; they do not copy the compiler into a

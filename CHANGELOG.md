@@ -6,16 +6,19 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ## [Unreleased]
 
-The next release target is **Sol 0.0.2**, tag `v0.0.2`. Source version metadata has advanced;
-publication still requires the protected-branch, merged-commit and tag-build validation gates.
-The published Sol 0.0.1 assets remain immutable.
+## [0.1.0] - 2026-10-28
+
+First release with a restricted verified-FIR/native bootstrap. The complete language specification
+remains broader than the implementation. The published Sol 0.0.1 assets remain immutable.
+
 
 ### Added
 
 - Explicit native upstream-commit OSV queries, strict paginated advisory evidence validation,
   and a separate Windows advisory workflow. A pinned upstream zlib fix, libxml2 HTML/XInclude
   removal and hash-bound ASan/symbol qualification harden the native dependency inputs.
-  The two libxml2 records still require shared-function applicability review and remain blocking;
+  The two libxml2 records remain in raw OSV output; exact upstream fixes, disabled HTML/XInclude
+  features, absent symbols, and binary-bound evidence now qualify these records only;
   no CodeQL suppression or risk exemption is applied.
   Native staging also rejects missing/stale build bindings and changed payload/report/catalog
   bytes, preserving a hash inventory with the package's qualification evidence.
@@ -57,7 +60,8 @@ The published Sol 0.0.1 assets remain immutable.
   overloads, native Throwable carrier roots/suppression, and native model/ASan/concurrency checks.
 - Process-isolated native ORC bin execution, scalar C-ABI DLL/static-library output, deterministic
   closed-subset Sol library containers, and host/guest runtime import checks. General source EH,
-  the span allocator, external Sol library consumption and the full standard library remain pending.
+  broader allocator concurrency/workload qualification, external Sol library consumption, and the
+  full standard library remain pending.
 
 - Pinned JetBrains native/C++/CLI cleanup and inspection, MSVC CppCoreCheck build settings,
   and a separate digest-verified Doxygen HTML/XML validation workflow for Windows.
@@ -75,7 +79,9 @@ The published Sol 0.0.1 assets remain immutable.
 - C++20/CLI LLVM bridge with native RAII, pre/post-pass verification, and COFF object generation.
 - Provisional native SolRT with dynamic/static linking, UTF-8 arguments, scalar/String output,
   checked arithmetic/bounds failures, native execution/import tests, and an ASan ABI harness.
-- Separate Windows native-backend CI with pinned LLVM acquisition and native CodeQL build coverage.
+- Separate Windows native-backend CI with pinned LLVM acquisition and first-party native CodeQL
+  build coverage. Downloaded upstream sources remain outside the repository scan and go through
+  native advisory qualification.
 - Optional source-owned body analysis: receiver/call/lambda typing, access and override diagnostics,
   constructor initialization, structured assignment/null/effect checks, delegation contracts, and
   explicit unverified proof locations. This API alone does not certify native eligibility.

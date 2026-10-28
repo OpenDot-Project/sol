@@ -2,33 +2,24 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Sol documentation
 
-Sol is a Windows-only programming language project. Sol 0.0.1 provides the first compiler frontend
-slice: UTF-8 source handling, lexical analysis, bounded parsing, and lossless CST JSON output.
+Sol 0.1.0 is a Windows x86-64 compiler release with two package variants. The frontend component
+provides CST, AST, and verified FIR inspection. The native component adds LLVM 23.1.3, embedded
+LLD.COFF/LLD.Common, AOT artifact generation, and process-isolated ORC execution for a closed,
+verified subset. Neither package implements the full language specification.
 
-Start with [installation and a first parse](getting-started.md), then use the [CLI reference](cli.md)
-or [frontend guide](frontend.md). Contributors should read [development and validation](development.md).
-Source builds also provide the [typed PSI source interface](psi.md).
+Start with [package installation and a first parse](getting-started.md), then consult the
+[Solc CLI reference](cli.md). Use the [verified FIR/native guide](fir-native.md) and
+[artifact guide](library-artifacts.md) for the implemented backend subset. The
+[status page](status.md) separates shipped capabilities from remaining work.
 
-The [architecture guide](architecture.md) describes both existing components and their planned
-extensions. The [status page](status.md) distinguishes released behavior from future work.
-Generated API pages document the actual C# assemblies; they are not a complete language specification.
+The language contracts and detailed examples live in the [source specification](../spec/README.md).
+Many contracts describe syntax or semantics that are not yet accepted by the native backend.
+Generated API pages document the C# assemblies; they are not a complete language specification or
+a stable NuGet SDK promise.
 
-The [Yellow Tea section](yellow-tea/index.md) documents the native collector design and its pending
-implementation/validation work. Source builds also expose [body type and flow analysis](body-analysis.md),
-with focused guides for [generic inference](generic-inference.md), [member resolution](member-resolution.md),
-and [path-sensitive flow and checked effects](flow-and-effects.md). The [cleanup and construction
-effects guide](cleanup-construction.md) specifies lexical `defer` behavior and checked effects from
-implicit construction, including the current analysis and native-backend boundaries.
+The [Yellow Tea section](yellow-tea/index.md) documents the experimental native collector. It uses
+precise roots and concurrent mark/sweep, but does not carry a measured latency or production-readiness
+guarantee. The managed compiler and native ORC guest use separate processes and heaps.
 
-The [generic FIR specialization guide](generic-fir-specialization.md) maps the current closed
-module-level generic free-function slice to its source contracts, verifier rules, resource limits,
-diagnostics and native admission boundary. It distinguishes current implementation from normative
-requirements that still need work.
-
-The [array and cursor iteration guide](array-iteration.md) defines dynamic-array `for-in`, item-copy
-semantics, loop transfers, GC obligations, the future cursor protocol, and the verified-FIR/native
-qualification boundary. The corresponding normative contract and fixture matrix are indexed in the
-[source specification](../spec/README.md).
-
-Native compilation and execution are not available in 0.0.1. A successful parse establishes that
-the implemented syntax subset was accepted; it does not resolve names, check types, or run a program.
+The architecture, native dependency review, and roadmap describe this repository's own components
+and their current boundaries. Other OpenDot tools are documented in their own repositories.

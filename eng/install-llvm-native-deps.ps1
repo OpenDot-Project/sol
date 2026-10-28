@@ -5,13 +5,15 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 $pin = Get-Content (Join-Path $PSScriptRoot 'llvm-native-dependencies.json') -Raw | ConvertFrom-Json
-$source = Join-Path $root "out/dependencies/vcpkg-$($pin.vcpkg_commit)"
+$dependencyRoot = if ($env:SOL_DEPENDENCY_ROOT) { [IO.Path]::GetFullPath($env:SOL_DEPENDENCY_ROOT) } else { Join-Path $root 'out/dependencies' }
+New-Item -ItemType Directory -Path $dependencyRoot -Force | Out-Null
+$source = Join-Path $dependencyRoot "vcpkg-$($pin.vcpkg_commit)"
 if (-not (Test-Path (Join-Path $source 'bootstrap-vcpkg.bat'))) {
-    $archive = Join-Path $root 'out/vcpkg-source.zip'
+    $archive = Join-Path $dependencyRoot 'vcpkg-source.zip'
     New-Item -ItemType Directory (Split-Path $archive -Parent) -Force | Out-Null
     Invoke-WebRequest "https://github.com/microsoft/vcpkg/archive/$($pin.vcpkg_commit).zip" -OutFile $archive
     if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $pin.archive_sha256) { throw 'vcpkg source digest mismatch.' }
-    Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $root 'out/dependencies') -Force
+    Expand-Archive -LiteralPath $archive -DestinationPath $dependencyRoot -Force
 }
 if (-not (Test-Path (Join-Path $source 'vcpkg.exe'))) {
     & (Join-Path $source 'bootstrap-vcpkg.bat') -disableMetrics
@@ -20,7 +22,7 @@ if (-not (Test-Path (Join-Path $source 'vcpkg.exe'))) {
 $previous = $env:X_VCPKG_ASSET_SOURCES
 $previousConcurrency = $env:VCPKG_MAX_CONCURRENCY
 $overlay = & (Join-Path $PSScriptRoot 'prepare-native-overlays.ps1') -VcpkgRoot $source
-$installRoot = Join-Path $root 'out/dependencies/qualified-installed'
+$installRoot = Join-Path $dependencyRoot 'qualified-installed'
 if (-not $previousConcurrency) { $env:VCPKG_MAX_CONCURRENCY = '2' }
 try {
     $provider = Join-Path $PSScriptRoot 'fetch-native-asset.ps1'

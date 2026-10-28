@@ -3,10 +3,7 @@
 # Source examples
 
 These examples illustrate source shapes, intended behavior, and selected negative semantic cases.
-They are syntax/AST fixtures, not runnable programs in the current release. A line marked “Expected
-diagnostic” is intentionally invalid at the semantic layer and documents the required rejection.
-Every file carries its own implementation status. Native execution, standard library
-implementations, and full semantic verification remain planned even where syntax is accepted.
+Most examples are syntax/AST fixtures, not programs runnable by the Sol 0.1.0 native subset. A line marked Expected diagnostic is intentionally invalid at the semantic layer and documents the required rejection. Every file carries its own implementation status. Native execution and standard-library support are limited to the subset described in the release notes; full semantic verification remains incomplete even where syntax is accepted.
 
 The development-only [first native program](native/FirstProgram.sol) is the executable exception to
 that planned status. It uses the qualified scalar/SolRT bootstrap described in the

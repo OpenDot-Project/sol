@@ -360,8 +360,7 @@ not executable by the current backend subset.
 | Generic C ABI or cross-module template linking | Not implemented |
 
 The “implemented” entries describe the compiler state of this branch, not release availability.
-The current released Sol 0.0.1 remains the initial CST frontend. A feature is not release-ready
-until the repository's CI, artifact, documentation, and release gates establish its exact scope.
+The initial Sol 0.0.1 package remains the CST frontend. Sol 0.1.0 includes only the closed generic FIR/native slice described by the release notes; a source-analysis feature is not automatically release-ready without matching artifact and execution evidence.
 
 ## Review checklist
 

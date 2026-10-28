@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+param([string]$ToolchainRoot = $env:SOL_TOOLCHAIN_ROOT)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 $pin = Get-Content (Join-Path $PSScriptRoot 'llvm.json') -Raw | ConvertFrom-Json
 $downloads = Join-Path $root 'out/downloads'
-$tools = Join-Path $root 'out/toolchains'
+if (-not $ToolchainRoot) { $ToolchainRoot = Join-Path $root 'out/toolchains' }
+$tools = [IO.Path]::GetFullPath($ToolchainRoot)
 New-Item -ItemType Directory -Path $downloads, $tools -Force | Out-Null
 $archive = Join-Path $downloads "llvm-$($pin.version)-windows-x64.tar.xz"
 if (-not (Test-Path $archive)) { Invoke-WebRequest $pin.url -OutFile $archive }
