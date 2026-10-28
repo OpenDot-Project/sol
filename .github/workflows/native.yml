@@ -38,6 +38,8 @@ jobs:
       - run: dotnet tool restore
       - name: Inspect native and C++/CLI sources
         run: ./eng/native-tools.ps1 -Mode Inspect
+      - name: Test pinned native notice sources
+        run: ./eng/test-native-notices.ps1
       - run: ./eng/test-native.ps1
       - run: ./eng/test-backends.ps1
       - run: ./eng/test-runtime.ps1

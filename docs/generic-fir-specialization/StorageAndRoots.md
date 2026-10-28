@@ -14,10 +14,11 @@ The wider specialization boundary is described by the
 Development builds admit a narrow native specialization slice for direct calls to module-level
 generic free functions. The selected type arguments must be closed and supported by verified FIR.
 The current type set includes selected primitives, `String`, nested managed arrays with supported
-leaf elements, and non-null receiver-free function pointers in arrays. Function pointer elements
-have an eight-byte scalar descriptor with no managed-reference scan shape; this is not a closure
-environment layout. Bodies are constructed from already-bound source facts; the compiler does not
-perform complete per-instance source rebinding.
+leaf elements, receiver-free function pointers, exact-ABI nullable function pointers, and arrays of
+both pointer forms. Function pointer elements have an eight-byte scalar descriptor with no
+managed-reference scan shape; nullable function elements use zero as null and the same descriptor.
+This is not a closure environment layout. Bodies are constructed from already-bound source facts;
+the compiler does not perform complete per-instance source rebinding.
 
 The native runtime has provisional object, String and array headers, exact descriptor scan shapes
 for the generated bootstrap subset, registered shadow roots, cooperative polls, and insertion
@@ -67,6 +68,9 @@ escaping span. An artifact that links does not certify source-level overload sel
 | `[]String` | Managed array reference | Root array and scan String element slots | One-level array support |
 | `[]String?` | Array with nullable reference elements | Root array; scan non-null slots | Rejected pending nullable element layout |
 | `([]String)?` | Nullable array owner | Root owner when present; element type stays non-null | Rejected pending nullable representation |
+| `(() -> String)?` | Nullable exact-ABI function pointer | Scalar code address; zero means null; no object root | Admitted for supported closed signatures |
+| `[]((() -> String)?)` | Array of nullable exact-ABI function pointers | Root array; do not scan pointer-width elements | Admitted; stable local narrowing is required before call |
+| `[]((() -> String)?)` | Array of nullable exact-ABI function pointers | Root array; never scan code-address elements | Admitted for supported closed signatures |
 | `[][]int` | Nested managed array | Root outer array and scan inner-array slots | Rejected |
 | `Box<String>` | Constructed nominal type | Scan fields according to substituted layout | Rejected; generic owner layout is outside slice |
 | `Pair<String,int>` | Inline value with a reference field | Recursively scan the String field | Rejected pending aggregate layout proof |
@@ -89,16 +93,19 @@ Sol's array type spelling distinguishes element nullability from container nulla
 | `[](String?)` | No | Yes | Same nullable-element shape as `[]String?`. |
 | `([]String)?` | Yes | No | Optional array owner; present elements are non-null Strings. |
 | `([]String?)?` | Yes | Yes | Optional owner plus nullable element slots. |
+| `[]((() -> String)?)` | No | Yes | Nullable code-pointer element; zero is null, code addresses are scalar/non-scanned. |
+| `([](() -> String))?` | Yes | No | Nullable owner; present array entries are non-null function pointers. |
 
 The `?` after `String` applies to the element. Grouping the complete array before `?` applies to
 the owner. Parentheses around the element type preserve the same array shape. Neither the analyzer
 nor backend may collapse these cases into “nullable array” as a single bit.
 
 A nullable reference element remains a reference edge when it is non-null. A nullable value element
-may require a presence tag and a conditional nested scan program. The current supported native
-arrays do not establish this broader tagged-element ABI. A read-only source flow fact can make one
-loaded value non-null on one branch; it does not change the declared element descriptor or make a
-different slot non-null.
+may require a presence tag and a conditional nested scan program. The exact nullable function-pointer
+case is scalar instead: zero denotes absence, and the code address is never traced. The current
+supported native arrays do not establish a general tagged-element ABI for nullable references or
+values. A read-only source flow fact can make one loaded value non-null on one branch; it does not
+change the declared element descriptor or make a different slot non-null.
 
 ## Generic aggregates and descriptor shape
 
@@ -132,9 +139,9 @@ copy; writing an element requires explicit indexing.
 
 The current runtime has a 32-byte array prefix with count, stride and element type. The descriptor
 scan shape distinguishes reference arrays from scalar arrays. Nested managed arrays trace inner
-array objects; a function-pointer leaf uses an eight-byte scalar descriptor and does not trace its
-code address. This does not establish support for fixed arrays, nullable element arrays or arbitrary
-value-layout elements.
+array objects; a function-pointer leaf, nullable or non-null, uses an eight-byte scalar descriptor
+and does not trace its code address. This does not establish support for fixed arrays, nullable
+managed-reference/value element arrays or arbitrary value-layout elements.
 
 The intended `std.collections` APIs include `Vector<E>`, hash and ordered sets/maps, queues, deques,
 stacks, priority queues, `Span<T>` and `ReadOnlySpan<T>`. Imports and type signatures do not imply
@@ -301,7 +308,7 @@ Before lowering an instance, a future complete verifier must establish all of th
 
 Today, the source and FIR verifier cover a narrower type/call subset and the native bootstrap has
 specific qualified descriptor/root paths. The full checklist is a normative future requirement; it
-must not be described as already proven by schema 6 JSON or by successful parsing.
+must not be described as already proven by schema 7 JSON or by successful parsing.
 
 ## Artifact and compatibility consequences
 
@@ -408,7 +415,7 @@ payload changes; it does not authenticate a producer or confer verifier trust.
 | Subsystem | Current development inventory | Remaining proof before broader generic use |
 |---|---|---|
 | Object headers | Provisional object/String/array prefixes | Stable layout version, general type and partial field descriptors |
-| Array descriptors | Supported scalar/String/function-pointer leaves and nested managed-array references | Nullable slots, fixed arrays, aggregate elements, closure environments |
+| Array descriptors | Supported scalar/String/function-pointer leaves, nullable exact-ABI function-pointer leaves, and nested managed-array references | Nullable managed slots, fixed arrays, aggregate elements, closure environments |
 | Root frames | Explicit attach/detach, registered roots and cooperative polls | Per-instance precise liveness through full CFG and exceptional cleanup |
 | Stores | Insertion barrier for generated supported references | Generic field/aggregate/collection writes with exact descriptor class |
 | Spans | Source contracts and semantic examples | End-to-end borrow owner, stack-map, ref/out, and escape verification |

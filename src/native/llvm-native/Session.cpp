@@ -390,7 +390,10 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
                                                             llvm::CmpInst::ICMP_EQ, llvm::CmpInst::ICMP_NE,
                                                             llvm::CmpInst::ICMP_ULT, llvm::CmpInst::ICMP_UGT,
                                                             llvm::CmpInst::ICMP_ULE, llvm::CmpInst::ICMP_UGE};
-            Require(data >= 0 && data < 12 && val(0)->getType()->isIntegerTy(), "Invalid integer predicate.");
+            const auto *operandType = val(0)->getType();
+            const bool pointerEquality = operandType->isPointerTy() && data < 2;
+            Require(data >= 0 && data < 12 && (operandType->isIntegerTy() || pointerEquality),
+                    "Invalid integer or pointer-equality predicate.");
             return Add({nullptr, Builder.CreateICmp(predicates[data], val(0), val(1))});
         }
         constexpr llvm::CmpInst::Predicate predicates[]{llvm::CmpInst::FCMP_OEQ, llvm::CmpInst::FCMP_UNE,

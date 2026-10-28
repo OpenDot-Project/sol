@@ -457,7 +457,7 @@ public sealed class FunctionValueOverloadTests
         Assert.Null(callSite.Target);
         Assert.Equal("std.stdio.IOException", Assert.Single(callSite.Effects).Name);
         using var json = JsonDocument.Parse(FirJson.Serialize(verified, TestContext.Current.CancellationToken));
-        Assert.Equal(6, json.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(7, json.RootElement.GetProperty("schema").GetInt32());
         Assert.Contains("\"kind\": \"FirIndirectCall\"", json.RootElement.GetRawText(), System.StringComparison.Ordinal);
         Assert.Contains("\"target\": null", json.RootElement.GetRawText(), System.StringComparison.Ordinal);
         Assert.DoesNotContain("\"Target\"", json.RootElement.GetRawText(), System.StringComparison.Ordinal);
@@ -597,12 +597,12 @@ public sealed class FunctionValueOverloadTests
     }
 
     [Fact]
-    public void NativeFirRejectsClosuresAndAdmitsArraysOfFunctionPointers()
+    public void NativeFirAdmitsNonCapturingLambdasAndArraysOfFunctionPointers()
     {
         var closure = FirCompilation.Create([AstTestSources.Parse("object Main { func main(args: []String) {\n"
             + "val callback: () -> int = { 42 }\n} }")], TestContext.Current.CancellationToken);
-        Assert.Null(closure.Program);
-        Assert.Contains(closure.Diagnostics, diagnostic => diagnostic.Code == "SOL2400");
+        Assert.NotNull(closure.Program);
+        Assert.Empty(closure.Diagnostics);
 
         var array = FirCompilation.Create([AstTestSources.Parse("object Main { func main(args: []String) {\n"
             + "val callbacks: [](() -> int) = [answer]\nval result = callbacks[0]()\n} }\n"

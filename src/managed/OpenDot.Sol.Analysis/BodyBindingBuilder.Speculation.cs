@@ -19,6 +19,8 @@ internal sealed partial class BodyBindingBuilder
         var callSnapshot = Calls.ToArray();
         var operatorSnapshot = OperatorBindings.ToArray();
         var bodySnapshot = Bodies.ToArray();
+        var anonymousFunctionBodySnapshot = AnonymousFunctionBodies.ToArray();
+        var lambdaBodySnapshot = LambdaBodies.ToArray();
         var localSnapshot = _localTypes.ToArray();
         var activeSnapshot = _active.ToArray();
         var reportedSnapshot = _reported.ToArray();
@@ -38,6 +40,8 @@ internal sealed partial class BodyBindingBuilder
             Restore(Calls, callSnapshot);
             Restore(OperatorBindings, operatorSnapshot);
             Restore(Bodies, bodySnapshot);
+            Restore(AnonymousFunctionBodies, anonymousFunctionBodySnapshot);
+            Restore(LambdaBodies, lambdaBodySnapshot);
             Restore(_localTypes, localSnapshot);
             Restore(_active, activeSnapshot);
             Restore(_reported, reportedSnapshot);

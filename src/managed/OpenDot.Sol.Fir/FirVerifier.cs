@@ -17,6 +17,8 @@ public sealed record FirVerification(VerifiedFirProgram? Program, ImmutableArray
 /// <summary>Checks the closed native subset, exact type/slot/call identity, and CFG assignment proof.</summary>
 public static partial class FirVerifier
 {
+    internal const int MaximumNativeFunctionValueNesting = 128;
+
     public static FirVerification Verify(FirProgram program, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(program);
@@ -24,43 +26,6 @@ public static partial class FirVerifier
         var checker = new Checker(program, cancellationToken);
         checker.Check();
         return new(checker.Errors.Count == 0 ? new VerifiedFirProgram(program, checker.Graphs.ToImmutableArray()) : null, checker.Errors.ToImmutableArray());
-    }
-
-    internal static bool IsEmpty(ResolvedType type) => type.Kind == ResolvedTypeKind.Tuple && type.Arguments.IsEmpty;
-    internal static bool IsString(ResolvedType type) => type.Declaration is { ModuleName: "std.core", Name: "String", Arity: 0 };
-    internal static bool Supported(ResolvedType type)
-    {
-        var pending = new Stack<(ResolvedType Type, int Depth, bool AllowsVoid)>();
-        pending.Push((type, 0, true));
-        while (pending.TryPop(out var current))
-        {
-            if (current.Depth > 128) { return false; }
-            if (IsEmpty(current.Type) || current.Type.Kind == ResolvedTypeKind.Bottom)
-            {
-                if (current.AllowsVoid) { continue; }
-                return false;
-            }
-            if (current.Type.Kind == ResolvedTypeKind.Primitive)
-            {
-                if (current.Type.Name is "half" or "quad") { return false; }
-                continue;
-            }
-            if (IsString(current.Type)) { continue; }
-            if (current.Type.Kind == ResolvedTypeKind.Array && current.Type.Arguments.Length == 1)
-            {
-                pending.Push((current.Type.Arguments[0], current.Depth + 1, false));
-                continue;
-            }
-            if (current.Type.Kind == ResolvedTypeKind.Function && current.Type.Arguments.Length == current.Type.ParameterModes.Length + 1)
-            {
-                for (int index = 0; index < current.Type.ParameterModes.Length; index++)
-                { pending.Push((current.Type.Arguments[index], current.Depth + 1, false)); }
-                pending.Push((current.Type.Arguments[^1], current.Depth + 1, true));
-                continue;
-            }
-            return false;
-        }
-        return true;
     }
 
     private sealed partial class Checker(FirProgram program, CancellationToken cancellation)
@@ -109,11 +74,14 @@ public static partial class FirVerifier
                     if (local.Id != slot) { Fail("Slot identity/index mismatch.", local.Origin); }
                     CheckType(local.Type, local.Origin);
                     if (local.Mode == AstPassingMode.Vararg) { Fail("Expanded varargs require a qualified runtime adapter.", local.Origin); }
-                    if (local.Type.Kind == ResolvedTypeKind.Bottom || IsEmpty(local.Type)) { Fail("A slot must have a storable native type.", local.Origin); }
+                    if (local.Type.Kind == ResolvedTypeKind.Bottom || IsEmpty(local.Type) || IsNullSentinel(local.Type))
+                    { Fail("A slot must have a storable native type.", local.Origin); }
                 }
                 if (!_function.Parameters.SequenceEqual(_function.Slots.Where(s => s.IsParameter))
                     || _function.Parameters.Select(p => p.Id).Distinct().Count() != _function.Parameters.Length)
                 { Fail("Parameter/slot identity mismatch.", _function.Origin); }
+                if (_function.Slots.Any(slot => !slot.IsParameter && slot.IsEscaping))
+                { Fail("A local FIR slot cannot carry an @escaping parameter contract.", _function.Origin); }
                 if (_function.Body is null) { Fail("An ordinary function requires a body.", _function.Origin); continue; }
                 Statement(_function.Body, 0);
             CheckSourceCorrespondence();
@@ -149,6 +117,8 @@ public static partial class FirVerifier
         private void CheckExport()
         {
             if (_function.ExportName is null) { return; }
+            if (_function.LambdaSource is not null || _function.AnonymousFunctionSource is not null)
+            { Fail("A synthetic function value cannot be exported as a source function.", _function.Origin); return; }
             var file = program.Analysis.Sources.Declarations.Files.SingleOrDefault(f => f.Nodes.OfType<AstFunction>()
                 .Any(n => ReferenceEquals(n.Origin.Element, _function.Origin.Element)));
             var source = file?.Nodes.OfType<AstFunction>().SingleOrDefault(n => ReferenceEquals(n.Origin.Element, _function.Origin.Element));
@@ -160,6 +130,17 @@ public static partial class FirVerifier
 
         private void CheckSourceContract()
         {
+            if (_function.LambdaSource is { } lambda)
+            {
+                CheckLambdaSourceContract(lambda);
+                return;
+            }
+            if (_function.AnonymousFunctionSource is { } anonymousFunction)
+            {
+                CheckAnonymousFunctionSourceContract(anonymousFunction);
+                return;
+            }
+
             var source = program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
                 .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, _function.Origin.Element));
             if (source is null)
@@ -259,7 +240,8 @@ public static partial class FirVerifier
                     expectedParameterMode = AstPassingMode.Value;
                 }
                 if (sourceParameter.Name != firParameter.Name || sourceParameter.Type is null
-                    || expectedParameterType != firParameter.Type || expectedParameterMode != firParameter.Mode)
+                    || expectedParameterType != firParameter.Type || expectedParameterMode != firParameter.Mode
+                    || sourceParameter.IsEscaping != firParameter.IsEscaping)
                 { Fail("Function parameter metadata differs from its source declaration.", firParameter.Origin); }
             }
         }
@@ -387,15 +369,15 @@ public static partial class FirVerifier
                         var declared = Slot(declaration.Slot, declaration.Origin);
                         if (declared?.IsParameter == true) { Fail("A parameter cannot be redeclared.", declaration.Origin); }
                         if (!_declared.Add(declaration.Slot)) { Fail("A local slot has multiple declaration sites.", declaration.Origin); }
-                        if (declaration.Initializer is not null) { Expression(declaration.Initializer); Exact(declaration.Initializer.Type, declared?.Type, declaration.Origin); }
+                        if (declaration.Initializer is not null) { Expression(declaration.Initializer); Assignable(declaration.Initializer.Type, declared?.Type, declaration.Origin); }
                         break;
                     case FirStore store:
                         var stored = Slot(store.Slot, store.Origin);
                         if (stored?.Mutable != true) { Fail("Store requires a mutable slot.", store.Origin); }
-                        Expression(store.Value); Exact(store.Value.Type, stored?.Type, store.Origin); break;
+                        Expression(store.Value); Assignable(store.Value.Type, stored?.Type, store.Origin); break;
                     case FirEvaluate evaluation: Expression(evaluation.Value); break;
                     case FirReturn ret:
-                        if (ret.Value is not null) { Expression(ret.Value); Exact(ret.Value.Type, _function.ReturnType, ret.Origin); }
+                        if (ret.Value is not null) { Expression(ret.Value); Assignable(ret.Value.Type, _function.ReturnType, ret.Origin); }
                         else if (!IsEmpty(_function.ReturnType)) { Fail("Return is missing its value.", ret.Origin); }
                         break;
                     case FirIf conditional:
@@ -507,7 +489,7 @@ public static partial class FirVerifier
                 switch (expression)
                 {
                     case FirConstant constant: Constant(constant); break;
-                    case FirRead read: Exact(read.Type, Slot(read.Slot, read.Origin)?.Type, read.Origin); break;
+                    case FirRead read: CheckRead(read); break;
                     case FirFunctionReference reference: CheckFunctionReference(reference); break;
                     case FirCallValueReference reference: CheckCallValueReference(reference); break;
                     case FirUnary unary:
@@ -519,14 +501,16 @@ public static partial class FirVerifier
                         break;
                     case FirBinary binary:
                         Expression(binary.Left); Expression(binary.Right);
-                        if (binary.Left.Type != binary.Right.Type && binary.Operation is not ("<<" or ">>")) { Fail("Binary operands require exact types.", binary.Origin); }
+                        bool functionNullCheck = IsFunctionNullCheck(binary);
+                        if (binary.Left.Type != binary.Right.Type && !functionNullCheck && binary.Operation is not ("<<" or ">>"))
+                        { Fail("Binary operands require exact types.", binary.Origin); }
                         bool comparison = binary.Operation is "==" or "!=" or "<" or ">" or "<=" or ">=";
                         if (comparison) { Boolean(binary); }
                         else { Exact(binary.Type, binary.Left.Type, binary.Origin); }
                         if (binary.Operation is "&&" or "||") { Boolean(binary.Left); Boolean(binary.Right); }
                         if (binary.Operation is not ("+" or "-" or "*" or "/" or "%" or "&" or "|" or "^" or "<<" or ">>" or "==" or "!=" or "<" or ">" or "<=" or ">=" or "&&" or "||"))
                         { Fail("Unrecognized binary operation.", binary.Origin); }
-                        if (binary.Left.Type.Kind != ResolvedTypeKind.Primitive
+                        if (binary.Left.Type.Kind != ResolvedTypeKind.Primitive && !functionNullCheck
                             && !(IsString(binary.Left.Type) && binary.Operation is "+" or "==" or "!=" or "<" or ">" or "<=" or ">="))
                         { Fail("This binary operation is not qualified for the operand type.", binary.Origin); }
                         if (binary.Operation is "<<" or ">>" && binary.Right.Type.Name != "int") { Fail("Shift count must be int.", binary.Origin); }
@@ -544,7 +528,7 @@ public static partial class FirVerifier
                         { Fail("Invalid array-index signature.", index.Origin); } break;
                     case FirArrayLiteral array:
                         if (array.Type.Kind != ResolvedTypeKind.Array) { Fail("Array literal requires a managed array type.", array.Origin); break; }
-                        foreach (var element in array.Elements) { Expression(element); Exact(element.Type, array.Type.Arguments[0], element.Origin); }
+                        foreach (var element in array.Elements) { Expression(element); Assignable(element.Type, array.Type.Arguments[0], element.Origin); }
                         break;
                     case FirCall call: CheckCall(call); break;
                     case FirIndirectCall call: CheckIndirectCall(call); break;
@@ -578,6 +562,13 @@ public static partial class FirVerifier
         {
             try
             {
+                if (constant.Spelling == "null")
+                {
+                    if (!IsNullSentinel(constant.Type) && !IsNullableFunction(constant.Type))
+                    { Fail("Null requires a nullable function-value type in the verified native subset.", constant.Origin); }
+                    return;
+                }
+                if (IsNullSentinel(constant.Type)) { Fail("Invalid null constant.", constant.Origin); return; }
                 if (constant.Type.Kind is not (ResolvedTypeKind.Primitive or ResolvedTypeKind.Tuple) && !IsString(constant.Type))
                 { Fail("This type has no qualified literal representation.", constant.Origin); return; }
                 if (IsEmpty(constant.Type)) { if (constant.Spelling != "()") { Fail("Invalid empty tuple constant.", constant.Origin); } return; }
@@ -698,7 +689,7 @@ public static partial class FirVerifier
                 }
                 if (argument.Parameter < 0 || argument.Parameter >= target.Parameters.Length) { Fail("Call parameter index is invalid.", call.Origin); continue; }
                 var parameter = target.Parameters[argument.Parameter];
-                Exact(argument.Value.Type, parameter.Type, call.Origin);
+                Assignable(argument.Value.Type, parameter.Type, call.Origin);
                 if (argument.Mode != parameter.Mode) { Fail("Call passing mode mismatch.", call.Origin); }
                 if (argument.Mode is AstPassingMode.Ref or AstPassingMode.Out
                     && (argument.Value is not FirRead read || Slot(read.Slot, read.Origin)?.Mutable != true))
@@ -713,33 +704,5 @@ public static partial class FirVerifier
             }
         }
 
-        private static AstExpression UnwrapGrouping(AstExpression expression)
-        {
-            while (expression is AstSequence { IsGrouping: true } grouping)
-            {
-                var elements = grouping.Elements.Take(2).ToArray();
-                if (elements is not [AstExpression nested]) { break; }
-                expression = nested;
-            }
-            return expression;
-        }
-
-        private bool IsChecked(ResolvedType type) => !program.Analysis.Types.Types.Any(t => t.Declaration is { ModuleName: "std.core", Name: "RuntimeException" }
-            && program.Analysis.Types.ClassifyConversion(type, t, cancellation) != IntrinsicConversion.None);
-        private FirSlot? Slot(int id, AstOrigin origin)
-        { if (id < 0 || id >= _function.Slots.Length) { Fail("Slot is outside its function.", origin); return null; } return _function.Slots[id]; }
-        private void Exact(ResolvedType actual, ResolvedType? expected, AstOrigin origin)
-        { if (actual != expected && actual.Kind != ResolvedTypeKind.Bottom) { Fail("FIR type identity mismatch.", origin); } }
-        private void Boolean(FirExpression value)
-        { if (value.Type.Kind != ResolvedTypeKind.Primitive || value.Type.Name != "bool") { Fail("Condition/result must be bool.", value.Origin); } }
-        private void Fail(string message, AstOrigin origin)
-        { if (Errors.Count < 1000) { Errors.Add(new("SOL2402", message, origin.Source, origin.Span)); } }
-        private bool Enter(FirNode node)
-        {
-            cancellation.ThrowIfCancellationRequested();
-            if (_depth >= 128 || !_active.Add(node)) { Fail("Cyclic or excessively nested FIR.", node.Origin); return false; }
-            _depth++; return true;
-        }
-        private void Leave(FirNode node) { _depth--; _active.Remove(node); }
     }
 }

@@ -125,8 +125,9 @@ public sealed partial class AstSnapshot
                 origin.Element.Kind == NodeKind.TupleExpression && children.Length == 1
                 && !OwnTokens(origin).Any(t => t.Kind == SyntaxKind.CommaToken)),
             NodeKind.LambdaExpression => Lambda(id, origin, children),
+            NodeKind.AnonymousFunctionExpression => AnonymousFunction(id, origin, children),
             NodeKind.LabelledExpression => new AstLabelledExpression(id, origin, children),
-            NodeKind.IndexExpression or NodeKind.AnonymousFunctionExpression or NodeKind.ThrowExpression
+            NodeKind.IndexExpression or NodeKind.ThrowExpression
                 or NodeKind.RefExpression => new AstExpression(id, origin, children),
             NodeKind.ThrowStatement or NodeKind.BreakStatement or NodeKind.ContinueStatement
                 or NodeKind.DeferStatement or NodeKind.UnsafeStatement => new AstStatement(id, origin, children),

@@ -77,6 +77,12 @@ public static partial class FirVerifier
                 || signature.Arguments.Length != call.Arguments.Length + 1)
             { Fail("Indirect call arity differs from its function value type.", call.Origin); return; }
             Exact(call.Type, signature.Arguments[^1], call.Origin);
+            foreach (var effect in signature.Effects.Where(IsChecked))
+            {
+                if (!_function.Effects.Any(budget => program.Analysis.Types.ClassifyConversion(
+                    effect, budget, cancellation) != IntrinsicConversion.None))
+                { Fail("Indirect call exceeds the function's checked effect budget.", call.Origin); }
+            }
 
             for (int index = 0; index < call.Arguments.Length; index++)
             {
@@ -85,7 +91,7 @@ public static partial class FirVerifier
                 if (argument.Parameter != index || argument.Mode != mode)
                 { Fail("Indirect argument position or passing mode differs from its function signature.", call.Origin); }
                 Expression(argument.Value);
-                Exact(argument.Value.Type, signature.Arguments[index], argument.Value.Origin);
+                Assignable(argument.Value.Type, signature.Arguments[index], argument.Value.Origin);
                 if (mode is AstPassingMode.Ref or AstPassingMode.Out)
                 {
                     if (argument.Value is not FirRead read)
@@ -99,6 +105,27 @@ public static partial class FirVerifier
 
         private void MatchFunctionReference(FirFunctionReference actual, AstExpression source)
         {
+            if (source is AstLambda lambda)
+            {
+                if (actual.Target < 0 || actual.Target >= program.Functions.Length
+                    || !ReferenceEquals(program.Functions[actual.Target].LambdaSource, lambda))
+                { Fail("FIR lambda reference differs from its source lambda identity.", actual.Origin); }
+                if (GetSourceExpression(lambda)?.Type is not { Kind: ResolvedTypeKind.Function } type
+                    || Substitute(type) != actual.Type)
+                { Fail("FIR lambda reference signature differs from source analysis.", actual.Origin); }
+                return;
+            }
+            if (source is AstAnonymousFunction anonymousFunction)
+            {
+                if (actual.Target < 0 || actual.Target >= program.Functions.Length
+                    || !ReferenceEquals(program.Functions[actual.Target].AnonymousFunctionSource, anonymousFunction))
+                { Fail("FIR anonymous-function reference differs from its source identity.", actual.Origin); }
+                if (GetSourceExpression(anonymousFunction)?.Type is not { Kind: ResolvedTypeKind.Function } type
+                    || Substitute(type) != actual.Type)
+                { Fail("FIR anonymous-function signature differs from source analysis.", actual.Origin); }
+                return;
+            }
+
             var binding = GetSourceExpression(source);
             if (binding?.FunctionValueTarget is not { } target)
             { Fail("FIR function reference has no source-selected function declaration.", actual.Origin); return; }
@@ -112,6 +139,21 @@ public static partial class FirVerifier
             if (selectedArguments.IsDefault
                 || !selectedArguments.SequenceEqual(program.Functions[actual.Target].SpecializationArguments))
             { Fail("FIR function reference type arguments differ from source generic inference.", actual.Origin); }
+        }
+
+        private void MatchPositionalRead(FirRead actual, AstAtom source)
+        {
+            if (_function.LambdaSource is not { Form: AstLambdaForm.Positional } lambda
+                || !int.TryParse(source.Spelling.AsSpan(1), out int position)
+                || (uint)position >= (uint)_function.Parameters.Length)
+            {
+                Fail("Positional lambda read has no matching synthetic parameter.", actual.Origin);
+                return;
+            }
+            SameOrigin(actual, source);
+            var parameter = _function.Parameters[position];
+            if (actual.Slot != parameter.Id || actual.Type != parameter.Type)
+            { Fail("Positional lambda read differs from its source parameter index.", actual.Origin); }
         }
 
         private void MatchIndirectCall(FirIndirectCall actual, AstCall source)

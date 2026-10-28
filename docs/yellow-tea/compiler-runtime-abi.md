@@ -21,7 +21,8 @@ interpreted as references. A source integer containing a pointer-like bit patter
 |---|---|
 | Class, object, String, managed array | Trace the object reference and then its descriptor. |
 | Interface value | Preserve the object identity reference; descriptor lookup supplies dispatch. |
-| Function value | Code pointer plus managed closure-environment reference; only the latter is a managed edge. |
+| Noncapturing function value (current FIR subset) | Raw code pointer; nullable form uses zero. The code address is scalar and never a managed edge. |
+| Capturing closure (future environment ABI) | Code pointer plus managed environment reference; only the environment is a managed edge. Current FIR rejects it. |
 | Tuple/struct/inline array | Scan reference fields recursively at exact offsets. |
 | Nullable reference | Null pointer or an ordinary object reference. |
 | Nullable value | Read the presence tag before tracing the contained payload. |

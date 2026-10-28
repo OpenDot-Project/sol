@@ -52,7 +52,7 @@ internal sealed partial class FirBuilder
         var array = Expression(iterable);
         var elementType = arrayType.Arguments[0];
         var slot = new FirSlot(_slots.Count, local.Name, elementType, local.IsMutable,
-            AstPassingMode.Value, false, local.Origin);
+            AstPassingMode.Value, false, local.Origin) { IsEscaping = false };
         _slots.Add(local, slot);
         var firBody = Block(body);
         return new FirArrayForEach(slot.Id, array, firBody, loop.Origin);

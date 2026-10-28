@@ -35,7 +35,7 @@ public sealed class SourceAnalysis
         ArgumentNullException.ThrowIfNull(declarations);
         cancellationToken.ThrowIfCancellationRequested();
         var types = TypeAnalysis.Create(declarations, cancellationToken);
-        var lexical = LexicalAnalysis.Create(declarations, cancellationToken);
+        var lexical = LexicalAnalysis.Create(declarations, types, cancellationToken);
         return new(declarations, types, lexical, DefaultValueAnalysis.Create(types, lexical, cancellationToken));
     }
 }

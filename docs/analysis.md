@@ -127,7 +127,7 @@ Primary constructor parameters retain their AST property markers; generated prop
 data-class members, and implicit constructor symbols are not synthesized by this index.
 
 The declaration validator also checks duplicate/conflicting modifiers, duplicate parameter names,
-duplicate type parameters, last-position varargs, grouped default/property/vararg restrictions,
+duplicate type parameters, the at-most-one-vararg rule, grouped default/property/vararg restrictions,
 ref/out defaults, duplicate property accessors, and setters on `val` properties.
 It does not infer parameter or return types.
 
@@ -143,7 +143,7 @@ Source paths do not participate in module or type identities.
 | `SOL2001` | Missing source module or implicit core |
 | `SOL2003` | Duplicate signature or conflicting declaration name |
 | `SOL2004` | Duplicate/conflicting declaration modifiers |
-| `SOL2005` | Invalid parameter/type-parameter declaration shape |
+| `SOL2005` | Invalid parameter/type-parameter declaration shape, including duplicate anonymous-function parameters or vararg groups |
 | `SOL2006` | Conflicting property accessors |
 | `SOL2007` | Public re-export cycle |
 | `SOL2008` | Invalid selective import or alias combination |

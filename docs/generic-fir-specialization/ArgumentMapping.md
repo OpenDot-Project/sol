@@ -318,8 +318,10 @@ required parameter just because another mapping would be convenient.
 
 The generic binder may use the contextual function type to infer lambda parameter/result types and
 may perform candidate-local body analysis. Mapping, lambda analysis, and closure conversion are
-separate operations. The native generic slice does not lower closures or capture environments. A
-complete source mapping for `transform(value) { x -> x }` is therefore still not a native FIR call.
+separate operations. After selection, a closed generic call can enter native FIR when its callback
+is a noncapturing lambda with an exact supported ABI. Capturing closure environments and ABI
+adapters remain outside this path. The native tests exercise trailing, named, parenthesized, and
+zero-parameter callbacks, with both inferred and explicit generic type arguments.
 
 The compiler must not let a losing candidate's expected lambda type leak into a winning candidate.
 Each candidate's lambda body facts and inferred type arguments are isolated. If lambda analysis is
@@ -373,7 +375,7 @@ ordered type vector for verification and JSON inspection. The target `FirFunctio
 must carry the same vector. A nongeneric target has an initialized empty vector. A default immutable
 array is not interchangeable with an explicitly initialized empty array where metadata is serialized.
 
-`FirJson` schema 6 records ordered function specialization arguments, call type arguments, and
+`FirJson` schema 7 records ordered function specialization arguments, call type arguments, and
 call-value references as compilation-local data. A default expression that reads an earlier formal
 uses a `FirCallValueReference` to an earlier position in the call evaluation plan. Type IDs are not
 persistent ABI identities or cross-build cache keys. Source byte spans remain available, while
@@ -444,7 +446,7 @@ may narrow the effective program further.
 | User default argument | Omitted parameter and default owner | Rejected by current native gate |
 | User vararg | Element or whole-array mapping | Rejected by current native gate |
 | Array spread | Source order and per-element mapping | Rejected by current native gate |
-| Trailing lambda | Final function-parameter mapping | Rejected by current native gate |
+| Trailing lambda | Final function-parameter mapping | Supported for a closed selected target and exact-ABI noncapturing lambda; captures/adapters remain rejected |
 | Generic member/owner call | Receiver substitution and member lookup | Rejected by current native slice |
 | Open generic argument | Deferred or rejected by source inference | Never a closed FIR instance |
 | Unsupported type argument | Source mapping may still be valid | Rejected before verified FIR |

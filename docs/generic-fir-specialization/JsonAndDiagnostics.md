@@ -3,7 +3,7 @@
 # FIR JSON and generic diagnostics
 
 This guide explains the current FIR inspection JSON contract for generic function specialization.
-It is for compiler and tooling maintainers. It describes schema 6 as emitted by the current
+It is for compiler and tooling maintainers. It describes schema 7 as emitted by the current
 implementation and distinguishes that inspection view from durable artifact formats.
 
 The normative language contract is in [`GenericFirJsonContract.sol`](../../spec/GenericFirJsonContract.sol).
@@ -15,8 +15,10 @@ The overall specialization scope is described in
 ## Current status
 
 `FirJson.Serialize` takes a `VerifiedFirProgram`; it does not take raw candidate FIR. The root
-document emits `schema: 6` and `verified: true`. Function records include an ordered
+document emits `schema: 7` and `verified: true`. Function records include an ordered
 `specializationArguments` array, and generic call nodes include an ordered `typeArguments` array.
+Every serialized slot also carries `isEscaping`, preserving the source annotation for function
+parameters and reporting `false` for lambda parameters and locals.
 Call arguments are ordered by evaluation: explicit source arguments first, then omitted defaults in
 formal order. A `FirCallValueReference` uses `evaluationIndex` to refer to an earlier value captured
 by that call. These additions remain inspection metadata, not a persistent ABI.
@@ -33,11 +35,11 @@ source navigation across processes, and external diagnostic JSON need separate v
 This schema is not a public FIR exchange format, machine-code format, `.solib` ABI, C symbol scheme,
 or generic instantiation cache. Do not persist its integer IDs and reuse them in another compilation.
 
-## Schema 6 at a glance
+## Schema 7 at a glance
 
 | Member | Meaning | Scope |
 | --- | --- | --- |
-| `schema` | Inspection layout and field semantics revision; currently `6` | Document |
+| `schema` | Inspection layout and field semantics revision; currently `7` | Document |
 | `verified` | The input value passed through the in-process verified wrapper | Document |
 | `entry` | Executable function index, or `-1` in library mode | Document |
 | `library` | Whether the program is being inspected in library mode | Document |
@@ -73,8 +75,10 @@ order. `body` contains the verified body or is null for a runtime adapter.
 | `body` | Serialized FIR block, or null for a runtime adapter |
 
 A slot's `id` is local to its containing function. `type` references a compilation-local type.
-`mutable`, `mode`, and `isParameter` carry inspection facts. A slot name is not an identity, and slot
-number 2 in one function has no relation to slot number 2 in another function.
+`mutable`, `mode`, `isParameter`, and `isEscaping` carry inspection facts. `isEscaping` is true
+only for a function parameter whose source declaration carries `@escaping`; it is false on local
+slots and lambda parameters. A slot name is not an identity, and slot number 2 in one function has
+no relation to slot number 2 in another function.
 
 ### Specialization tuple ordering
 
@@ -98,13 +102,13 @@ identities. The source declaration identity is anchored to a parsed source eleme
 spelling and function name do not replace that identity. Two declarations that both spell a type
 parameter `T` have different owners and ordinals.
 
-Schema 6 exposes the ordered type tuple, but does not serialize a durable source declaration key.
+Schema 7 exposes the ordered type tuple, but does not serialize a durable source declaration key.
 After the original analysis context is discarded, a consumer cannot always distinguish same-named
 declarations with the same tuple. Function IDs are dense indexes for one document, not stable keys.
 
 ## Type references
 
-Schema-6 type records contain `id`, `kind`, `name`, `arguments`, `parameterModes`, and `effects`. The writer uses the resolved
+Schema-7 type records contain `id`, `kind`, `name`, `arguments`, `parameterModes`, and `effects`. The writer uses the resolved
 type workspace's local integer IDs. All type references are meaningful only inside the same JSON
 document. A function return, slot, expression, effect, call argument, and child type can refer to an
 ID from the `types` array.
@@ -117,7 +121,7 @@ across two builds do not imply a semantic type change.
 The `name` field is useful for display, but is not a complete canonical type grammar. In particular,
 a reader must not reconstruct nullable, nested, tuple, function, nominal, array, or ref-like type
 identity by guessing from a display name. The ordered `arguments` links are part of the current type
-description, but schema 6 does not define a cross-version canonical type string. Non-function types
+description, but schema 7 does not define a cross-version canonical type string. Non-function types
 carry empty `parameterModes` and `effects` arrays. Function types preserve one mode per parameter and
 an ordered effect-type-ID set; their `arguments` are parameter type IDs followed by the result ID.
 
@@ -142,7 +146,7 @@ position, particularly when the call used named arguments.
 The verifier checks that the call's type tuple agrees with source overload resolution after caller
 substitution, that the target has the selected closed specialization tuple, and that result,
 parameters, effects, and argument mapping agree. For a non-generic call, the type argument array is
-empty. The field is still present in schema 6.
+empty. The field is still present in schema 7.
 
 `FirFunctionReference` carries a target function ID. `FirIndirectCall` carries a nested function
 expression and argument records with formal indexes and passing modes. Function type records provide
@@ -169,7 +173,7 @@ can contain the same offset and length. A generic declaration body may also appe
 specialized function records while preserving the same source span. That is expected: the origin
 describes source provenance, not unique FIR identity.
 
-Schema 6 is therefore useful for inspection while the corresponding compilation inputs are known.
+Schema 7 is therefore useful for inspection while the corresponding compilation inputs are known.
 Portable navigation needs a source-file table and a stated offset unit. Do not synthesize an absolute
 path from the build machine or assume that a module name identifies exactly one file.
 
@@ -246,7 +250,7 @@ to suggest that it was semantically selected.
 A schema-aware reader should:
 
 1. Validate the integer `schema` before interpreting other members.
-2. Validate JSON kinds and require the schema-6 specialization and function-signature arrays.
+2. Validate JSON kinds and require the schema-7 specialization and function-signature arrays.
 3. Build document-local maps for function and type IDs.
 4. Scope slot IDs under the containing function and flow block IDs under the graph.
 5. Check every reference before following it.
@@ -280,7 +284,7 @@ field remained an integer array.
 
 Formatting-only changes such as indentation do not alter schema semantics. An internal work queue
 change does not require a revision unless it changes serialized ordering or another observable fact.
-Do not infer a stable ABI revision from schema 6. Artifacts, caches, diagnostic interchange, source
+Do not infer a stable ABI revision from schema 7. Artifacts, caches, diagnostic interchange, source
 maps, and C symbol names each need their own compatibility rules.
 
 | Proposed change | Schema decision |
@@ -297,7 +301,7 @@ maps, and C symbol names each need their own compatibility rules.
 ## Source identity and future work
 
 The current in-memory verifier can compare source element identity because it still has the source
-analysis workspace. Schema 6 cannot expose every part of that proof. A future schema may add opaque
+analysis workspace. Schema 7 cannot expose every part of that proof. A future schema may add opaque
 file IDs, declaration records, stable source keys, canonical types, or structured diagnostics. Each
 addition needs a clear scope, privacy review, compatibility policy, and a schema revision.
 
@@ -314,7 +318,7 @@ secrets.
 ## Conformance checklist
 
 - The writer accepts a verified wrapper, not unchecked candidate FIR.
-- The root advertises schema 6 for the current field layout.
+- The root advertises schema 7 for the current field layout.
 - Function IDs and call targets use the same dense document-local function table.
 - Slot IDs are scoped to their containing function.
 - Type IDs are local to the producing analysis workspace.
@@ -330,14 +334,14 @@ This checklist describes the contract and current implementation boundary. It is
 The fixture specifies expected structural behavior; a separate test runner must report which stages
 it executes and what was verified.
 
-## Representative schema-6 shape
+## Representative schema-7 shape
 
 The following abbreviated document illustrates field relationships. Symbolic IDs are explanatory;
 the serializer writes compilation-local integers and may allocate different values in another run.
 
 ```json
 {
-  "schema": 6,
+  "schema": 7,
   "verified": true,
   "entry": 0,
   "library": false,
@@ -402,7 +406,7 @@ the serializer writes compilation-local integers and may allocate different valu
       "effects": [],
       "parameters": [0],
       "slots": [
-        { "id": 0, "name": "value", "type": 2, "mutable": false, "mode": "Value", "isParameter": true }
+        { "id": 0, "name": "value", "type": 2, "mutable": false, "mode": "Value", "isParameter": true, "isEscaping": false }
       ],
       "body": {
         "kind": "FirBlock",
@@ -537,7 +541,7 @@ to it.
 ## Source identity and repeat spans in IDEs
 
 An IDE can use the in-memory source workspace to navigate the current compile. It must be careful
-when it persists the JSON or sends it to a second process. Schema 6 does not say which file owns a
+when it persists the JSON or sends it to a second process. Schema 7 does not say which file owns a
 particular span. The same function body can be represented in several monomorphic records, each
 preserving the same origin span while having a different specialization tuple. These records are
 separate generated functions backed by one source body.
@@ -556,14 +560,14 @@ not leak local usernames or checkout paths.
 
 Successful verified JSON represents the whole program that passed verification. It is not an
 incremental checkpoint for a partially expanded specialization queue. If adding a new generic call
-would exceed a cap, the build fails with `SOL2403`; no schema-6 root with `verified: true` should be
+would exceed a cap, the build fails with `SOL2403`; no schema-7 root with `verified: true` should be
 written for the partial closure. This keeps every target ID resolvable and every emitted generic
 instance reachable under the verifier's graph rules.
 
 Likewise, `SOL2400` means the native builder rejected a source shape before a verified object exists.
 `SOL2402` means verification refused the candidate. Both must stop verified FIR serialization for
 that candidate. A separate command may still emit source diagnostics or a partial analysis report,
-but that is a separate output contract and must not be mislabeled as schema-6 verified FIR.
+but that is a separate output contract and must not be mislabeled as schema-7 verified FIR.
 
 This atomicity is important for downstream tools. A viewer can rely on references being internally
 closed in a complete document. A cache cannot treat a truncated graph as a complete dependency set.

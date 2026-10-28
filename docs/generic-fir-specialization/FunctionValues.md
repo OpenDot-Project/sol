@@ -7,11 +7,15 @@ closure. These forms can share the same visible parameter and result types, but 
 selection, lifetime, execution, and ABI requirements.
 
 The current implementation has bounded native FIR paths for selected module-level generic free
-function calls and for monomorphic values of generic module-level functions or methods on eligible
-stateless top-level `object` declarations. It does not have a native representation for closure
-environments, receiver-bound method values, or lambda closures.
-Source body analysis can understand additional function-value and lambda shapes, but source analysis
-alone does not authorize native emission.
+function calls, monomorphic values of generic module-level functions or methods on eligible stateless
+top-level `object` declarations, noncapturing lambdas, and noncapturing anonymous functions whose
+resolved function type exactly matches the native function-pointer ABI. A lambda or anonymous-
+function body may call or reference a generic function when source analysis selected a complete
+supported closed target. An admitted value becomes a synthetic source-linked FIR function; it does
+not allocate a closure environment. Captures, receiver-bound member access, nested closures,
+closures in generic enclosing function bodies, open/unsupported generic targets, and signatures
+that need an ABI adapter remain outside native FIR. Source body analysis can understand additional
+function-value and closure shapes, but source analysis alone does not authorize native emission.
 
 The normative examples are in [GenericFirFunctionValues.sol](../../spec/GenericFirFunctionValues.sol)
 and [the semantic case matrix](../../spec/examples/semantics/GenericFirFunctionValues.sol). This page
@@ -26,7 +30,8 @@ listed scenarios have been executed.
 | Direct generic call | One selected declaration and one ordered, closed type-argument list | Bounded monomorphic FIR specialization is implemented. |
 | Generic function value | A generic declaration closed to one concrete function type at the value site | Bounded monomorphic FIR specialization is implemented for eligible free functions and stateless singleton methods. |
 | Function value with an environment | A callable value with a receiver or captured lexical storage | No verified FIR node or native ABI. |
-| Lambda or anonymous function | A source expression with contextual parameter/result types, effects, flow and captures | Partial source body analysis; native closure conversion is rejected. |
+| Lambda | A source expression with contextual parameter/result types, effects, flow and captures | Noncapturing, exact-ABI lambdas have a bounded synthetic-function FIR path; captured or adapted values are rejected. |
+| Anonymous function | A callable source expression with its own parameter list, effects, flow and possible captures | Noncapturing exact-ABI functions have a verified synthetic FIR function and native code-pointer path; fixed-array vararg parameters are supported, while captures, defaults and nested closures remain unsupported. |
 
 The distinctions are observable. A direct call executes a selected function now. A function value
 can be stored, returned, passed to another function, or invoked after the expression that created
@@ -163,23 +168,33 @@ function type's declared effect set. The LLVM 23.1.3 C++ bridge creates a `Funct
 resolved AST bindings before verified FIR is returned.
 
 The native ABI admits monomorphic function values as locals, parameters, return values,
-direct-call arguments, and indirect-call targets, including references to closed generic instances.
-It also admits non-null arrays of those values. A function array stores the raw code pointer at
-pointer width; the Yellow Tea element descriptor has no reference scan shape. `[]((int) -> int)`
-can therefore hold a direct reference or an eligible closed generic reference, and `callbacks[i](x)`
-loads the exact signature before an indirect call. Nested arrays use a normal traced array reference at
-each outer level and retain the scalar/no-scan function-pointer descriptor at the leaf. Empty arrays
-require the function element type.
-The array object itself remains a managed root during allocation and initialization, but code
-addresses are never passed to the collector as `Header*` references.
+direct-call arguments, and indirect-call targets, including references to closed generic instances,
+eligible noncapturing lambdas, and eligible noncapturing anonymous functions. Exact-ABI nullable
+function values are also admitted in those positions. The nullable wrapper and its non-null payload
+share the native pointer representation: zero is null, while a concrete value is a code address.
+The source verifier still distinguishes the nullable type from its payload and requires a stable
+non-null flow proof before an indirect call.
 
-Receiver-bound method values, variance adapters, nullable function values, and lambda/anonymous-
-function closures remain outside the subset. A source-valid function reference conversion may still
-be rejected by FIR when its signature is not exact; no ABI cast is used as a substitute for an
-adapter. A capturing lambda cannot be stored merely because its source type matches a function
-array. Closures need their own environment layout, escape and thread-transfer rules, and GC tracing
+Arrays admit both non-null and nullable function elements. A function array stores the raw code
+pointer at pointer width; the Yellow Tea element descriptor has no reference scan shape.
+`[]((int) -> int)` can hold a direct reference, an eligible closed generic reference, or an admitted
+noncapturing lambda. `[](((int) -> int)?)` can additionally hold null. An indexed nullable value
+must be copied to a stable local and narrowed before invocation. Nested arrays use a normal traced
+array reference at each outer level and retain the scalar/no-scan function-pointer descriptor at the
+leaf. Empty arrays require the function element type. The array object itself remains a managed
+root during allocation and initialization, but code addresses are never passed to the collector as
+`Header*` references.
+
+Receiver-bound method values, variance adapters, capturing lambda or anonymous-function closures,
+and nested closures remain outside the subset. Nullable function support is limited to closed
+signatures with an exact raw-pointer ABI; nullable object references and nullable callables that
+require adaptation remain outside. A source-valid function reference conversion may still be
+rejected by FIR when its signature is not exact; no ABI cast is used as a substitute for an adapter.
+A capturing lambda cannot be stored merely because its source type matches a function array.
+Closures need their own environment layout, escape and thread-transfer rules, and GC tracing
 contract; the static function-pointer path does not claim those properties. See the executable
-array cases in [FunctionValueArrayStorage.sol](../../spec/examples/semantics/FunctionValueArrayStorage.sol).
+array cases in [FunctionValueArrayStorage.sol](../../spec/examples/semantics/FunctionValueArrayStorage.sol)
+and the nullable cases in [NullableFunctionValues.sol](../../spec/NullableFunctionValues.sol).
 
 ## Function types and identity
 
@@ -215,6 +230,21 @@ anonymous functions, and trailing lambdas are syntactic forms that should conver
 function type after source analysis. There is no implicit `it`. Positional references require an
 expected function type and their highest index must fit the function arity.
 
+An anonymous function expression is projected as its own AST node. Its flattened parameter groups
+retain source origins and passing modes; its optional written result type, ordered `throws` types,
+and body kind are separate fields. `BodyAnalysis` resolves written or contextual parameter types,
+checks explicit returns and block tails, infers a result only when the reachable result candidates
+share one type, and validates checked effects. Result inference is bounded by a 65,536-node body
+walk and 4,096 return candidates. Missing bodies or unresolved results remain deferred. A default
+parameter on an anonymous function is a source error (`SOL2226`). A noncapturing function with a complete, closed,
+exact-ABI type can also become a synthetic FIR function. Block and `= expression` bodies are linked
+to their source and independently verified. The native path rejects local or receiver captures,
+nested closures, generic enclosing functions, unsupported generic targets, and signatures that need
+an adapter. Anonymous functions do not declare defaults; named declarations keep their separate
+default-call contract, which a function type does not preserve. A vararg parameter is represented by
+one fixed `[]T` function-type parameter; its body receives that array and indirect calls pass one
+array value without expansion.
+
 The expected type can supply parameter identities, modes, and a result context where the source
 rules permit. A written lambda header must agree with that context. Nested lambdas introduce nested
 parameter scopes; the inner `$0` refers to the inner lambda. Same-spelled lambda parameters and
@@ -226,9 +256,136 @@ analysis state. New facts from the lambda are added in bounded rounds; failed or
 must restore temporary expressions, locals, flow facts, diagnostics, and effects. The selected
 lambda is then analyzed under the final selected type substitution.
 
-This candidate-local source analysis does not mean the lambda can be emitted inside a generic FIR
-instance. A closed generic instance may invoke a supported function-typed parameter through
-`FirIndirectCall`; creating a lambda or closure remains outside the native subset.
+This candidate-local source analysis does not by itself admit a lambda to native FIR. The current
+native slice can lift a noncapturing lambda when its contextual signature is closed, supported, and
+identical to the emitted function type, and when the enclosing function is non-generic. A closed
+generic call can carry that function reference when its callback parameter has the exact resolved
+signature. A lambda written inside a generic enclosing body is still rejected by this slice, even if
+one call site could specialize that body.
+
+### Bounded noncapturing-anonymous-function FIR path
+
+The first anonymous-function FIR path admits expressions such as
+`func(value: int): int { value + 1 }` and `func(value: int): int = value + 1` when source analysis
+produces a closed native function type. The synthetic `FirFunction` preserves the
+`AstAnonymousFunction` identity, ordered parameter names and modes, result type, checked effects,
+and body origins. Its value is a typed `FirFunctionReference`; indirect calls use the same signature
+checks, CFG and LLVM function-pointer lowering as other function values. An explicit `out`
+parameter must be assigned on every normal exit. The verifier checks that each synthetic function
+maps to one source node and that source calls, operators, returns, and parameter slots remain
+represented.
+
+The admitted context is a closed module-level function or an eligible stateless top-level `object`
+method. Each emitted callable must have no local or receiver captures, unsupported generic target,
+source-analysis obligation, or declaration default. A vararg declaration has one fixed `[]T`
+parameter in its function type and is verified as an ordinary value parameter. A nested lambda or anonymous
+function is allowed only when it independently satisfies the same closed ABI and capture-free
+rules; each is lifted as its own synthetic function and the enclosing body contains a typed
+reference to that target. A nested callable that captures an outer local or receiver remains
+rejected. Ref/out modes remain exact. The checked-effect set remains part of the resolved function
+type and is checked at each indirect call. A code pointer contains no environment or managed
+reference, so this path allocates no closure and makes no escape or heap-lifetime promise.
+The source nesting depth of lifted lambdas and anonymous functions is capped at 128; the builder
+rejects deeper function-value trees before recursively constructing synthetic FIR functions, and the
+verifier enforces the same boundary.
+
+`AnonymousFunctionFirTests` verifies source identity, exact signature, and rejection of captured
+locals. `NestedAnonymousFunctionFirTests` verifies independently lifted anon-to-anon and anon-to-
+lambda combinations. `NativeAnonymousFunctionTests.NoncapturingAnonymousFunctionsExecuteThroughAotAndOrc`
+exercises block, expression, inferred-result, nested noncapturing bodies, vararg array parameters,
+and `out` parameters in AOT and ORC. Those fixtures qualify only the emitted subset. Receiver
+captures, nested closure environments, defaults, generic enclosing bodies, ABI conversions, heap
+environments, and process transfer remain source-analysis facts or FIR rejection cases.
+
+## Source capture and escape facts
+
+`LexicalAnalysis.LambdaCaptures` and `GetLambdaCaptures(lambda)` inventory each captured local by
+resolved symbol identity. Entries preserve source-ordered references, read/write access, passing
+mode, and a candidate storage category. Nested lambdas list an outer local for each environment that
+would need to retain it. This inventory does not establish a lifetime or environment layout.
+
+`LexicalAnalysis.LambdaReceiverCaptures` and `GetLambdaReceiverCaptures(lambda)` separately record
+explicit `this`/`super` uses and implicit instance-member references. Each entry identifies the owning
+nominal declaration, the reference sites, and any resolved member candidates. A receiver use in an
+inner lambda propagates through each enclosing lambda that would have to carry the receiver. Local
+constructor properties are treated as instance-member receiver uses rather than ordinary local
+captures; a same-spelled local parameter still shadows the property. Qualified access through a
+separately captured object does not imply capture of the current receiver.
+
+Anonymous functions have separate `AnonymousFunctionCaptures` and
+`AnonymousFunctionReceiverCaptures` inventories, queried with `GetAnonymousFunctionCaptures` and
+`GetAnonymousFunctionReceiverCaptures`. They preserve local symbol identity and receiver ownership
+through nested anonymous-function environments. `AnonymousFunctionEscapes` and
+`GetAnonymousFunctionEscape(function)` add a separate, conservative value-use classification. A
+function expression used only as the direct target of its own call is `ProvenNonEscaping`. A return,
+call argument, aggregate element, or heap store is `MayEscape`. Immutable local aliases can prove
+non-escape when all tracked uses remain local; local invocation is one supported use, and an unused
+local value also remains within its activation. Mutable or branch-sensitive aliases, callable
+capture, and unmodeled consumers remain `Unknown`. No call is presumed no-escape.
+These facts do not establish borrow safety, heap ownership, Yellow Tea roots, closure layout, or an
+ABI, and do not authorize native emission.
+
+`LexicalAnalysis.LambdaEscapes` and `GetLambdaEscape(lambda)` add a separate use classification:
+
+| Disposition | Current evidence |
+|---|---|
+| `ProvenNonEscaping` | The lambda is the direct target of the call that creates it, or immutable local initializer aliases lead only to local aliasing and local invocation. Grouping and label wrappers are transparent. |
+| `MayEscape` | The source returns it, passes it as a call argument, stores it in a property/heap location, or embeds it in an aggregate, including through a tracked local alias. |
+| `Unknown` | A mutable alias is reassigned, an alias is captured by another callable, or the lambda appears in a consumer whose lifetime behavior is not modeled. |
+
+Every result includes ordered source witnesses and the capture inventory for that lambda. The bounded
+alias graph follows immutable local initializers by resolved `LocalSymbol` identity. A local alias
+passed as a call argument or returned from the callable is an escape-capable sink. Mutable aliases,
+alias writes, aliases captured by another callable, flow-sensitive branch joins, anonymous-function
+environments, and callback retention contracts do not receive a non-escape proof. Call arguments are
+escape-capable because there is no verified no-escape contract on callable declarations. `MayEscape`
+means the source operation permits an escape; it does not claim a runtime callee actually retained
+the value. `Unknown` is never a non-escape proof.
+
+The result is advisory source analysis only. It does not authorize `FirFunctionReference`, closure
+conversion, stack environment allocation, ref/out capture, or a Yellow Tea root/layout decision.
+Capturing lambda FIR remains rejected until the callable ABI represents both code and environment,
+the verifier checks capture sources and lifetimes, and runtime descriptors/barriers keep every live
+environment reachable.
+
+### Bounded noncapturing-lambda FIR path
+
+The current path admits named-header lambdas such as `{ value -> value + 1 }`, positional forms such
+as `{ $0 + 1 }`, and headerless zero-parameter bodies such as `{ 42 }`. Each needs a closed contextual
+function type from a typed local, a mapped callback argument (including a trailing lambda), a typed
+array element, or another supported source context. A headerless body is valid only when the
+contextual function type has no parameters. A positional body can use only value parameters; its
+`$n` reads map to the corresponding synthetic parameter slots. Named parameter count and passing
+modes must match the context. Named `ref` and `out` parameters preserve their exact storage ABI;
+source analysis must prove every `out` parameter is assigned on each normal lambda exit. Any
+explicitly written parameter type must match exactly.
+
+The enclosing function must not be generic. A stateless top-level `object` method is eligible only
+when it has no receiver-dependent behavior. Every local referenced by the lambda must belong to the
+lambda's own lexical scope: outer `val`/`var`, `this`, `super`, implicit member lookup, and local
+function captures are rejected. A generic call or function reference from the lambda body is
+eligible only when source analysis selected a complete closed argument list and the resulting
+specialization has a supported native signature. The independent verifier checks the selected
+arguments against the emitted target and adds it to the specialization graph. Native AOT and ORC
+tests cover both `identity(value)` and a returned reference to `identity` from inside a lambda.
+Nested lambdas can be lifted independently only when each is itself noncapturing; an inner lambda
+that reads an outer lambda parameter is a capture and is rejected.
+
+The builder adds a synthetic `FirFunction` and a `FirFunctionReference` at the original lambda
+source site. The FIR verifier checks that the source analysis belongs to the same snapshot, the
+synthetic function has the exact contextual parameter/result/effect signature, parameter slots and
+positional reads match source identities, and capture/generic-body obligations are absent. The
+function pointer is a scalar non-null code address; it does not own managed locals or a Yellow Tea
+environment. Existing function-pointer array storage remains valid for an admitted lambda because
+it stores only that same code address.
+
+Source-valid lambda forms remain FIR-rejected when their signature would require variance/effect
+adaptation, their enclosing body is generic, they capture any local or receiver, or a selected member
+or generic target lacks the required native proof. No alternate overload is selected to avoid the
+rejection. This is not general closure conversion and does not qualify mutable-cell identity,
+escape, stack borrowing, thread transfer, closure GC roots, or assertions that require runtime null
+failure handling. Exact-ABI nullable values use the raw pointer slot and source-proven narrowing
+described above; this does not authorize nullable closure environments.
 
 ## Generic lambdas versus contextually typed lambdas
 
@@ -281,11 +438,12 @@ exception delivery.
 
 ## Defaults and varargs
 
-Defaults and varargs belong to a selected declaration. A function type does not carry declaration
-default-expression metadata. Calling through a function value therefore requires every function-type
-parameter; the indirect call does not synthesize omitted defaults or evaluate a declaration's default
-expression. A source function's vararg parameter is represented in its function type as one array
-parameter. An indirect call supplies that array as one argument and does not expand elements.
+Named function declarations may declare defaults, but anonymous functions cannot. A function type
+does not carry declaration default-expression metadata. Calling through a function value therefore
+requires every function-type parameter; the indirect call does not synthesize omitted defaults or
+evaluate a declaration's default expression. A source function's vararg parameter is represented in
+its function type as one array parameter. An indirect call supplies that array as one argument and
+does not expand elements.
 
 This rule does not reuse the direct-call argument mapper. Defaults remain available only when the
 source calls a declaration directly, and vararg expansion remains a direct-call mapping operation.
@@ -298,6 +456,36 @@ trailing-lambda mapping are not encoded in a function type and are rejected by t
 An immutable local captured by a closure can be copied only if its representation and lifetime allow
 the copy. A mutable `var` uses a shared cell when multiple closures or the creating frame must observe
 the same storage. Copying each closure's own snapshot would change program behavior.
+
+Lexical analysis now exposes `LambdaCaptures` and `GetLambdaCaptures(lambda)` as a source-level
+inventory. Each entry identifies the resolved `LocalSymbol`, every reference in that lambda, and the
+combined read/write access. A mutable local is classified as shared-cell storage; an immutable local
+is classified as a value-copy candidate. If a nested lambda refers to a local outside more than one
+lambda boundary, the inventory includes that same local identity for each environment that must
+provide it. Shadowed locals remain separate because capture ownership follows the resolved symbol,
+not its spelling. `ref` access is read/write and `out` access is write-only in this inventory.
+Ref/out parameters are classified as borrowed locations, and captured local functions retain a
+separate callable-environment classification instead of being mistaken for value copies or cells.
+`AnonymousFunctionCaptures` provides the corresponding local-symbol inventory for anonymous
+functions. It records the resolved local, source-ordered references, read/write access, and candidate
+storage class. `AnonymousFunctionReceiverCaptures` separately records explicit `this`/`super`,
+direct and inherited implicit instance members, constructor properties, and accessor `field` use.
+The receiver result's `IsComplete` becomes false if bounded inherited lookup cannot finish. These
+inventories do not model forwarding through a local-function environment or define a closure layout.
+Implicit receiver and member captures are not `LocalSymbol` entries. The separate
+`LambdaReceiverCaptures`/`GetLambdaReceiverCaptures(lambda)` inventory records explicit `this` and
+`super`, unqualified instance members (including inherited members), constructor properties, and
+backing-field access inside an accessor. Each nested lambda gets the receiver identity it needs;
+qualified access such as `other.value` does not capture the current receiver. Member candidates are
+resolved through the bounded inheritance resolver. If that search reaches its resource limit,
+`IsComplete` is false rather than silently presenting an incomplete member set as complete. This
+inventory does not model forwarding through a separate local-function environment or select a
+bound-method/closure ABI.
+
+This metadata is lexical evidence, not a closure conversion or an escape proof. It does not certify
+that a captured location or ref-like value can escape, define allocation/root placement, or create a
+runtime cell. Native FIR still rejects capturing lambdas until a verified environment layout and
+Yellow Tea ownership path are implemented.
 
 A closure environment may contain captured values, shared cells, a receiver, and nested closure
 references. It must retain source identity and concrete type metadata needed by the runtime. The
@@ -349,7 +537,15 @@ the target signature anchored to the selected declaration.
 
 Before execution, the compiler/runtime must validate or guarantee a non-null callable target. It
 must preserve the actual target identity through control flow and optimization. A nullable function
-container and a function returning a nullable value are distinct types.
+container and a function returning a nullable value are distinct types. For exact-ABI nullable
+function values, direct `== null` and `!= null` checks (in either operand order), short-circuit
+edges, and early exits may establish a payload-typed view of the same stable local. Assignments and
+`ref`/`out` writes invalidate that fact. A repeated property or array-element read is not assumed to
+be the same value; snapshot it first. An indirect call through a nullable function value without a
+stable non-null proof is a source error (`SOL2243`). Joins account for zero-trip loops, reachable
+catch edges, and `finally` writes; a refinement cannot survive unless every reachable predecessor
+still proves the exact local non-null after cleanup. Flow narrowing never changes the declared slot
+type.
 
 If an indirect call can throw, the caller's catch and cleanup analysis must see the declared effect.
 If the call is cancelled or fails, temporary roots and borrowed locations must still be released
@@ -366,9 +562,11 @@ the specialization graph records it as a root or edge so it cannot be omitted fr
 `FirVerifier` independently checks the reference against the source-selected declaration and exact
 closed signature. It checks indirect-call arity, parameter order, passing modes, exact types, result,
 effects, source correspondence, and writable caller storage for `ref`/`out`. The supported closure-
-free ABI is a raw code pointer with an exact signature. It does not represent an environment,
-receiver-bound method, nullable callable, or runtime generic dictionary. Capturing lambdas and
-closure environments remain rejected before LLVM lowering.
+free ABI is a raw code pointer with an exact signature; a nullable wrapper uses the same pointer
+slot and zero as its null value. FIR flow views may use the payload type only when source analysis
+proves that the exact local read is non-null on that path. It does not represent an environment,
+receiver-bound method, or runtime generic dictionary. Capturing lambdas and closure environments
+remain rejected before LLVM lowering.
 
 `SOL2400` is the current native source-admission diagnostic for a shape outside this verified subset.
 `SOL2402` identifies an independent FIR verifier failure. `SOL2403` identifies a generic
@@ -380,10 +578,12 @@ must not be reported as one.
 The LLVM backend consumes verified FIR and constructs LLVM objects through the LLVM 23.1.3 C++ API
 bridge. The admitted raw function references lower to the target's exact code pointer, and indirect
 calls use an LLVM `FunctionType` and `CreateCall`; no signature cast is used to emulate a source
-conversion. Arrays of supported function values store pointer-width scalar elements whose Yellow Tea
-descriptor has no managed-reference scan shape. Nested arrays retain normal tracing at each array
-reference level. This representation is valid only for the non-null, receiver-free function-pointer
-subset described above.
+conversion. Nullable values use LLVM `ptr` with null represented by zero; direct equality and
+inequality use pointer `eq`/`ne`. Arrays of supported function values store pointer-width scalar
+elements whose Yellow Tea descriptor has no managed-reference scan shape, including nullable
+elements. Nested arrays retain normal tracing at each array reference level. This representation is
+valid only for the closed, receiver-free exact-signature function-pointer subset described above;
+a source-valid `!!` assertion is not currently lowered by this backend.
 
 AOT and ORC need consistent callback semantics. ORC executes in a separate guest process; process
 isolation does not transfer an untracked host pointer or a managed closure automatically. A future
@@ -547,9 +747,11 @@ The bounded generic-reference and indirect-call path is implemented for module-l
 that exactly match their native target, including closed generic references inferred from an
 expected function type. Generic vararg declarations use an array-valued function parameter, while
 generic `ref` and `out` parameters preserve their passing modes and `out` writes enter definite-
-assignment analysis after the indirect call. A non-null array may store these raw function pointers;
-its element descriptor has scalar pointer width and no Yellow Tea scan shape. The array may contain
-direct references or a function value passed through a typed parameter, but every produced value
-still uses the receiver-free code-pointer ABI. Capturing lambdas, receiver-bound methods, nullable
-function values, and non-identity adapters remain outside it. This does not define closure storage or
-make arbitrary function-shaped values safe to place in a managed array.
+assignment analysis after the indirect call. Arrays may store these raw function pointers with
+either a non-null function element type or an exact-ABI nullable function element type. Both use a
+pointer-width scalar descriptor with no Yellow Tea scan shape; null is the zero pointer. A nullable
+array element must be narrowed from a stable local before invocation. The array may contain direct
+references or a function value passed through a typed parameter, but every produced value still uses
+the receiver-free code-pointer ABI. Capturing lambdas, receiver-bound methods, and non-identity
+adapters remain outside it. This does not define closure storage or make arbitrary function-shaped
+values safe to place in a managed array.

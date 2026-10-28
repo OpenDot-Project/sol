@@ -146,6 +146,170 @@ public sealed class LexicalBindingTests
     }
 
     [Fact]
+    public void CaptureInventoryRecordsImmutableValueReadsAndLambdaOwnership()
+    {
+        var analysis = Bind("func f(seed:int) { val callback = { seed }; use(callback) }");
+        var lambda = Assert.Single(analysis.Declarations.Files.SelectMany(file => file.Root.Descendants()).OfType<AstLambda>());
+        var capture = Assert.Single(analysis.GetLambdaCaptures(lambda));
+        Assert.Equal("seed", capture.Local.Name);
+        Assert.Equal(LambdaCaptureStorage.ValueCopy, capture.Storage);
+        Assert.Equal(LambdaCaptureAccess.Read, capture.Access);
+        Assert.Single(capture.References);
+        Assert.Same(capture, Assert.Single(analysis.LambdaCaptures));
+    }
+
+    [Fact]
+    public void MutableCaptureUsesOneCellAndCombinesReadWriteAccesses()
+    {
+        var analysis = Bind("func f() { var count = 0; val callback = { count = count + 1 }; use(callback) }");
+        var capture = Assert.Single(analysis.LambdaCaptures);
+        Assert.Equal("count", capture.Local.Name);
+        Assert.Equal(LambdaCaptureStorage.SharedMutableCell, capture.Storage);
+        Assert.Equal(LambdaCaptureAccess.ReadWrite, capture.Access);
+        Assert.Equal(2, capture.References.Length);
+        Assert.Same(capture.Lambda, Assert.Single(analysis.GetLambdaCaptures(capture.Lambda)).Lambda);
+    }
+
+    [Fact]
+    public void AssignmentOnlyCaptureIsClassifiedAsWrite()
+    {
+        var analysis = Bind("func f() { var count = 0; val callback = { count = 1 }; use(callback) }");
+        var capture = Assert.Single(analysis.LambdaCaptures);
+        Assert.Equal(LambdaCaptureAccess.Write, capture.Access);
+        Assert.Single(capture.References);
+    }
+
+    [Theory]
+    [InlineData("count++")]
+    [InlineData("count += 1")]
+    public void IncrementAndCompoundAssignmentCaptureAreClassifiedAsReadWrite(string update)
+    {
+        var analysis = Bind($"func f() {{ var count = 0; val callback = {{ {update} }}; use(callback) }}");
+        var capture = Assert.Single(analysis.LambdaCaptures);
+        Assert.Equal(LambdaCaptureAccess.ReadWrite, capture.Access);
+    }
+
+    [Theory]
+    [InlineData("ref", LambdaCaptureAccess.ReadWrite)]
+    [InlineData("out", LambdaCaptureAccess.Write)]
+    public void PassingACaptureByLocationRecordsItsWriteContract(string mode, LambdaCaptureAccess expected)
+    {
+        var analysis = Bind($"func f() {{ var value = 0; val callback = {{ consume({mode} value) }}; use(callback) }}");
+        var capture = Assert.Single(analysis.LambdaCaptures);
+        Assert.Equal(expected, capture.Access);
+    }
+
+    [Theory]
+    [InlineData("ref", "value", LambdaCaptureAccess.Read)]
+    [InlineData("out", "value = 1", LambdaCaptureAccess.Write)]
+    public void CapturedRefAndOutParametersRemainBorrowedLocations(string mode, string body, LambdaCaptureAccess access)
+    {
+        var analysis = Bind($"func f({mode} value:int) {{ val callback = {{ {body} }}; use(callback) }}");
+        var capture = Assert.Single(analysis.LambdaCaptures);
+        Assert.Equal(mode, capture.Local.PassingMode.ToString().ToLowerInvariant());
+        Assert.Equal(LambdaCaptureStorage.BorrowedLocation, capture.Storage);
+        Assert.Equal(access, capture.Access);
+    }
+
+    [Theory]
+    [InlineData("holder.value = 1")]
+    [InlineData("holder.value++")]
+    [InlineData("items[0] = 1")]
+    [InlineData("items[0]++")]
+    public void MutatingAReferencedObjectOrElementDoesNotWriteTheCapturedLocal(string body)
+    {
+        string local = body.StartsWith("holder", StringComparison.Ordinal) ? "holder" : "items";
+        var analysis = Bind($"func f() {{ val {local} = create(); val callback = {{ {body} }}; use(callback) }}");
+        var capture = Assert.Single(analysis.LambdaCaptures);
+        Assert.Equal(local, capture.Local.Name);
+        Assert.Equal(LambdaCaptureAccess.Read, capture.Access);
+    }
+
+    [Fact]
+    public void NestedLambdaCapturingAnOuterLocalListsEveryRequiredEnvironment()
+    {
+        var analysis = Bind("func f(seed:int) { val outer = { val inner = { seed }; inner }; use(outer) }");
+        var lambdas = analysis.Declarations.Files.SelectMany(file => file.Root.Descendants()).OfType<AstLambda>()
+            .OrderBy(lambda => lambda.Origin.Span.Start).ToArray();
+        Assert.Equal(2, lambdas.Length);
+        Assert.Equal(2, analysis.LambdaCaptures.Length);
+        Assert.All(analysis.LambdaCaptures, capture =>
+        {
+            Assert.Equal("seed", capture.Local.Name);
+            Assert.Single(capture.References);
+        });
+        Assert.Contains(analysis.LambdaCaptures, capture => ReferenceEquals(capture.Lambda, lambdas[0]));
+        Assert.Contains(analysis.LambdaCaptures, capture => ReferenceEquals(capture.Lambda, lambdas[1]));
+    }
+
+    [Fact]
+    public void LambdaLocalCapturedOnlyByChildDoesNotBecomeAnOuterCapture()
+    {
+        var analysis = Bind("func f() { val outer = { val seed = 1; val inner = { seed }; inner }; use(outer) }");
+        var lambdas = analysis.Declarations.Files.SelectMany(file => file.Root.Descendants()).OfType<AstLambda>()
+            .OrderBy(lambda => lambda.Origin.Span.Start).ToArray();
+        var capture = Assert.Single(analysis.LambdaCaptures);
+        Assert.Same(lambdas[1], capture.Lambda);
+        Assert.Equal("seed", capture.Local.Name);
+        Assert.Empty(analysis.GetLambdaCaptures(lambdas[0]));
+    }
+
+    [Fact]
+    public void NestedClosuresRetainTheSameMutableLocalIdentity()
+    {
+        var analysis = Bind("func f() { var count = 0; val outer = { val inner = { count++ }; inner }; use(outer) }");
+        var captures = analysis.LambdaCaptures.OrderBy(capture => capture.Lambda.Origin.Span.Start).ToArray();
+        Assert.Equal(2, captures.Length);
+        Assert.Same(captures[0].Local, captures[1].Local);
+        Assert.Equal(LambdaCaptureStorage.SharedMutableCell, captures[0].Storage);
+        Assert.Equal(LambdaCaptureStorage.SharedMutableCell, captures[1].Storage);
+        Assert.Equal(LambdaCaptureAccess.ReadWrite, captures[0].Access);
+        Assert.Equal(LambdaCaptureAccess.ReadWrite, captures[1].Access);
+    }
+
+    [Fact]
+    public void CaptureInventoryUsesTheResolvedShadowedSymbol()
+    {
+        var analysis = Bind("func f() { var item = 1; val outer = { var item = 2; val inner = { item++ }; inner }; use(item) }");
+        var capture = Assert.Single(analysis.LambdaCaptures);
+        var locals = analysis.Scopes.SelectMany(scope => scope.Symbols).Where(local => local.Name == "item")
+            .OrderBy(local => local.Origin.Span.Start).ToArray();
+        Assert.Equal("item", capture.Local.Name);
+        Assert.Equal(LocalSymbolKind.Variable, capture.Local.Kind);
+        Assert.Equal(2, locals.Length);
+        Assert.Same(locals[1], capture.Local);
+    }
+
+    [Fact]
+    public void CapturedLocalFunctionHasCallableEnvironmentStorage()
+    {
+        var analysis = Bind("func f(seed:int) { func helper():int = seed; val callback = { helper() }; use(callback) }");
+        var capture = Assert.Single(analysis.LambdaCaptures);
+        Assert.Equal("helper", capture.Local.Name);
+        Assert.Equal(LocalSymbolKind.Function, capture.Local.Kind);
+        Assert.Equal(LambdaCaptureStorage.NestedCallableEnvironment, capture.Storage);
+        Assert.Equal(LambdaCaptureAccess.Read, capture.Access);
+    }
+
+    [Fact]
+    public void LambdaParameterShadowingDoesNotAppearInCaptureInventory()
+    {
+        var analysis = Bind("func f(seed:int) { val callback = { seed -> seed }; use(callback) }");
+        var lambda = Assert.Single(analysis.Declarations.Files.SelectMany(file => file.Root.Descendants()).OfType<AstLambda>());
+        Assert.Empty(analysis.LambdaCaptures);
+        Assert.Empty(analysis.GetLambdaCaptures(lambda));
+    }
+
+    [Fact]
+    public void CaptureQueryRejectsLambdaFromAnotherSnapshot()
+    {
+        var first = Bind("func f(seed:int) { val callback = { seed } }");
+        var second = Bind("func f(seed:int) { val callback = { seed } }");
+        var foreign = Assert.Single(second.Declarations.Files.SelectMany(file => file.Root.Descendants()).OfType<AstLambda>());
+        Assert.Throws<ArgumentException>(() => first.GetLambdaCaptures(foreign));
+    }
+
+    [Fact]
     public void LocalFunctionsCanCaptureOuterParameters()
     {
         var analysis = Bind("func outer(x:int) { func nested():int = x }");

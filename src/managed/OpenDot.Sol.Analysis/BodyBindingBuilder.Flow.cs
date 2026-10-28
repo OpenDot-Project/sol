@@ -60,7 +60,15 @@ internal sealed partial class BodyBindingBuilder
                     if (context.Lambda is not null && (ret.Label is null || Ancestors(context.Lambda).OfType<AstLabelledExpression>().FirstOrDefault()?.Label != ret.Label))
                     { Report("SOL2225", "A lambda return must target its own explicit label.", ret); }
                     var returned = ret.Value is null ? new Value(Empty) : Expression(ret.Value, state, context, context.Result);
-                    Require(returned, context.Result, ret, state);
+                    if (context.LambdaReturnPaths is null || context.Result is not null)
+                    { Require(returned, context.Result, ret, state); }
+                    if (context.LambdaReturnPaths is { } lambdaReturnPaths)
+                    {
+                        if (lambdaReturnPaths.Count >= MaximumLambdaResultPaths)
+                        { throw new TypeSpecializationException(SpecializationFailure.ResourceLimit,
+                            "Lambda return inference exceeded its 4096-return-path budget."); }
+                        lambdaReturnPaths.Add(new(ret, state.Reachable, returned.Type));
+                    }
                     if (returned.Type?.IsRefLike == true || ret.IsByReference) { CheckEscape(returned, ret, context); }
                     if (ret.Value is not null && ContainsCall(ret.Value)) { InvalidateMutableCleanupNarrowings(state); }
                     UpdateCleanupFacts(state, cleanupFactsBefore, CaptureCleanupFacts(state));
@@ -127,8 +135,15 @@ internal sealed partial class BodyBindingBuilder
                 && node.SyntaxKind is not (NodeKind.ThrowStatement or NodeKind.BreakStatement or NodeKind.ContinueStatement or NodeKind.UnsafeStatement))
             {
                 UpdateCleanupFacts(state, cleanupFactsBefore, CaptureCleanupFacts(state));
-                if (node is AstAssignment || (node.SyntaxKind != NodeKind.DeferStatement && ContainsCall(node)))
-                { InvalidateMutableCleanupNarrowings(state); }
+                bool mayMutateCapturedValues = node.SyntaxKind != NodeKind.DeferStatement && ContainsCall(node);
+                if (node is AstAssignment assignment)
+                {
+                    bool simpleLocalWrite = assignment.Operation == "="
+                        && assignment.Location is AstAtom { SyntaxKind: NodeKind.NameExpression } location
+                        && Sources.Lexical.Lookup(location, location.Spelling).Locals.Length == 1;
+                    mayMutateCapturedValues |= !simpleLocalWrite;
+                }
+                if (mayMutateCapturedValues) { InvalidateMutableCleanupNarrowings(state); }
             }
         }
         if (resultContext && state.Reachable && context.Result is { } expected && expected != Empty)
@@ -170,6 +185,10 @@ internal sealed partial class BodyBindingBuilder
         if (location.Local is { } local)
         {
             state.Assigned.Add(local); state.Narrowed.Remove(local);
+            if (LocalType(local) is { IsNullable: true } nullable
+                && nullable.Arguments[0].Kind == ResolvedTypeKind.Function
+                && assignedValue.Type == nullable.Arguments[0])
+            { state.Narrowed[local] = nullable.Arguments[0]; }
             if (assignedValue.Type?.IsRefLike == true && local.Kind != LocalSymbolKind.Variable) { CheckEscape(assignedValue, assignment, context); }
         }
         else if (assignedValue.Type?.IsRefLike == true) { Report("SOL2260", "Ref-like values cannot be stored in heap properties.", assignment); }
@@ -218,7 +237,7 @@ internal sealed partial class BodyBindingBuilder
         if (atom is not { SyntaxKind: NodeKind.NameExpression }) { return; }
         var locals = Sources.Lexical.Lookup(atom, atom.Spelling).Locals;
         if (locals is not [var local] || !state.Assigned.Contains(local)) { return; }
-        bool captured = Sources.Lexical.Bindings.Any(b => b.CapturesOuterLocal && b.Lookup.Locals.Contains(local));
+        bool captured = Sources.Lexical.IsCaptured(local);
         if (local.IsMutable && captured) { return; }
         if (operation.TargetType is not null && operation.SyntaxKind == NodeKind.TypeTestExpression)
         {
@@ -553,6 +572,10 @@ internal sealed partial class BodyBindingBuilder
             _cancellation.ThrowIfCancellationRequested();
             if (!visited.Add(node)) { continue; }
             if (visited.Count > 65536) { Defer(root); return true; }
+            // A callable declaration or expression creates a body; it does not execute that body.
+            // Operations inside it must not make a catch around the declaration reachable.
+            if (!ReferenceEquals(node, root) && node is AstCallable or AstAnonymousFunction or AstLambda)
+            { continue; }
             if (node is AstCall or AstMember || node.SyntaxKind == NodeKind.IndexExpression
                 || node is AstOperation { Operation: not ("&&" or "||" or "?:") }) { return true; }
             foreach (var child in node.Children) { pending.Push(child); }

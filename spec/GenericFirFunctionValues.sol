@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative function-value boundary; direct generic FIR calls are implemented in a bounded slice.
+// Status: normative function-value boundary; source analysis closes local generic function values
+// from expected types. Bounded direct generic FIR calls and exact-ABI noncapturing lambda and
+// anonymous-function values are implemented.
 module source.spec.generic_fir_function_values
 
 // Generic declarations, function types, lambdas, and closure conversion
@@ -24,16 +26,28 @@ module source.spec.generic_fir_function_values
 // - Named/positional lambdas are analyzed against expected function types in supported body-analysis
 //   paths. Candidate-local generic inference may inspect bounded lambda parameter/result/effect
 //   evidence and then analyze the selected lambda normally.
+// - Anonymous functions have distinct AST identities, grouped parameter/source origins, block and
+//   expression bodies, bounded result inference, checked effects, and local/receiver/escape facts.
+//   Noncapturing anonymous functions with an exact closed function-pointer signature can be
+//   represented by a source-linked synthetic FIR function. Capture environments, nested closures,
+//   declaration defaults/varargs, and ABI adapters remain outside this native slice.
 // - Direct calls to closed module-level generic free functions can produce verified monomorphic FIR
 //   instances for the admitted native type/body subset.
-// - FIR has `FirFunctionReference` and `FirIndirectCall` nodes for eligible module-level functions
-//   and stateless top-level object methods whose native signature matches exactly, including closed
-//   generic instances, ref/out modes, and checked effects. The LLVM C++ bridge lowers them as typed
-//   function pointers and indirect calls. Stateless object methods have no instance storage,
+// - FIR has `FirFunctionReference` and `FirIndirectCall` nodes for eligible module-level functions,
+//   stateless top-level object methods, and a bounded set of noncapturing lambdas whose native
+//   function signature matches exactly. Lambda forms admitted by this slice are named headers
+//   (including exact `ref`/`out` modes with a proven `out` assignment), positional `$n` references
+//   with value parameters, and headerless zero-parameter bodies. Each is tied to its source lambda
+//   and represented by a synthetic FIR function with the ordinary typed function-pointer ABI; it
+//   has no closure environment. The LLVM C++ bridge lowers references as typed function pointers
+//   and invocations as indirect calls. Stateless object methods have no instance storage,
 //   constructor, base, initializer, virtual dispatch, `this`, or `super` use.
-//   Lambdas, captures, receiver-bound references, nullable callbacks, and arrays of closure values
-//   remain outside native FIR; a source function type alone does not prove closure layout, ABI
-//   compatibility, escape safety, or GC ownership.
+// - Capturing lambdas, receiver/member-bound access, generic enclosing function bodies, open or
+//   otherwise unsupported generic targets from a lambda body, and any value needing a variance or
+//   effect adapter remain outside native FIR. Exact-ABI nullable function pointers are admitted
+//   through a zero null value and source-proven flow narrowing. Nullable managed references and a
+//   source function type alone do not prove closure layout, ABI compatibility, escape safety, or GC
+//   ownership.
 // - A generic function value records the ordered type arguments selected by expected-type inference.
 //   FIR verifies that the reference points to that exact closed instance and includes it in the
 //   specialization reachability graph. Generic bodies are rebound under closed arguments before FIR.
@@ -117,6 +131,18 @@ func valueFromExpectedType(): () {
 
 // expect: Source: Bound; the expected signature closes the selected target as identity<String>.
 // FIR: Ready when the closed body and exact native signature are supported; no wrapper is created.
+
+func localGenericFunctionValue(): int {
+    func <T> localIdentity(value: T): T = value
+    val callback: (int) -> int = localIdentity
+    callback(42)
+}
+
+// expect: Source body analysis uses the expected function type to infer T=int, checks the local
+// declaration's constraints, and gives callback one fixed `(int) -> int` signature. Without an
+// expected function type the generic local function value stays deferred; no universal callable is
+// inferred. FIR: Rejected because local-function function references and closure eligibility have
+// not been admitted to the verified FIR subset.
 
 func inferredResultFunctionValue(): () {
     val transform: (String) -> String = inferredText
@@ -295,8 +321,9 @@ func <T> mapOne(value: T, transform: (T) -> T): T = transform(value)
 func contextualLambdaAtGenericCall(): String = mapOne("ab") { text -> text }
 
 // expect: Candidate-local replay may derive callback evidence where the implementation supports
-// it. Selected lambda analysis is a separate body-binding result; native generic specialization
-// still rejects the indirect function-value call today.
+// it. The selected noncapturing lambda can use the existing function-pointer representation when
+// its closed contextual signature is exact; the generic callee's indirect call must independently
+// pass generic FIR verification.
 
 func nestedLambdaScopes(): () {
     val nest: (int) -> (int) -> int = { outer -> { inner -> outer + inner } }
@@ -305,8 +332,9 @@ func nestedLambdaScopes(): () {
 // Nested lambdas own separate parameter scopes. A nested `$0` starts from the inner lambda's
 // positional namespace. A generic parameter from the enclosing function is not a lambda parameter.
 //
-// The current FIR builder has no closure/environment nodes. Source analysis can retain contextual
-// facts without authorizing closure allocation or native code generation.
+// This nested value reads `outer`, so the inner lambda captures an outer parameter and remains
+// FIR-rejected. A nested lambda that reads only its own parameters can be lifted independently when
+// it meets the same exact-signature and noncapturing conditions.
 
 // 9. Lambda forms must converge on one function-value contract
 // ------------------------------------------------------------
@@ -337,8 +365,9 @@ func nestedLambdaScopes(): () {
 
 func <T> returnContextual(value: T): (T) -> T = { item -> item }
 
-// expect: Source may contextually type this identity body as T -> T. FIR/native closure result:
-// Rejected(SOL2400); no closure environment or generic function-value ABI exists.
+// expect: Source may contextually type this identity body as T -> T. FIR rejects this occurrence
+// because its enclosing function is generic; the bounded native lambda slice does not emit open
+// generic-parent bodies or instantiate lambdas per specialization.
 
 // A future generic lambda proposal must also define whether type parameters are inferred each time
 // the value is called, fixed when the lambda is created, or reified at runtime. These options have
@@ -398,6 +427,45 @@ func <E: Throwable> invokeCallback(callback: () -> () throws E): () throws E {
 // lifetime permit it. Captured mutable `var` storage uses a shared cell when reads/writes must
 // observe the same variable. Separate lambdas capturing the same mutable variable share one cell;
 // they must not receive independent snapshots.
+// LexicalAnalysis exposes the resolved local capture inventory per lambda, including nested-lambda
+// environment propagation and read/write access. `LambdaEscapes` and `GetLambdaEscape(lambda)` add
+// a separate source-use classification. Tracked lambda/anonymous-function values written to a
+// local or copied through a local alias are followed by LocalSymbol identity. All simple writes,
+// including branch alternatives, are unioned as may-aliases without selecting a path. Mutable
+// locals can be ProvenNonEscaping if every joined use is local storage, aliasing, or invocation.
+// Returning a value, passing it to a call, placing it in an aggregate/property, or storing through
+// an external location is escape-capable. Null/untracked writes, aliases captured by another
+// callable, ref/out publication, and unsupported consumers remain `Unknown` or `MayEscape`. No
+// no-escape call contract is inferred.
+// These facts do not prove borrow safety, select a native layout, or authorize code generation.
+// `LambdaReceiverCaptures`/`GetLambdaReceiverCaptures(lambda)` separately identify explicit `this`
+// and `super` uses, unqualified direct/inherited instance-member references, constructor properties,
+// and accessor `field` references. Receiver captures propagate to each enclosing lambda environment.
+// They are kept distinct from local symbols: a shadowing local remains local, and `other.member`
+// does not capture the current receiver. Bounded inherited lookup reports `IsComplete = false` if its
+// resource limit prevents a full result. Local-function forwarding and a bound-method ABI are not
+// represented by this source inventory.
+// `AstAnonymousFunction` preserves grouped parameters/origins, passing modes, optional result type,
+// ordered checked effects, and body kind. BodyAnalysis resolves explicit/contextual parameter types,
+// checks return paths and effects, and may infer a common result under bounded traversal. Missing
+// bodies, function-value default/vararg mapping, or unresolved result types remain deferred. The
+// analysis admits noncapturing, complete, closed, exact-ABI functions to the synthetic typed
+// function-pointer FIR path used for noncapturing lambdas. Block and `= expression` bodies retain
+// source identity and are independently verified. Captures, nested closures, generic enclosing
+// functions, unsupported generic targets, defaults/varargs, and signatures requiring adapters
+// remain rejected or deferred. This does not emit closure environments. Separate
+// `AnonymousFunctionCaptures`/`GetAnonymousFunctionCaptures` and
+// `AnonymousFunctionReceiverCaptures`/`GetAnonymousFunctionReceiverCaptures` inventories record
+// local and enclosing-receiver requirements through nested anonymous-function scopes.
+// `AnonymousFunctionEscapes`/`GetAnonymousFunctionEscape(function)` separately classify source uses:
+// direct immediate invocation is `ProvenNonEscaping`; a return, call argument, aggregate element,
+// or heap store is `MayEscape`; mutable or immutable local aliases remain `ProvenNonEscaping` when
+// every modeled use stays local. Local invocation is a supported use, and an unused local value
+// remains within its activation. Tracked local writes and branch alternatives are unioned; untracked writes,
+// callable capture, ref/out publication, and unmodeled consumers remain `Unknown` or `MayEscape`.
+// No call is assumed to have a no-escape contract.
+// These classifications are analysis evidence only: they do not prove borrowed-value safety,
+// closure lifetime, heap ownership, Yellow Tea rooting/tracing, environment layout, or ABI validity.
 //
 // A captured receiver or local may keep an object reachable after the creating stack frame returns.
 // The environment layout must identify every managed reference slot so Yellow Tea can scan it. A
@@ -434,8 +502,9 @@ func <T> forbiddenCapture(value: T): () -> T where T: allows ref struct {
 // captured value in a GC-managed environment.
 
 // Non-escaping does not mean unrestricted: proof must include all returns, stores, calls, callbacks,
-// exception paths, and nested captures. An unknown function-valued call is conservatively escaping
-// until its contract proves otherwise.
+// exception paths, and nested captures. A call argument is conservatively escape-capable because no
+// no-escape declaration contract is implemented. `Unknown` is not interchangeable with
+// `ProvenNonEscaping`, including for a lambda stored in a local and invoked later.
 
 // 15. Indirect invocation has an explicit execution edge
 // ------------------------------------------------------
@@ -455,6 +524,10 @@ func <T> forbiddenCapture(value: T): () -> T where T: allows ref struct {
 //
 // A closed generic instance may invoke a supported function-typed parameter through
 // `FirIndirectCall`; each concrete specialization must pass signature and effect verification.
+// A noncapturing lambda body may also call or reference a generic function when source binding has
+// selected every closed type argument and the specialized target is in the verified native subset.
+// Its FIR call/reference is a normal specialization-graph edge. An open or unsupported target is
+// rejected; the lambda path does not invent an instantiation or a fallback overload.
 // Lambda-created closure values, receiver-bound methods, and non-identity function adapters remain
 // outside the native subset until their environment, ABI, and GC contracts exist. An array can hold
 // a non-null function value when that value has the existing receiver-free code-pointer ABI. Its
@@ -527,8 +600,8 @@ func <T> forbiddenCapture(value: T): () -> T where T: allows ref struct {
 // its representation, ownership, lifetime, exception behavior, and versioning rules. AOT and ORC
 // use the same source-level semantics even if they lower code pointers differently.
 
-// 20a. Non-null arrays of receiver-free function values
-// ------------------------------------------------------
+// 20a. Arrays of receiver-free function values
+// ---------------------------------------------
 //
 // A managed array may store non-null function values whose closed signature uses the existing raw
 // code-pointer ABI. This includes direct module references, closed generic references, eligible
@@ -540,12 +613,31 @@ func <T> forbiddenCapture(value: T): () -> T where T: allows ref struct {
 // The Yellow Tea element descriptor records pointer width and scalar layout with no managed-reference
 // scan shape. The array itself remains a managed object and must be rooted while its elements are
 // evaluated and initialized. Function code addresses are not object references; tracing them as
-// `Header*` values would retain arbitrary objects or read invalid headers. This contract does not
-// permit null function values, closure environments, receiver-bound values, adapters, or borrowed
-// code from an unloadable ORC unit. A value that requires such an environment remains FIR-rejected.
+// `Header*` values would retain arbitrary objects or read invalid headers. This subsection describes
+// non-null function elements; nullable exact-ABI elements are specified below and in
+// NullableFunctionValues.sol. Neither array form permits closure environments, receiver-bound
+// values, adapters, or borrowed code from an unloadable ORC unit. A value that requires such an
+// environment remains FIR-rejected.
 
-// 20b. Array conformance and runtime qualification
-// -------------------------------------------------
+// 20b. Nullable function values and nullable array elements
+// ---------------------------------------------------------
+//
+// A nullable exact-ABI function element uses the same pointer-width slot as a non-null function
+// element. The null value is zero; no wrapper object, closure environment, or additional GC root is
+// introduced. Null equality and inequality are direct pointer comparisons. A successful null check
+// may refine only a stable local that identifies the tested pointer, and assignments/ref/out writes
+// invalidate that fact. Nested arrays trace their ordinary array references and retain scalar
+// function-pointer elements at the leaves. Nullable managed references and function values that
+// require adapters are not admitted by this representation.
+//
+// This slice has verified-FIR tests for branch and short-circuit narrowing, ref/out invalidation,
+// defaults/varargs, exact ABI rejection, and nested arrays. AOT and process-isolated ORC integration
+// exercise null and non-null values in parameters, returns, locals, and arrays, including collection
+// while a nullable callback array is live. `!!` remains source-valid but is rejected at native FIR
+// admission until null-assertion exception lowering is implemented.
+
+// 20c. Array conformance and runtime qualification
+// ------------------------------------------------
 //
 // Qualification covers literal construction, empty typed arrays, generic closed targets, indexed
 // invocation, function-array parameters, iteration, AOT and ORC execution, and scalar-pointer GC

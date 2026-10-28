@@ -329,6 +329,11 @@ internal sealed partial class BodyBindingBuilder
             {
                 var original = (AstFunction)member.Symbol.Parts[0];
                 if (!function.Modifiers.Contains("override")) { Report("SOL2231", "An inherited signature requires explicit override.", function); }
+                foreach (var pair in function.Parameters.Zip(original.Parameters))
+                {
+                    if (pair.First.IsEscaping != pair.Second.IsEscaping)
+                    { Report("SOL2265", "An override must preserve each parameter's @escaping contract.", function); }
+                }
                 if (original.Modifiers.Contains("final") || !(original.Modifiers.Contains("open") || original.Modifiers.Contains("abstract")
                     || original.Modifiers.Contains("override") || ContainingType(original)?.Declaration?.Parts[0].SyntaxKind == NodeKind.InterfaceDeclaration))
                 { Report("SOL2232", "The inherited member cannot be overridden.", function); }

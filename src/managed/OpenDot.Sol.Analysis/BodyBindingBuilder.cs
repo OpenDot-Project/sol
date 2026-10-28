@@ -144,11 +144,13 @@ internal sealed partial class BodyBindingBuilder
         LocalSymbol? Local = null, DeclarationSymbol? Symbol = null, ResolvedType? Receiver = null,
         string? Literal = null, bool IsType = false,
         ImmutableArray<ResolvedType> FunctionValueTypeArguments = default);
+    private sealed record LambdaReturnPath(AstReturn Return, bool Reachable, ResolvedType? Type);
     private sealed record Context(AstCallable? Callable, ResolvedType? Result, AstLambda? Lambda = null,
         ResolvedType? LambdaType = null, int LoopDepth = 0, bool Cleanup = false,
         List<State>? Exits = null, List<State>? Breaks = null, List<State>? Continues = null,
         object? CleanupScope = null, int? CleanupLoopDepth = null, bool ActiveExceptionUnwind = false,
-        bool SuppressCleanupFailures = false, bool CleanupBoundary = false);
+        bool SuppressCleanupFailures = false, bool CleanupBoundary = false,
+        List<LambdaReturnPath>? LambdaReturnPaths = null, string? LambdaReturnLabel = null);
     private readonly CancellationToken _cancellation;
     private readonly MemberLookupResolver _memberResolver;
     private readonly GenericInferenceSolver _genericInference;
@@ -161,11 +163,16 @@ internal sealed partial class BodyBindingBuilder
     internal readonly Dictionary<AstNode, AstSnapshot> Files = new(ReferenceEqualityComparer.Instance);
     internal readonly Dictionary<AstExpression, ExpressionBinding> Expressions = new(ReferenceEqualityComparer.Instance);
     internal readonly Dictionary<AstCallable, BodySummary> Bodies = new(ReferenceEqualityComparer.Instance);
+    internal readonly Dictionary<AstAnonymousFunction, AnonymousFunctionBodySummary> AnonymousFunctionBodies =
+        new(ReferenceEqualityComparer.Instance);
+    internal readonly Dictionary<AstLambda, LambdaBodySummary> LambdaBodies =
+        new(ReferenceEqualityComparer.Instance);
     internal readonly List<Diagnostic> Diagnostics = [];
     internal readonly Dictionary<AstCall, BodyCallBinding> Calls = new(ReferenceEqualityComparer.Instance);
     internal readonly Dictionary<AstNode, BodyOperatorBinding> OperatorBindings = new(ReferenceEqualityComparer.Instance);
     internal SourceAnalysis Sources { get; }
     internal TypeSpecialization Types { get; }
+    internal IReadOnlyDictionary<LocalSymbol, ResolvedType> LocalTypes => _localTypes;
     internal MemberLookupResolver MemberResolver => _memberResolver;
     internal GenericInferenceSolver GenericInference => _genericInference;
     internal bool Deferred => _deferred.Count != 0;
@@ -179,7 +186,7 @@ internal sealed partial class BodyBindingBuilder
     internal BodyBindingBuilder(SourceAnalysis sources, TypeSpecialization types, CancellationToken cancellation)
     {
         Sources = sources; Types = types; _cancellation = cancellation;
-        _memberResolver = new(sources, Types, cancellation);
+        _memberResolver = new(sources.Types, Types, sources.Declarations.Files, cancellation);
         _genericInference = new(Types, cancellation);
         foreach (var file in sources.Declarations.Files)
         {
@@ -234,6 +241,8 @@ internal sealed partial class BodyBindingBuilder
                 if (contract is null || !contract.InitEffects.IsEmpty) { Defer(property); }
             }
         }
+        ValidateNonescapingFunctionParameterUses();
+        ValidateBorrowedLocalFunctionCaptures();
         ValidateOverrides();
         ValidateOperatorContracts();
         ValidateStorage();
@@ -243,6 +252,7 @@ internal sealed partial class BodyBindingBuilder
     {
         _cancellation.ThrowIfCancellationRequested();
         if (Bodies.TryGetValue(callable, out var previous)) { return previous; }
+        ValidateEscapingParameterAnnotations(callable, callable.Parameters);
         var body = callable switch
         {
             AstFunction f => f.Body,
@@ -274,6 +284,13 @@ internal sealed partial class BodyBindingBuilder
                     _localTypes[local] = parameter?.PassingMode == AstPassingMode.Vararg ? Types.GetArray(type) : type;
                 }
                 if (parameter?.PassingMode != AstPassingMode.Out) { state.Assigned.Add(local); }
+            }
+            if (callable is AstFunction localFunction)
+            {
+                foreach (var capture in Sources.Lexical.GetLocalFunctionCaptures(localFunction)
+                    .Where(capture => capture.Local.Kind == LocalSymbolKind.Parameter
+                        && capture.Local.PassingMode != AstPassingMode.Out))
+                { state.Assigned.Add(capture.Local); }
             }
             foreach (var parameter in callable.Parameters.Where(p => p.DefaultValue is not null))
             {

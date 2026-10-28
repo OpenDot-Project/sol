@@ -164,8 +164,12 @@ internal sealed partial class Parser
 
     private bool BeginsNamedParameterGroupAfterComma()
     {
-        if (Kind != CommaToken || Peek(1).Kind != IdentifierToken) { return false; }
-        int lookahead = 2;
+        if (Kind != CommaToken) { return false; }
+        int parameterStart = 1;
+        if (Peek(parameterStart).Kind is RefKeyword or OutKeyword or VarargKeyword)
+        { parameterStart++; }
+        if (Peek(parameterStart).Kind != IdentifierToken) { return false; }
+        int lookahead = parameterStart + 1;
         while (Peek(lookahead).Kind == CommaToken && Peek(lookahead + 1).Kind == IdentifierToken)
         {
             lookahead += 2;

@@ -13,11 +13,13 @@ public sealed class FirJsonFunctionValueTests
     private const string Source = "import std.stdio\n"
         + "func <T> identity(value: T): T = value\n"
         + "func update(ref value: int, out result: int): () throws IOException { value = 1; result = 2 }\n"
-        + "func relay(callback: (int) -> int throws IOException): (int) -> int throws IOException = callback\n"
+        + "func relay(@escaping callback: (int) -> int throws IOException): (int) -> int throws IOException = callback\n"
         + "object Main { func main(args: []String): () throws IOException {\n"
         + "val echo: (String) -> String = identity; echo(\"sol\")\n"
         + "val forward: ((int) -> int throws IOException) -> (int) -> int throws IOException = relay\n"
         + "val callback: (ref int, out int) -> () throws IOException = update\n"
+        + "val zero: () -> int = { 42 }\n"
+        + "val anonymous: (() -> int) -> int = func(@escaping nested: () -> int): int = 0\n"
         + "var current = 0; var result: int; callback(ref current, out result)\n"
         + "} }";
 
@@ -32,8 +34,30 @@ public sealed class FirJsonFunctionValueTests
 
         using var json = JsonDocument.Parse(first);
         var root = json.RootElement;
-        Assert.Equal(6, root.GetProperty("schema").GetInt32());
+        Assert.Equal(7, root.GetProperty("schema").GetInt32());
         Assert.True(root.GetProperty("verified").GetBoolean());
+
+        foreach (var function in program.Functions)
+        {
+            var serializedFunction = Assert.Single(root.GetProperty("functions").EnumerateArray(), item =>
+                item.GetProperty("id").GetInt32() == function.Id);
+            var serializedSlots = serializedFunction.GetProperty("slots").EnumerateArray().ToArray();
+            Assert.Equal(function.Slots.Length, serializedSlots.Length);
+            foreach (var slot in function.Slots)
+            {
+                var serializedSlot = Assert.Single(serializedSlots, item =>
+                    item.GetProperty("id").GetInt32() == slot.Id);
+                Assert.Equal(slot.IsParameter, serializedSlot.GetProperty("isParameter").GetBoolean());
+                Assert.Equal(slot.IsEscaping, serializedSlot.GetProperty("isEscaping").GetBoolean());
+            }
+        }
+
+        var relay = program.Functions.Single(function => function.Name == "relay");
+        Assert.True(Assert.Single(relay.Parameters).IsEscaping);
+        var relayJson = Assert.Single(root.GetProperty("functions").EnumerateArray(), item =>
+            item.GetProperty("id").GetInt32() == relay.Id);
+        Assert.True(Assert.Single(relayJson.GetProperty("slots").EnumerateArray(), slot =>
+            slot.GetProperty("isParameter").GetBoolean()).GetProperty("isEscaping").GetBoolean());
 
         var references = program.Functions.Where(function => function.Body is not null)
             .SelectMany(function => function.Body!.Statements).OfType<FirDeclare>()
@@ -116,7 +140,7 @@ public sealed class FirJsonFunctionValueTests
         string output = FirJson.Serialize(Compile(), TestContext.Current.CancellationToken);
         using (JsonDocument.Parse(output)) { }
         Assert.ThrowsAny<JsonException>(() => JsonDocument.Parse(output[..^1]));
-        Assert.ThrowsAny<JsonException>(() => JsonDocument.Parse("{\"schema\":6"));
+        Assert.ThrowsAny<JsonException>(() => JsonDocument.Parse("{\"schema\":7"));
     }
 
     private static VerifiedFirProgram Compile()

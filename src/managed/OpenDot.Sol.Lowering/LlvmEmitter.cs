@@ -266,6 +266,9 @@ public sealed partial class LlvmEmitter
     private Value Constant(FirConstant constant)
     {
         string type = Type(constant.Type);
+        if (constant.Spelling == "null"
+            && (FirVerifier.IsNullSentinel(constant.Type) || FirVerifier.IsNullableFunction(constant.Type)))
+        { return new("ptr", Op(LlvmOperation.Zero, T("ptr")), constant.Type); }
         if (FirVerifier.IsString(constant.Type)) { return new(type, Call("sol_rt_literal", _module.CreateString(SolLiteral.DecodeUtf8(constant.Spelling))), constant.Type); }
         if (type == "void") { return new(type, 0, constant.Type); }
         if (constant.Type.Name == "bool") { return new(type, Int(constant.Spelling == "true" ? 1 : 0, type), constant.Type); }

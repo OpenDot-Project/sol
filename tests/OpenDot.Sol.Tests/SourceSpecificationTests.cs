@@ -25,7 +25,8 @@ public sealed class SourceSpecificationTests
         {
             var source = SourceText.FromBytes(File.ReadAllBytes(path), Path.GetRelativePath(root, path));
             var tree = SyntaxTree.Parse(source, cancellationToken: TestContext.Current.CancellationToken);
-            Assert.False(tree.HasErrors, source.Path + ": " + string.Join('\n', tree.Diagnostics.Select(d => d.Message)));
+            Assert.False(tree.HasErrors, source.Path + ": " + string.Join('\n', tree.Diagnostics.Select(d =>
+                d.Code + "@" + d.Span.Start + ": " + d.Message + " in `" + source.GetText(d.Span) + "`")));
             Assert.False(string.IsNullOrWhiteSpace(tree.ModuleName));
             var ast = AstSnapshot.Create(PsiSnapshot.Create(tree, TestContext.Current.CancellationToken), TestContext.Current.CancellationToken);
             AstVerifier.Verify(ast, TestContext.Current.CancellationToken);

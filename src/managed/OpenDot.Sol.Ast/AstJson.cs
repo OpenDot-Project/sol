@@ -57,24 +57,18 @@ public static class AstJson
             }
             if (node is AstCallable callable)
             {
-                writer.WriteStartArray("parameters");
-                foreach (var parameter in callable.Parameters)
-                {
-                    writer.WriteStartObject();
-                    writer.WriteString("name", parameter.Name);
-                    writer.WriteString("mode", parameter.PassingMode.ToString());
-                    writer.WriteString("type", parameter.Type?.Shape.CanonicalName);
-                    writer.WriteNumber("nameStart", parameter.NameOrigin.Span.Start);
-                    writer.WriteNumber("groupStart", parameter.GroupOrigin.Span.Start);
-                    writer.WriteBoolean("property", parameter.IsProperty);
-                    writer.WriteBoolean("mutable", parameter.IsMutable);
-                    if (parameter.DefaultValue is not null)
-                    {
-                        writer.WriteNumber("default", parameter.DefaultValue.Id);
-                    }
-                    writer.WriteEndObject();
-                }
+                WriteParameters(writer, callable.Parameters);
+            }
+            if (node is AstAnonymousFunction anonymous)
+            {
+                WriteParameters(writer, anonymous.Parameters);
+                writer.WriteString("returnType", anonymous.ReturnType?.Shape.CanonicalName);
+                writer.WriteStartArray("throws");
+                foreach (var effectType in anonymous.ThrownTypes)
+                { writer.WriteStringValue(effectType.Shape.CanonicalName); }
                 writer.WriteEndArray();
+                writer.WriteString("bodyKind", anonymous.Body.Kind.ToString());
+                if (anonymous.Body.Node is { } body) { writer.WriteNumber("body", body.Id); }
             }
             if (node is AstOperation operation)
             {
@@ -132,5 +126,32 @@ public static class AstJson
         writer.WriteEndArray();
         writer.WriteEndObject();
         writer.Flush();
+    }
+
+    private static void WriteParameters(Utf8JsonWriter writer, System.Collections.Generic.IEnumerable<AstParameter> parameters)
+    {
+        writer.WriteStartArray("parameters");
+        foreach (var parameter in parameters)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("name", parameter.Name);
+            writer.WriteString("mode", parameter.PassingMode.ToString());
+            writer.WriteString("type", parameter.Type?.Shape.CanonicalName);
+            writer.WriteNumber("nameStart", parameter.NameOrigin.Span.Start);
+            writer.WriteNumber("groupStart", parameter.GroupOrigin.Span.Start);
+            writer.WriteBoolean("property", parameter.IsProperty);
+            writer.WriteBoolean("mutable", parameter.IsMutable);
+            writer.WriteStartArray("annotations");
+            foreach (var annotation in parameter.Annotations)
+            {
+                writer.WriteStringValue(annotation.Origin.Element is OpenDot.Sol.Psi.PsiAnnotation psiAnnotation
+                    ? psiAnnotation.Name : annotation.Origin.Text);
+            }
+            writer.WriteEndArray();
+            if (parameter.DefaultValue is not null)
+            { writer.WriteNumber("default", parameter.DefaultValue.Id); }
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
     }
 }

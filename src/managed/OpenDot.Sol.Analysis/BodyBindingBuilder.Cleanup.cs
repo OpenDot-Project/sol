@@ -166,6 +166,7 @@ internal sealed partial class BodyBindingBuilder
 
     private bool ContainsCall(AstNode node)
     {
+        if (node is AstCallable or AstAnonymousFunction or AstLambda) { return false; }
         var pending = new Stack<AstNode>();
         var visited = new HashSet<AstNode>(ReferenceEqualityComparer.Instance);
         pending.Push(node);
@@ -174,6 +175,9 @@ internal sealed partial class BodyBindingBuilder
             _cancellation.ThrowIfCancellationRequested();
             if (!visited.Add(current)) { continue; }
             if (visited.Count > 65536) { return true; }
+            // A nested callable's body is checked separately and is not run when it is declared.
+            if (!ReferenceEquals(current, node) && current is AstCallable or AstAnonymousFunction or AstLambda)
+            { continue; }
             if (current is AstCall) { return true; }
             foreach (var child in current.Children) { pending.Push(child); }
         }

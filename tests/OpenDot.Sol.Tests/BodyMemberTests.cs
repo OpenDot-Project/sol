@@ -197,9 +197,14 @@ public sealed class BodyMemberTests
     }
 
     [Fact]
-    public void GenericAntiConstraintDoesNotPermitHeapCaptureOrStorage()
+    public void GenericAntiConstraintPermitsOnlyProvenNonescapingCapture()
     {
-        Error(Analyze("func <T> f(value: T) where T: allows ref struct { val callback = { value } }"), "SOL2262");
+        var localCapture = Analyze("func <T> f(value: T): T where T: allows ref struct { val callback = { -> value }; callback() }");
+        Valid(localCapture);
+        Assert.Equal(LambdaEscapeDisposition.ProvenNonEscaping,
+            localCapture.Sources.Lexical.GetLambdaEscape(
+                localCapture.LambdaBodies.Single().Lambda).Disposition);
+        Error(Analyze("func <T> f(value: T): () -> T where T: allows ref struct { return { -> value } }"), "SOL2262");
         Error(Analyze("class Holder<T> where T: allows ref struct { var value: T }"), "SOL2260");
         Error(Analyze("func <T> f(values: []T) where T: allows ref struct {}"), "SOL2260");
     }

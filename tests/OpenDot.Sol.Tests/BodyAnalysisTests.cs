@@ -160,10 +160,13 @@ public sealed class BodyAnalysisTests
     }
 
     [Fact]
-    public void RefAndRefLikeCapturesAreRejected()
+    public void RefAndRefLikeCapturesRequireAProvenNonescapingClosure()
     {
-        Error(Analyze("func f(ref x: int) { val callback = { x } }"), "SOL2262");
-        Error(Analyze("ref struct View {}\nfunc f(view: View) { val callback = { view } }"), "SOL2262");
+        Valid(Analyze("func f(ref x: int): int { val callback = { -> x }; callback() }"));
+        Error(Analyze("func f(ref x: int): () -> int { val callback = { -> x }; return callback }"), "SOL2262");
+        Valid(Analyze("ref struct View {}\nfunc f(view: View): int { val callback = { -> view }; 1 }"));
+        Error(Analyze("ref struct View {}\nfunc f(view: View): () -> View { "
+            + "val callback = { -> view }; return callback }"), "SOL2262");
     }
 
     [Fact]

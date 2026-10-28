@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: normative examples; closed generic function references and indirect FIR are supported in a bounded subset.
+// Status: normative examples; closed generic function references, indirect FIR, and exact-ABI
+// noncapturing lambdas are supported in a bounded subset.
 module examples.semantics.generic_fir_function_values
 
-// Generic direct calls, function references, and closures
+// Generic direct calls, function references, lambdas, and closures
 // ========================================================
 //
 // These examples separate source analysis from current native admission. `Bound` records a source
 // result only. `Deferred` means the source rule or implementation is incomplete. `FIR: Rejected`
-// records the current function-value/closure native boundary; it does not mean overload resolution
-// should select a different function. No line in this file claims to have run as a test.
+// records a representation boundary; it does not mean overload resolution should select a different
+// function. The bounded native lambda path admits only noncapturing, exact-signature forms in a
+// closed non-generic enclosing function. No line in this file claims to have run as a test.
 
 func <T> identity(value: T): T = value
 
@@ -37,7 +39,24 @@ func inferredFromResult(): String = identity("result")
 // expect: Source: Bound; T=String from argument and expected result agree; direct call only.
 
 func directGenericFunctionBody(): String = applyOne("text", { value -> value })
-// expect: Candidate-local lambda replay may bind T=String; generic indirect operation remains FIR rejected.
+// expect: Candidate-local lambda replay may bind T=String. The lambda may lower as a synthetic
+// function-pointer target when the closed contextual signature is exact; the specialized generic
+// callee's indirect-call body still requires its independent FIR checks.
+
+func genericCallFromLambda(): int {
+    val callback: (int) -> int = { value -> identity(value) }
+    callback(41)
+}
+// expect: The lambda body source binding closes identity<int>. FIR records the selected direct call
+// and makes identity<int> reachable from the synthetic lambda function.
+
+func genericReferenceFromLambda(): int {
+    val provider: () -> ((int) -> int) = { -> identity }
+    val callback = provider()
+    callback(41)
+}
+// expect: Expected return context closes the generic function value as identity<int>; FIR verifies
+// the reference edge and keeps the raw code-pointer ABI.
 
 // 2. A generic function name closes from an expected function type.
 func genericNameAsValue(): () {
@@ -130,12 +149,20 @@ func overloadValueNoFallback(): () {
 func namedLambdaExpectedType(): () {
     val callback: (int, int) -> int = { left, right -> left + right }
 }
-// expect: Source: Bound for supported lambda typing; FIR: Rejected because closure nodes are absent.
+// expect: Source: Bound; FIR: Ready for this noncapturing, exact-signature form in a closed,
+// non-generic enclosing function, provided the body uses supported operations.
 
 func positionalLambdaExpectedType(): () {
     val callback: (int, int) -> int = { $0 + $1 }
 }
-// expect: `$0` and `$1` bind to this lambda's expected arity, not an implicit `it`.
+// expect: `$0` and `$1` bind to this lambda's expected arity, not an implicit `it`. The current
+// bounded FIR path admits positional lambdas only with value parameters and an exact native ABI.
+
+func headerlessLambdaExpectedType(): () {
+    val callback: () -> int = { 42 }
+}
+// expect: A headerless lambda has zero parameters. This exact-signature case is represented by a
+// synthetic source-linked FIR function; it has no allocated closure environment.
 
 func noImplicitItLambda(): () {
     val callback: (int) -> int = { it }
@@ -181,7 +208,9 @@ func immutableCapture(): () {
 func <T> genericCallbackParameter(value: T, callback: (T) -> T): T = callback(value)
 
 func genericCallbackUse(): int = genericCallbackParameter(2) { item -> item + 1 }
-// expect: Source binding may select T=int and contextually type lambda; indirect invocation has FIR support, but this lambda closure remains FIR: Rejected(SOL2400).
+// expect: Source binding may select T=int and contextually type the lambda. Its exact noncapturing
+// function pointer and the specialized callee's indirect invocation are FIR-ready when both pass
+// their independent source/type/effect checks.
 
 func <T> callbackStoredForLater(callback: () -> T): () -> T = callback
 // expect: Returning the callback extends its lifetime; no generic closure ABI is implied by substitution.
@@ -216,19 +245,20 @@ func refOutLambda(): () {
         destination = source
     }
 }
-// expect: Parameter modes must match exactly; closure lowering remains outside FIR.
+// expect: Source preserves exact ref/out modes. FIR: Ready for this closed, noncapturing lambda
+// because its signature is exact and the out parameter is assigned on its normal return path.
 
 func <T> invokeRefOut(callback: (ref T, out T) -> (), ref source: T, out destination: T): () {
     callback(ref source, out destination)
 }
 // expect: Source obligations include exact T storage and out assignment; native indirect call is rejected.
 
-func refLocationCannotBeCaptured(): () {
-    var value = 1
-    val callback: () -> int = { value }
-    val use: (ref int) -> int = { ref location: int -> callback() }
+func refLocationCannotEscape(ref value: int): () -> int {
+    val callback: () -> int = { -> value }
+    return callback
 }
-// expect: Capturing a ref/out location or borrowed address is rejected absent a non-escape proof.
+// expect: Source rejects the returned callback because it retains caller-owned ref storage;
+// a proven local invocation can be admitted by source analysis without defining a native closure ABI.
 
 func refOutDoesNotUseTemporary(): () {
     var value: short = 1
@@ -283,7 +313,8 @@ func sameNameShadow(): () {
 func <T> nullableCallback(callback: () -> T?): T? = callback()
 
 func nullableCallbackUse(): String? = nullableCallback<String> { null }
-// expect: Source nullable result remains String?; closure/FIR boundary rejects current native path.
+// expect: Source nullable result remains String?; native admission rejects its current layout or
+// flow obligations independently of lambda closure conversion.
 
 func bottomCallback(callback: () -> !): ! = callback()
 // expect: Verified FIR preserves the bottom result as a no-return indirect call.
@@ -310,9 +341,18 @@ func closureSurvivesCreatingFrame(): () -> String {
 }
 // expect: Returning closure requires environment ownership after frame exit; not a stack-only raw pointer.
 
-// 14. Ref-like and borrowed captures remain rejected even under generic constraints.
+// 14. Ref-like and borrowed captures require a proven local lifetime.
 func <T> captureRefLike(value: T): () -> T where T: allows ref struct = { value }
 // expect: A ref-like T cannot enter a heap closure environment or escape the call.
+
+ref struct BorrowedView { val value: int = 42 }
+
+func nonEscapingBorrowedCapture(value: BorrowedView): int {
+    val callback = { -> value.value }
+    callback()
+}
+// expect: Source: Bound; the callback is proven local and runs before `value` leaves its activation.
+// FIR: Rejected because capturing closure environments have no verified native ABI yet.
 
 func spanCallback(span: Span<int>): () -> int = { span[0] }
 // expect: Source borrow analysis must reject escaping capture of Span storage.
@@ -328,7 +368,8 @@ func staticTarget(value: int): int = value + 1
 func plainPointerCandidate(): () {
     val callback: (int) -> int = staticTarget
 }
-// expect: Even capture-free references need a defined value conversion and callable ABI.
+// expect: Source: Bound; FIR: Ready for this exact module-level function signature and supported
+// body. The value references the existing declaration instead of a synthetic lambda target.
 
 func capturedPointerCandidate(seed: int): () {
     val callback: (int) -> int = { value -> value + seed }
@@ -336,7 +377,8 @@ func capturedPointerCandidate(seed: int): () {
 // expect: Code pointer plus environment pointer is required; a raw code pointer loses seed.
 
 func codePointerDoesNotKeepEnvironmentAlive(): () {
-    val callback: () -> String = { String("owned") }
+    val owned = String("owned")
+    val callback: () -> String = { owned }
 }
 // expect: Environment references need precise GC roots at allocation and call safepoints.
 
@@ -355,20 +397,25 @@ func callbackThrowsDuringUnwind(callback: () -> ()): () {
 // 17. Artifact boundaries do not export function values implicitly.
 func <T> exportedGenericTarget(value: T): T = value
 
-func libraryCallbackFactory(): () -> int = { 1 }
-// expect: A `.solib` export cannot expose a closure until container ownership/version rules are specified.
+func libraryCallbackFactory(seed: int): () -> int = { seed }
+// expect: A `.solib` export cannot expose this capturing closure until container ownership/version
+// rules are specified.
 
-func cAbiCallback(): () -> int = { 1 }
+func cAbiCallback(seed: int): () -> int = { seed }
 // expect: A C ABI cannot export a managed closure as a function pointer without an explicit trampoline/lifetime contract.
 
 func orcGuestCallback(): int = applyOne(1) { value -> value + 1 }
-// expect: ORC may only execute verified FIR; guest-process isolation does not replace closure conversion.
+// expect: The exact noncapturing lambda pointer and its target are compiled into the ORC guest.
+// A guest-process boundary still does not permit a host function pointer or captured host heap
+// address to cross into that process.
 
 // 18. Current and future outcomes remain distinguishable.
-func sourceAnalysisOnly(): () {
+func noncapturingLambdaValue(): () {
     val callback: (int) -> int = { value -> value }
 }
-// expect: Source lambda typing may succeed; current FIR/native: Rejected(SOL2400).
+// expect: Source: Bound; FIR: Ready for this simple noncapturing lambda in a closed, non-generic
+// enclosing function. Captures, generic parent bodies, bound receiver/member access, and ABI
+// adapters remain rejected even when source lambda typing succeeds.
 
 func rejectedCallbackBody(): int = applyOne(1) { value -> value + "x" }
 // expect: Source candidate/body error is not a FIR verifier error and must not create an instance.

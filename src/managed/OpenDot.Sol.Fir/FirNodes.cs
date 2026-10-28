@@ -46,12 +46,20 @@ public sealed record FirArrayForEach(int ItemSlot, FirExpression Array, FirBlock
 public sealed record FirBreak(AstOrigin Origin) : FirStatement(Origin);
 public sealed record FirContinue(AstOrigin Origin) : FirStatement(Origin);
 
-public sealed record FirSlot(int Id, string Name, ResolvedType Type, bool Mutable, AstPassingMode Mode, bool IsParameter, AstOrigin Origin);
+public sealed record FirSlot(int Id, string Name, ResolvedType Type, bool Mutable, AstPassingMode Mode, bool IsParameter, AstOrigin Origin)
+{
+    /// <summary>Source lifetime contract for a function-valued parameter; false for local slots and lambdas.</summary>
+    public bool IsEscaping { get; init; }
+}
 public enum FirRuntimeFunction { None, Print, Println, Error, Errorln }
 public sealed record FirFunction(int Id, string Name, ImmutableArray<FirSlot> Parameters, ImmutableArray<FirSlot> Slots,
     ResolvedType ReturnType, FirBlock? Body, FirRuntimeFunction RuntimeFunction, ImmutableArray<ResolvedType> Effects, AstOrigin Origin)
 {
     public string? ExportName { get; init; }
+    /// <summary>The source lambda represented by this synthetic, non-capturing function.</summary>
+    public AstLambda? LambdaSource { get; init; }
+    /// <summary>The source anonymous function represented by this synthetic, non-capturing function.</summary>
+    public AstAnonymousFunction? AnonymousFunctionSource { get; init; }
     /// <summary>Closed generic arguments for this monomorphic body; empty for ordinary functions.</summary>
     public ImmutableArray<ResolvedType> SpecializationArguments { get; init; } = [];
 }

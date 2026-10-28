@@ -55,10 +55,21 @@ public sealed class FirTests
         Assert.NotEmpty(LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public void HeaderlessNoncapturingLambdaProducesVerifiedFunctionValue()
+    {
+        var program = Valid(Compile("val callback = { 42 }; println(callback())"));
+
+        var lambda = Assert.Single(program.Program.Functions.Where(function => function.LambdaSource is not null));
+        Assert.Equal("<lambda>", lambda.Name);
+        Assert.Equal("int", lambda.ReturnType.Name);
+        Assert.NotNull(lambda.Body);
+        Assert.NotEmpty(LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken));
+    }
+
     [Theory]
     [InlineData("var x: int; println(x)")]
     [InlineData("val x: int = true")]
-    [InlineData("val callback = { 42 }; println(callback())")]
     [InlineData("defer {}; println(1)")]
     [InlineData("try { println(1) } catch (e: IOException) {}")]
     [InlineData("println(default<int>())")]
@@ -95,7 +106,7 @@ public sealed class FirTests
         string json = FirJson.Serialize(program, TestContext.Current.CancellationToken);
         using var document = JsonDocument.Parse(json);
         Assert.True(document.RootElement.GetProperty("verified").GetBoolean());
-        Assert.Equal(6, document.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(7, document.RootElement.GetProperty("schema").GetInt32());
         Assert.DoesNotContain("<solrt>", json);
         Assert.NotEmpty(document.RootElement.GetProperty("flow").EnumerateArray());
         Assert.Equal(json, FirJson.Serialize(program, TestContext.Current.CancellationToken));

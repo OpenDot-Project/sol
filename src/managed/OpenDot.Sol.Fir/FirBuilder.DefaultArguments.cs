@@ -92,7 +92,7 @@ internal sealed partial class FirBuilder
                 _callValueReferences = references;
                 var value = Expression(expression);
                 var expected = Specialize(selected.ParameterTypes[parameterIndex]);
-                if (value.Type != expected)
+                if (value.Type is null || !FirVerifier.IsAssignable(value.Type, expected))
                 { return Reject(expression, "Default expression requires an unsupported native conversion"); }
                 int evaluationIndex = arguments.Count;
                 arguments.Add(new(parameterIndex, AstPassingMode.Value, value));
@@ -123,7 +123,8 @@ internal sealed partial class FirBuilder
         switch (expression)
         {
             case AstAtom { SyntaxKind: NodeKind.LiteralExpression }:
-                return type.Kind == ResolvedTypeKind.Primitive || FirVerifier.IsString(type);
+                return type.Kind == ResolvedTypeKind.Primitive || FirVerifier.IsString(type)
+                    || FirVerifier.IsNullSentinel(type) || FirVerifier.IsNullableFunction(type);
             case AstAtom { SyntaxKind: NodeKind.NameExpression } atom:
                 var matches = _analysis.Sources.Lexical.Lookup(atom, atom.Spelling).Locals;
                 return matches.Length == 1 && parameterOrdinals.TryGetValue(matches[0], out int ordinal)

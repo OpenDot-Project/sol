@@ -20,11 +20,12 @@ local narrowing. This is not a claim that every source nullability operation has
 flow invalidation, effect, and diagnostic behavior. Each operation should be checked against the
 normative source contract in `spec/GenericFirNullability.sol`.
 
-The current verified FIR/native gate does not admit nullable reference types, nullable value types,
-nullable array elements, or nullable array containers. A source-valid generic specialization that
-contains one of these types must remain outside native output. Existing native support for `String`,
-primitive scalars, and a one-dimensional array of supported non-null elements does not imply nullable
-support.
+The verified FIR/native gate admits one bounded nullable representation: a closed function type
+whose exact receiver-free code-pointer ABI is supported, plus arrays whose elements are those
+nullable function values. Null is the zero pointer, and a call requires a source-proven stable
+non-null read. This does not admit nullable managed references, nullable value types, nullable array
+containers, or arbitrary nullable array elements. A source-valid specialization containing any of
+those unsupported layouts must remain outside native output.
 
 | Area | Current implementation | Status of nullable native code |
 | --- | --- | --- |
@@ -34,11 +35,14 @@ support.
 | Generic inference | Collects input and expected-result evidence | Bound inference is not an ABI proof |
 | Source expressions | Some null-aware expression paths exist | Coverage is partial |
 | Source flow | Some stable local facts are tracked | Full invalidation and rebinding remain incomplete |
-| FIR admission | Closed types checked by verifier | Nullable forms are rejected |
-| LLVM lowering and GC | No general nullable representation proof | Do not lower by guessing |
+| Nullable lambda context | Source analysis checks lambda against the payload function type | FIR rejects this lambda-origin nullable lift with `SOL2400` |
+| FIR admission | Closed types checked by verifier | Exact-ABI nullable function pointers only |
+| LLVM lowering and GC | Pointer null and scalar array leaf are qualified for functions | Other nullable layouts remain rejected |
 
 Keep these status statements synchronized with the code. Never describe a nullable specialization as
 implemented because its syntax parses, its source type is known, or its generic substitution closes.
+The nullable function-pointer exception does not imply support for nullable objects, nullable array
+containers, arbitrary nullable array elements, tuples, or captured closure environments.
 
 ## Phase ownership
 
@@ -303,9 +307,16 @@ At a control-flow join, keep only facts valid on every reachable incoming edge. 
 can make the joined result nullable. Loop facts require a fixed-point treatment; a check in one
 iteration cannot be assumed to hold before every iteration.
 
-Current source analysis tracks some null checks and local narrowing, but it is not a complete generic
-per-instance rebind. Do not claim support for complex alias, capture, asynchronous, or concurrent
-invalidation until each case has explicit source analysis and FIR proof behavior.
+Source analysis supports the exact local null facts needed by nullable function-pointer FIR: direct
+null equality/inequality, reversed operand order, short-circuit edges, early exits, and invalidation
+after assignment or ref/out writes. An indirect invocation through an unproven nullable function
+value is a source error (`SOL2243`), not a deferred native-admission case. Joins include zero-trip
+loop paths, reachable catch paths, and the effects of `finally`; a proof survives only when it is
+valid for the exact local on every reachable predecessor after cleanup. A write in `finally` clears
+the earlier refinement. These rules are covered for nullable function pointers and do not establish
+a complete generic per-instance rebind or complex alias, capture, asynchronous, and concurrent
+invalidation semantics. Do not extend the supported boundary without explicit source analysis and
+FIR proof behavior for each case.
 
 ## Nullable operators
 
@@ -357,10 +368,13 @@ Do not erase the effect because a given path appears not to throw.
 ## Current FIR admission and diagnostics
 
 The current native gate is intentionally narrower than source type analysis. `FirVerifier.Supported`
-admits selected non-null primitive types, the empty tuple used for no value, `std.core.String`, and a
-one-dimensional array of supported non-null primitive or String elements. Nullable wrappers do not
-match that predicate. Nullable generic arguments, nullable slots, nullable results, nullable array
-elements, and nullable array containers are rejected.
+admits selected non-null primitive types, the empty tuple used for no value, `std.core.String`,
+supported one-dimensional arrays, and closed exact-ABI function types. It also admits
+`Nullable<Function>` with that same supported signature and arrays whose element is such a nullable
+function. It rejects nullable managed references, nullable value types, nullable arrays, nullable
+non-function array elements, and any function wrapper whose payload needs an adapter or unsupported
+layout. Generic nullable arguments are admitted only when substitution produces one of the same
+closed exact-ABI function shapes and the specialized body independently passes verification.
 
 The source/FIR boundary should retain these distinctions:
 
@@ -449,8 +463,9 @@ and verified.
 
 This guide does not change the Sol command-line interface, entry point, artifact types, LLVM version,
 runtime process isolation, or generic specialization resource limits. It does not introduce new
-syntax, boxing, an on-disk specialization cache, a stable generic C ABI, or a promise that source
-nullable operations are already native-capable.
+syntax, boxing, an on-disk specialization cache, a stable generic C ABI, or a promise that every
+source nullable operation is native-capable. The exact-ABI function-pointer slice above is the
+current bounded exception.
 
 The normative source rules live in `spec/GenericFirNullability.sol`; this guide explains how those
 rules intersect the current generic FIR implementation. Source examples are in
@@ -533,7 +548,9 @@ Use this sequence when considering whether a nullable node can pass the native g
 1. Locate the source declaration and confirm source binding selected it without backend influence.
 2. Inspect its complete generic specialization argument tuple and constraint result.
 3. Substitute every signature, body, array, tuple, callback, and effect type.
-4. Confirm no nullable wrapper is hidden inside a supported nominal, array, or function type.
+4. Confirm every nullable wrapper is in an admitted position: the exact-ABI function-pointer
+   wrapper or its array element; no unsupported nullable wrapper is hidden inside a nominal, array,
+   tuple, or function type.
 5. Identify the exact ABI and runtime representation for every nullable position.
 6. Confirm the FIR node carries the null branch, null assertion, or element-map proof it needs.
 7. Confirm the verifier independently checks that proof before constructing `VerifiedFirProgram`.
@@ -547,8 +564,8 @@ source type system that a well-typed nullable form is invalid merely because nat
 unfinished.
 
 The verifier's supported-type predicate is intentionally a conservative boundary. A change that
-allows a nullable identity there is a semantic/runtime expansion, not just a type-list update. It
-requires corresponding node validation, lowerer support, runtime integration, and release-facing
+allows another nullable identity there is a semantic/runtime expansion, not just a type-list update.
+It requires corresponding node validation, lowerer support, runtime integration, and release-facing
 status updates before it can be called implemented.
 
 ## Quick distinction table for reviews

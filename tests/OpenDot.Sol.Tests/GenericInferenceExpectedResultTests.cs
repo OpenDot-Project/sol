@@ -90,6 +90,51 @@ public sealed class GenericInferenceExpectedResultTests
     }
 
     [Fact]
+    public void ExpectedResultInfersFromAnUnannotatedGenericExpressionBody()
+    {
+        var analysis = Analyze("func <T> identityOrNull(value: T?) = value\n"
+            + "func use(): String? = identityOrNull(null)");
+
+        Assert.False(analysis.HasErrors,
+            string.Join('\n', analysis.Diagnostics.Select(diagnostic => diagnostic.Code + " " + diagnostic.Message)));
+        Assert.True(analysis.IsComplete,
+            string.Join(" | ", analysis.UnverifiedNodes.Select(node => node.Origin.Text)));
+        var call = Assert.Single(analysis.Calls, binding => binding.Target.Name == "identityOrNull");
+        var inferred = Assert.Single(call.TypeArguments);
+        Assert.Equal(ResolvedTypeKind.Nominal, inferred.Kind);
+        Assert.Equal("std.core.String", inferred.Name);
+        Assert.Equal(ResolvedTypeKind.Nullable, call.ReturnType!.Kind);
+        Assert.Equal("std.core.String", Assert.Single(call.ReturnType.Arguments).Name);
+    }
+
+    [Fact]
+    public void ExpectedResultClosesAnInferredReturnWhenTheOnlyArgumentIsDefaulted()
+    {
+        var analysis = Analyze("func <T> maybe(value: T? = null) = value\n"
+            + "func use(): String? = maybe()");
+
+        Assert.False(analysis.HasErrors,
+            string.Join('\n', analysis.Diagnostics.Select(diagnostic => diagnostic.Code + " " + diagnostic.Message)));
+        Assert.True(analysis.IsComplete,
+            string.Join(" | ", analysis.UnverifiedNodes.Select(node => node.Origin.Text)));
+        var call = Assert.Single(analysis.Calls, binding => binding.Target.Name == "maybe");
+        Assert.Equal("std.core.String", Assert.Single(call.TypeArguments).Name);
+        Assert.Equal(ResolvedTypeKind.Nullable, call.ReturnType!.Kind);
+        Assert.Equal("std.core.String", Assert.Single(call.ReturnType.Arguments).Name);
+        Assert.Equal(new[] { 0 }, call.DefaultParameters);
+    }
+
+    [Fact]
+    public void ExpectedResultConflictsWithTheTypeInferredByAnInputArgument()
+    {
+        var analysis = Analyze("func <T> inferredIdentity(value: T) = value\n"
+            + "func use(value: int): String = inferredIdentity(value)");
+
+        Assert.Contains(analysis.Diagnostics, diagnostic => diagnostic.Code == "SOL2221");
+        Assert.DoesNotContain(analysis.Calls, binding => binding.Target.Name == "inferredIdentity");
+    }
+
+    [Fact]
     public void ExpectedResultCannotChangeAConcretePartOfAnInvariantGenericResult()
     {
         var analysis = Analyze("class Pair<A, B> {}\n"

@@ -25,7 +25,11 @@ public sealed record LocalSymbol(
     AstType? WrittenType,
     bool IsMutable,
     int VisibleFrom,
-    int ScopeId);
+    int ScopeId)
+{
+    /// <summary>Preserves ref/out/vararg parameter ownership independently of mutability.</summary>
+    public AstPassingMode PassingMode { get; init; } = AstPassingMode.Value;
+}
 
 public sealed class LexicalScope
 {

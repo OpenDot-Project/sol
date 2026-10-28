@@ -436,26 +436,27 @@ func ordinaryArrayIsNotOneVarargElement(values: []int): () {
 // ---------------------------------------------------
 //
 // A trailing lambda maps to the final function parameter according to the source contract. It can
-// supply result evidence once a candidate's function shape is known. Closure conversion and lambda
-// body specialization are outside this native slice, even when the source mapping is complete.
+// supply result evidence once a candidate's function shape is known. Closed calls with exact-ABI,
+// noncapturing lambda values can produce verified FIR and native code. Capturing closure conversion
+// and ABI adapters remain outside this slice.
 
 func transformTrailingInt(): int {
-    // expect: lambda.trailing | SourceBoundNativeRejected | call=transform(4){x->x+1} map=[value<-0,action<-trailing] type-arguments=[int] result=int diagnostic=SOL2400
+    // expect: lambda.trailing | Specialized | call=transform(4){x->x+1} map=[value<-0,action<-trailing] type-arguments=[int] result=int FIR=FirFunctionReference->transform<int>
     transform(4) { x -> x + 1 }
 }
 
 func transformTrailingExplicit(): String {
-    // expect: lambda.explicit | SourceBoundNativeRejected | call=transform<String>("a"){x->x} type-arguments=[String] callback=(String)->String diagnostic=SOL2400
+    // expect: lambda.explicit | Specialized | call=transform<String>("a"){x->x} type-arguments=[String] callback=(String)->String FIR=FirFunctionReference->transform<String>
     transform<String>("a") { x: String -> x }
 }
 
 func transformNamedCallback(): int {
-    // expect: lambda.named | SourceBoundNativeRejected | call=transform(action={x->x},value=3) map=[value<-1,action<-0] type-arguments=[int] diagnostic=SOL2400
+    // expect: lambda.named | Specialized | call=transform(action={x->x},value=3) map=[value<-1,action<-0] type-arguments=[int] FIR=FirFunctionReference->transform<int>
     transform(action = { x: int -> x }, value = 3)
 }
 
 func delayedTrailing(): String {
-    // expect: lambda.zero-arg | SourceBoundNativeRejected | call=delayed("x"){"later"} map=[value<-0,action<-trailing] type-arguments=[String] diagnostic=SOL2400
+    // expect: lambda.zero-arg | Specialized | call=delayed("x"){"later"} map=[value<-0,action<-trailing] type-arguments=[String] callback=()->String FIR=FirFunctionReference->delayed<String>
     delayed("x") { "later" }
 }
 
@@ -465,7 +466,7 @@ func trailingLambdaDoesNotFillEarlierParameter(): int {
 }
 
 func parenthesizedLambdaKeepsItsPosition(): int {
-    // expect: lambda.inside-parentheses | SourceBoundNativeRejected | call=transform(3,{x->x}) map=[value<-0,action<-1] type-arguments=[int] not-trailing=true diagnostic=SOL2400
+    // expect: lambda.inside-parentheses | Specialized | call=transform(3,{x->x}) map=[value<-0,action<-1] type-arguments=[int] not-trailing=true FIR=FirFunctionReference->transform<int>
     transform(3, { x: int -> x })
 }
 
@@ -569,9 +570,10 @@ func nativeUnsupportedVararg(value: int): []int {
     collect(value)
 }
 
-func nativeUnsupportedClosure(value: int): int {
-    // expect: native.closure | SourceBoundNativeRejected | call=transform(value){x->x} type-arguments=[int] source-mapping=complete fir=absent diagnostic=SOL2400
-    transform(value) { x: int -> x }
+func nativeCapturingClosure(value: int): int {
+    val offset = 1
+    // expect: native.closure-capture | SourceBoundNativeRejected | call=transform(value){x->x+offset} type-arguments=[int] capture=offset environment=required fir=absent diagnostic=SOL2400
+    transform(value) { x: int -> x + offset }
 }
 
 func nativeUnresolvedGenericEvidence(): () {

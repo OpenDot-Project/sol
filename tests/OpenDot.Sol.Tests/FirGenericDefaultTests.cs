@@ -50,7 +50,7 @@ public sealed class FirGenericDefaultTests
 
         string json = FirJson.Serialize(verified, TestContext.Current.CancellationToken);
         using var document = JsonDocument.Parse(json);
-        Assert.Equal(6, document.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(7, document.RootElement.GetProperty("schema").GetInt32());
         Assert.Contains("\"kind\": \"FirCallValueReference\"", json);
         Assert.Contains("\"evaluationIndex\": 1", json);
         Assert.Equal(json, FirJson.Serialize(verified, TestContext.Current.CancellationToken));

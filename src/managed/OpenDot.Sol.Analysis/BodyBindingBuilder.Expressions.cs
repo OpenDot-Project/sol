@@ -32,6 +32,7 @@ internal sealed partial class BodyBindingBuilder
                 AstOperation operation => Operation(operation, state, context, expected),
                 AstSequence sequence => Sequence(sequence, state, context, expected),
                 AstLambda lambda => Lambda(lambda, state, context, expected),
+                AstAnonymousFunction anonymous => AnonymousFunction(anonymous, state, context, expected),
                 AstLabelledExpression labelled when labelled.Lambda is not null => Lambda(labelled.Lambda, state, context, expected),
                 AstTry attempt => Try(attempt, state, context, expected),
                 _ when expression.SyntaxKind == NodeKind.ThrowExpression => Throw(expression, state, context),
@@ -105,7 +106,14 @@ internal sealed partial class BodyBindingBuilder
         var lookup = Sources.Lexical.Lookup(atom, atom.Spelling);
         if (lookup.Locals is [var local])
         {
-            if (local.Kind == LocalSymbolKind.Function) { Defer(atom); return new(null, Local: local); }
+            if (local.Kind == LocalSymbolKind.Function)
+            {
+                var function = Files[atom].Nodes.OfType<AstFunction>().FirstOrDefault(candidate =>
+                    ReferenceEquals(candidate.Origin.Element, local.Origin.Element));
+                if (function is null)
+                { Defer(atom); return new(null, Local: local); }
+                return LocalFunctionValue(atom, function, local, expected);
+            }
             var type = read ? state.Narrowed.GetValueOrDefault(local) ?? LocalType(local) : LocalType(local);
             bool tracked = local.Kind is LocalSymbolKind.Parameter or LocalSymbolKind.Variable or LocalSymbolKind.AccessorValue;
             if (read && tracked && state.Reachable && !state.Assigned.Contains(local)) { Report("SOL2240", "Variable may be read before assignment: " + local.Name, atom); }
@@ -280,6 +288,10 @@ internal sealed partial class BodyBindingBuilder
         }
         if (op is "==" or "!=" && HasDeclaredOperator(op, left.Type, right.Type))
         { return OperatorCall(operation, op, [left, right], state, context, expected: Bool); }
+        if (op is "==" or "!=" && operands.Length == 2
+            && (IsNullLiteral(operands[0]) && CanBeNull(right.Type)
+                || IsNullLiteral(operands[1]) && CanBeNull(left.Type)))
+        { return new(Bool); }
         if (op is "==" or "!=" && (Converts(left.Type, right.Type) || Converts(right.Type, left.Type))) { return new(Bool); }
         if (left.Type == right.Type && IsNumeric(left.Type) && (op is "+" or "-" or "*" or "/" or "%" or "<" or ">" or "<=" or ">="
             || IsInteger(left.Type) && op is "&" or "|" or "^"))
@@ -295,6 +307,21 @@ internal sealed partial class BodyBindingBuilder
 
     private static bool IsNumeric(ResolvedType type) => type.Kind == ResolvedTypeKind.Primitive && type.Name != "bool";
     private static bool IsInteger(ResolvedType type) => IsNumeric(type) && type.Name is not ("half" or "single" or "double" or "quad");
+    private static bool IsNullLiteral(AstExpression expression)
+    {
+        while (expression is AstSequence { IsGrouping: true } grouping)
+        {
+            var elements = grouping.Elements.Take(2).ToArray();
+            if (elements.Length != 1) { return false; }
+            expression = elements[0];
+        }
+        return expression is AstAtom { SyntaxKind: NodeKind.LiteralExpression, Spelling: "null" };
+    }
+
+    private static bool CanBeNull(ResolvedType type) => type.IsNullable
+        || type.Kind is ResolvedTypeKind.Function or ResolvedTypeKind.Array
+        || type.Kind == ResolvedTypeKind.Nominal && type.Declaration?.Parts.FirstOrDefault()?.SyntaxKind
+            is NodeKind.ClassDeclaration or NodeKind.ObjectDeclaration;
 
     private void Require(Value value, ResolvedType? expected, AstNode node, State? state = null)
     {

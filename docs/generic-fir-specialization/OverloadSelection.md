@@ -230,6 +230,11 @@ and tie facts after applicability.
 
 The exact implementation is in `BodyBindingBuilder.Calls.cs` for body analysis. The separate direct
 call analysis has its own candidate model; do not assume its result is a verified FIR proof.
+Both binders consume the shared argument map: `UsesVararg` is true when a supplied source argument
+maps to the vararg parameter. An omitted empty pack is recorded separately in
+`EmptyVarargParameters` and does not count as vararg expansion for ranking. Supplying an element,
+spread, or named array to the vararg parameter does count as vararg use. This is source ranking
+metadata; it does not imply that the selected call is supported by FIR or native lowering.
 
 ## Ambiguous and deferred outcomes
 

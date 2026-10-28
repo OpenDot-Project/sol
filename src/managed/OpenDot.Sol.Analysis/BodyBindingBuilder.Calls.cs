@@ -39,6 +39,12 @@ internal sealed partial class BodyBindingBuilder
             if (ImplicitConstruction(targetExpression, call, state) is { } implicitValue) { return implicitValue; }
             var function = Expression(targetExpression, state, context);
             if (function.Type?.Kind == ResolvedTypeKind.Function) { return InvokeValue(call, function.Type, state, context); }
+            if (function.Type is { IsNullable: true } nullable
+                && nullable.Arguments[0].Kind == ResolvedTypeKind.Function)
+            {
+                Report("SOL2243", "Nullable function value must be checked before invocation.", call);
+                return new(nullable.Arguments[0].Arguments[^1]);
+            }
             if (targetExpression is AstAtom { Spelling: "unreachable" }) { return new(Types.GetBottom()); }
             foreach (var argument in call.Arguments.Where(a => a.Value is AstExpression)) { Expression((AstExpression)argument.Value, state, context); }
             Defer(call); return new(null);
@@ -62,6 +68,7 @@ internal sealed partial class BodyBindingBuilder
         var best = candidates.Where(c => !candidates.Any(other => !ReferenceEquals(c, other) && Better(other, c))).ToArray();
         if (best.Length != 1)
         {
+            if (best.Length == 0 && ReportEscapingClosureArguments(call, targets)) { return new(null); }
             bool dependsOnOpenParameter = context.Callable is { } owner && owner.TypeParameters.Any()
                 && (values.OfType<Value>().Any(value => value.Type is { } type && DependsOnCallableParameter(type, owner))
                     || !explicitTypes.IsDefault && explicitTypes.Any(type => DependsOnCallableParameter(type, owner))
@@ -146,12 +153,14 @@ internal sealed partial class BodyBindingBuilder
             }
         }
         foreach (var local in outArguments) { state.Assigned.Remove(local); }
+        foreach (var local in writableArguments) { state.Narrowed.Remove(local); }
+        // An escaping call may modify any mutable local captured by its target. Drop those
+        // refinements before recording exceptional edges as well as normal continuation.
+        foreach (var local in state.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
+        InvalidateMutableCleanupNarrowings(state);
         RecordPotentialCallEdges(state, selected.Effects);
         state.Effects.UnionWith(selected.Effects);
         state.Assigned.UnionWith(assignedAfterCall);
-        foreach (var local in writableArguments) { state.Narrowed.Remove(local); }
-        // Calls can mutate captured var cells. Narrowing of mutable locals never survives arbitrary code.
-        foreach (var local in state.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
         var result = selected.Result;
         if (targetExpression is AstMember { IsSafe: true } && result is not null) { result = Types.GetNullable(result); }
         return new(result);
@@ -280,8 +289,22 @@ internal sealed partial class BodyBindingBuilder
                         "argument " + entry.ArgumentIndex, out _)) { return null; }
             }
         }
-        if (expected is not null && callable.ReturnType is not null)
-        { inference.Add(new(Written(callable.ReturnType), expected, GenericInferenceRelation.Expected, "expected result")); }
+        if (expected is not null && !inferParameters.IsEmpty)
+        {
+            var returnTemplate = callable.ReturnType is { } declaredReturn
+                ? Written(declaredReturn)
+                : callable is AstFunction { Body.Kind: AstBodyKind.Expression } expressionFunction
+                    ? InferredFunctionReturnTemplate(expressionFunction, state)
+                    : null;
+            if (returnTemplate is not null)
+            {
+                // Non-null results widen to the payload of a nullable expected type; the final
+                // selected result is still checked against the complete nullable target.
+                var expectedTemplate = expected.IsNullable && !returnTemplate.IsNullable
+                    ? expected.Arguments[0] : expected;
+                inference.Add(new(returnTemplate, expectedTemplate, GenericInferenceRelation.Expected, "expected result"));
+            }
+        }
         if (!inferParameters.IsEmpty)
         {
             var genericInference = GenericInference.Solve(inferParameters, substitution, inference);
@@ -472,6 +495,13 @@ internal sealed partial class BodyBindingBuilder
             "argument " + argumentIndex + " lambda checked effects"));
     }
 
+    private ResolvedType? InferredFunctionReturnTemplate(AstFunction function, State state)
+    {
+        var summary = Speculate(state, () => CheckBody(function), out bool reportedDiagnostic);
+        if (reportedDiagnostic || summary.Status != BodyBindingStatus.Bound) { return null; }
+        return summary.ReturnType;
+    }
+
     private bool AddArrayLiteralEvidence(ImmutableArray<GenericInferenceConstraint>.Builder constraints,
         ImmutableArray<GenericInferenceConstraint>.Builder numericLiteralEvidence, ResolvedType template,
         AstSequence literal, bool exactArray, State state, Context context, string origin, out string? error)
@@ -615,10 +645,14 @@ internal sealed partial class BodyBindingBuilder
             }
         }
         foreach (var local in outArguments) { state.Assigned.Remove(local); }
+        foreach (var local in writableArguments) { state.Narrowed.Remove(local); }
+        // Function values may be closures even while native closure lowering is unavailable.
+        // Keep source flow conservative on both normal and exceptional call edges.
+        foreach (var local in state.Narrowed.Keys.Where(local => local.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
+        InvalidateMutableCleanupNarrowings(state);
         RecordPotentialCallEdges(state, function.Effects);
         state.Effects.UnionWith(function.Effects);
         state.Assigned.UnionWith(assignedAfterCall);
-        foreach (var local in writableArguments) { state.Narrowed.Remove(local); }
         return new(function.Arguments[^1]);
     }
 

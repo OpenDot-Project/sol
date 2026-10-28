@@ -9,6 +9,7 @@ $backend = [IO.Path]::GetFullPath((Join-Path $root $BackendDirectory))
 $facts = Get-Content (Join-Path $backend 'build-info.json') -Raw | ConvertFrom-Json -AsHashtable
 if ($facts.schema_version -ne 1 -or $facts.llvm_version -ne $pin.llvm_version) { throw 'Native package build identity mismatch.' }
 Import-Module (Join-Path $PSScriptRoot 'NativeBuildEvidence.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'NativePackageNotices.psm1') -Force
 Assert-NativeBuildBinding $facts['dependency_binding'] $backend `
     (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') `
     (Join-Path $PSScriptRoot 'native-advisories.json') $pin.files
@@ -25,7 +26,7 @@ $cache = Join-Path $root 'out/downloads/native-notices'
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 foreach ($notice in $pin.notices) {
     $file = Join-Path $cache $notice.name
-    if (-not (Test-Path -LiteralPath $file)) { Invoke-WebRequest $notice.url -OutFile $file }
+    if (-not (Test-Path -LiteralPath $file)) { Save-PinnedNativeNotice -Notice $notice -Destination $file }
     if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $notice.sha256) { throw "Native notice digest mismatch: $($notice.name)" }
     Copy-Item -LiteralPath $file -Destination $licenses
 }
