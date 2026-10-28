@@ -37,9 +37,9 @@ public sealed class LambdaEscapeAnalysisTests
     }
 
     [Fact]
-    public void PassingLambdaToAFunctionIsEscapeCapableWithoutNoEscapeContract()
+    public void PassingLambdaToAnEscapingParameterIsEscapeCapable()
     {
-        var analysis = Analyze("module app\nfunc consume(action: () -> int) {}\n"
+        var analysis = Analyze("module app\nfunc consume(@escaping action: () -> int) {}\n"
             + "func f(seed: int) { consume({ seed }) }");
         var escape = Assert.Single(analysis.LambdaEscapes);
 
@@ -70,7 +70,7 @@ public sealed class LambdaEscapeAnalysisTests
     [Fact]
     public void PassingLocalAliasToFunctionIsEscapeCapable()
     {
-        var analysis = Analyze("module app\nfunc run(callback: () -> int) {}\n"
+        var analysis = Analyze("module app\nfunc run(@escaping callback: () -> int) {}\n"
             + "func f(seed: int) { val callback = { seed }; run(callback) }");
         var escape = Assert.Single(analysis.LambdaEscapes);
 
@@ -106,7 +106,7 @@ public sealed class LambdaEscapeAnalysisTests
     [Fact]
     public void TrailingLambdaArgumentIsEscapeCapable()
     {
-        var analysis = Analyze("module app\nfunc consume(action: () -> int) {}\n"
+        var analysis = Analyze("module app\nfunc consume(@escaping action: () -> int) {}\n"
             + "func f(seed: int) { consume { seed } }");
         var escape = Assert.Single(analysis.LambdaEscapes);
 
@@ -149,13 +149,13 @@ public sealed class LambdaEscapeAnalysisTests
     }
 
     [Fact]
-    public void MutableAliasCannotProveNonEscapeEvenWhenItIsInvokedLocally()
+    public void TrackedMutableAliasCanProveNonEscapeWhenItIsInvokedLocally()
     {
         var analysis = Analyze("module app\nfunc f(seed: int) { var callback = { seed }; callback() }");
         var escape = Assert.Single(analysis.LambdaEscapes);
 
-        Assert.Equal(LambdaEscapeDisposition.Unknown, escape.Disposition);
-        Assert.Contains(escape.Uses, use => use.Kind == LambdaEscapeUseKind.AliasMutation);
+        Assert.Equal(LambdaEscapeDisposition.ProvenNonEscaping, escape.Disposition);
+        Assert.DoesNotContain(escape.Uses, use => use.Kind == LambdaEscapeUseKind.AliasMutation);
     }
 
     [Fact]

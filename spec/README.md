@@ -23,6 +23,13 @@ Do not link this entire corpus as one application: several examples intentionall
 | [Bindings.sol](Bindings.sol) | val/var/constants, assignment, initialization |
 | [Functions.sol](Functions.sol) | Grouped parameters, named/default/vararg, evaluation order |
 | [Lambdas.sol](Lambdas.sol) | Named/positional/headerless lambdas, trailing syntax, ref/out |
+| [AnonymousFunctions.sol](AnonymousFunctions.sol) | Anonymous-function grammar, typing, returns, effects and native boundary |
+| [FunctionValueInvocation.sol](FunctionValueInvocation.sol) | Function-value calls, source-order evaluation, ref/out and effects |
+| [AnonymousFunctionCaptures.sol](AnonymousFunctionCaptures.sol) | Symbol-identity captures, access modes, nesting and borrowing |
+| [LocalFunctionCaptures.sol](LocalFunctionCaptures.sol) | Local named-function capture identity, value escape, environment candidates and receiver gap |
+| [AnonymousFunctionControlFlow.sol](AnonymousFunctionControlFlow.sol) | Callable body exits, tail values, labels, branches and loop boundaries |
+| [AnonymousFunctionEnvironment.sol](AnonymousFunctionEnvironment.sol) | Environment ownership, escape classification, roots and ABI boundary |
+| [NullableFunctionValues.sol](NullableFunctionValues.sol) | Nullable exact-ABI function values, flow narrowing and pointer-array layout |
 | [NullSafety.sol](NullSafety.sol) | Nullable elements versus nullable arrays, casts and safe access |
 | [Objects.sol](Objects.sol) | Classes, objects, companions, constructors, accessors, data/sealed |
 | [Structs.sol](Structs.sol) | Value copying, defaultability, ref struct, ref/out locations |
@@ -80,7 +87,7 @@ Do not link this entire corpus as one application: several examples intentionall
 | [CleanupConstruction.sol](CleanupConstruction.sol) | Lexical defer activation/unwind and construction-time effects |
 | [Delegation.sol](Delegation.sol) | Property/interface delegation and descriptor identity |
 | [Operators.sol](Operators.sol) | Companion operators, pairing and location semantics |
-| [Annotations.sol](Annotations.sol) | Annotation schemas, constant arguments and builtin names |
+| [Annotations.sol](Annotations.sol) | Annotation schemas, constant arguments, builtin names and `@escaping` parameter contracts |
 | [NativeInterop.sol](NativeInterop.sol) | Windows C boundary, unsafe, explicit native representations |
 | [Naming.sol](Naming.sol) | Public names, constants, private backing names and intrinsic exceptions |
 | [Entry.sol](Entry.sol) | Main object, exact argument/result contract and process boundary |
@@ -102,9 +109,15 @@ do not imply that each row is already parsed, semantically checked, or executed 
 | [GenericFirInstantiationGraph.sol](GenericFirInstantiationGraph.sol) | Exact-key recursion, expanding-key cycles, worklist reachability and cache boundary |
 | [GenericFirCacheAndDeterminism.sol](GenericFirCacheAndDeterminism.sol) | Compilation-local identity, deterministic ordering and future cache invalidation |
 | [GenericFirSpecializationCases.sol](GenericFirSpecializationCases.sol) | End-to-end generic source selection and native admission matrix |
-| [GenericFirJsonContract.sol](GenericFirJsonContract.sol) | FIR inspection schema 6, workspace-local type IDs, function signatures, source origins and diagnostics |
+| [GenericFirJsonContract.sol](GenericFirJsonContract.sol) | FIR inspection schema 7, workspace-local type IDs, function signatures, source origins and diagnostics |
 | [GenericFirArtifacts.sol](GenericFirArtifacts.sol) | AOT/ORC and bin/cdylib/staticlib/solib generic instance boundaries |
 | [GenericFirFunctionValues.sol](GenericFirFunctionValues.sol) | Generic declarations, contextual lambdas, function values, captures and indirect calls |
+| [AnonymousFunctions.sol](AnonymousFunctions.sol) | Noncapturing anonymous functions, exact ABI admission and deferred captures |
+| [FunctionValueInvocation.sol](FunctionValueInvocation.sol) | Verified indirect-call argument, mode, effect and evaluation contracts |
+| [AnonymousFunctionCaptures.sol](AnonymousFunctionCaptures.sol) | Local/receiver capture inventories and capture lifetime boundaries |
+| [AnonymousFunctionControlFlow.sol](AnonymousFunctionControlFlow.sol) | Return, bottom, branch, loop and exceptional body-flow obligations |
+| [AnonymousFunctionEnvironment.sol](AnonymousFunctionEnvironment.sol) | Closure environment ownership, GC roots and rejected native transfer |
+| [NullableFunctionValues.sol](NullableFunctionValues.sol) | Nullable function-pointer source semantics, FIR rules and tested AOT/ORC subset |
 | [GenericFirOwnersAndMembers.sol](GenericFirOwnersAndMembers.sol) | Partial generic owners, constructors, methods, accessors, operators and dispatch |
 | [GenericFirStorageAndRoots.sol](GenericFirStorageAndRoots.sol) | Concrete storage, collection and span layouts, ref-like lifetime and Yellow Tea roots |
 | [GenericFirConstraints.sol](examples/semantics/GenericFirConstraints.sol) | Nominal constraints, bounds, anti-constraints, inheritance and direct cases |
@@ -122,6 +135,10 @@ do not imply that each row is already parsed, semantically checked, or executed 
 | [GenericFirJsonContract.sol](examples/semantics/GenericFirJsonContract.sol) | Schema field and source binding scenarios for generic FIR calls |
 | [GenericFirArtifacts.sol](examples/semantics/GenericFirArtifacts.sol) | Artifact/backend combinations and private closed helper scenarios |
 | [GenericFirFunctionValues.sol](examples/semantics/GenericFirFunctionValues.sol) | Direct call versus function value, lambda, capture and GC scenarios |
+| [AnonymousFunctionValues.sol](examples/semantics/AnonymousFunctionValues.sol) | Parser-valid anonymous-function values, captures, call flow and native eligibility |
+| [LocalFunctionValues.sol](examples/semantics/LocalFunctionValues.sol) | Direct invocation, local alias uncertainty, publication and source-only environment candidates |
+| [FunctionValueArrayStorage.sol](examples/semantics/FunctionValueArrayStorage.sol) | Non-null and nullable function-pointer elements, array descriptor and GC behavior |
+| [NullableFunctionFlowJoins.sol](examples/semantics/NullableFunctionFlowJoins.sol) | Nullable callback proof, zero-trip loop, catch and finally joins |
 | [GenericFirOwnersAndMembers.sol](examples/semantics/GenericFirOwnersAndMembers.sol) | Generic class/member identity and native admission cases |
 | [GenericFirStorageAndRoots.sol](examples/semantics/GenericFirStorageAndRoots.sol) | Nullable array elements, spans, descriptors, roots and process-isolation cases |
 | [GenericFirCacheAndDeterminism.sol](examples/semantics/GenericFirCacheAndDeterminism.sol) | Per-build keys, FIFO reuse, invalidation and deterministic-output cases |

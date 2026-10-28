@@ -20,6 +20,7 @@ internal sealed partial class FirBuilder
     private readonly CancellationToken _cancellation;
     private readonly Dictionary<AstCallable, int> _functions = [];
     private readonly Dictionary<AstLambda, int> _lambdaFunctions = [];
+    private readonly Dictionary<AstAnonymousFunction, int> _anonymousFunctionIds = [];
     private readonly Dictionary<SpecializationKey, int> _specializedFunctions = [];
     private readonly Queue<PendingSpecialization> _pendingSpecializations = [];
     private readonly Dictionary<int, FirFunction> _builtFunctions = [];
@@ -30,6 +31,7 @@ internal sealed partial class FirBuilder
     private readonly Dictionary<AstNode, AstSnapshot> _files = [];
     private readonly Dictionary<LocalSymbol, FirSlot> _slots = [];
     private AstLambda? _activeLambda;
+    private AstAnonymousFunction? _activeAnonymousFunction;
     private ImmutableArray<FirSlot> _activeLambdaParameters = [];
     private readonly Dictionary<AstCall, BodyCallBinding> _calls;
     private readonly Dictionary<AstNode, BodyOperatorBinding> _operators;
@@ -149,7 +151,8 @@ internal sealed partial class FirBuilder
             if (parameter.PassingMode == AstPassingMode.Vararg && !FirVerifier.Supported(type))
             { Unsupported(function, "Vararg array element layout"); }
             var passingMode = parameter.PassingMode == AstPassingMode.Vararg ? AstPassingMode.Value : parameter.PassingMode;
-            var slot = new FirSlot(_slots.Count, parameter.Name, type, local.IsMutable, passingMode, true, parameter.NameOrigin);
+            var slot = new FirSlot(_slots.Count, parameter.Name, type, local.IsMutable, passingMode, true,
+                parameter.NameOrigin) { IsEscaping = parameter.IsEscaping };
             _slots.Add(local, slot); parameters.Add(slot);
         }
         FirBlock body;
@@ -174,6 +177,8 @@ internal sealed partial class FirBuilder
     {
         for (var parent = _files[node].GetParent(node); parent is not null; parent = _files[node].GetParent(parent)) { yield return parent; }
     }
+    private int FunctionValueNestingDepth(AstNode node) => Ancestors(node)
+        .Count(parent => parent is AstAnonymousFunction or AstLambda);
     private void Error(string code, string message, AstNode node) => Diagnostics.Add(new(code, message, node.Origin.Source, node.Origin.Span));
     private void Unsupported(AstNode node, string subject) => Error("SOL2400", subject + " is not supported by the verified native subset.", node);
     private FirExpression Invalid(AstNode node)

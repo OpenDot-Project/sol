@@ -27,6 +27,36 @@ public sealed record ExpressionBinding(AstExpression Expression, ResolvedType? T
 public sealed record BodySummary(AstCallable Declaration, ResolvedType? ReturnType,
     bool CanCompleteNormally, BodyBindingStatus Status, ImmutableArray<ResolvedType> EscapingEffects);
 
+/// <summary>Definite-assignment result for one anonymous-function out parameter.</summary>
+public sealed record AnonymousFunctionOutParameterSummary(AstParameter Parameter,
+    bool AssignedOnEveryNormalExit);
+
+/// <summary>
+/// Source-flow facts for an anonymous function body. These facts do not define a closure layout or
+/// guarantee that FIR can emit the function.
+/// </summary>
+/// <param name="NormalExitCount">Number of abstract reachable normal exit states, not runtime executions.</param>
+/// <param name="HasReachableFallthrough">Whether the body retains a reachable fallthrough state.</param>
+/// <param name="IsComplete">Whether this function's analyzed subtree has no known errors or deferred proof gaps.</param>
+public sealed record AnonymousFunctionBodySummary(AstAnonymousFunction Function, ResolvedType FunctionType,
+    int NormalExitCount, bool HasReachableFallthrough,
+    ImmutableArray<AnonymousFunctionOutParameterSummary> OutParameters, bool IsComplete);
+
+/// <summary>Definite-assignment result for one lambda out parameter.</summary>
+public sealed record LambdaOutParameterSummary(AstNode Parameter,
+    bool AssignedOnEveryNormalExit);
+
+/// <summary>
+/// Source-flow facts for one lambda body. These facts do not define a closure layout or guarantee
+/// that FIR can emit the lambda.
+/// </summary>
+/// <param name="NormalExitCount">Number of abstract reachable normal exit states, not runtime executions.</param>
+/// <param name="HasReachableFallthrough">Whether the body retains a reachable fallthrough state.</param>
+/// <param name="IsComplete">Whether this lambda's analyzed subtree has no known errors or deferred proof gaps.</param>
+public sealed record LambdaBodySummary(AstLambda Lambda, ResolvedType FunctionType,
+    int NormalExitCount, bool HasReachableFallthrough,
+    ImmutableArray<LambdaOutParameterSummary> OutParameters, bool IsComplete);
+
 /// <summary>Receiver lookup retains the substituted declaring type for generic base members.</summary>
 public sealed record MemberBinding(DeclarationSymbol Symbol, ResolvedType DeclaringType);
 
@@ -127,8 +157,12 @@ public sealed class BodyAnalysis
     private readonly record struct GenericBodyKey(AstFunction Function, string TypeIds);
     private readonly ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
     private readonly ImmutableDictionary<AstCallable, BodySummary> _bodies;
+    private readonly ImmutableDictionary<AstAnonymousFunction, AnonymousFunctionBodySummary> _anonymousFunctionBodies;
+    private readonly ImmutableDictionary<AstLambda, LambdaBodySummary> _lambdaBodies;
     private readonly ImmutableDictionary<AstNode, BodyOperatorBinding> _operators;
     private readonly ImmutableHashSet<AstNode> _nodes;
+    private readonly ImmutableHashSet<LocalSymbol> _localSymbols;
+    private readonly ImmutableDictionary<LocalSymbol, ResolvedType> _localTypes;
     private readonly object _genericBodyGate = new();
     private readonly Dictionary<GenericBodyKey, SpecializedBodyAnalysis> _genericBodies = [];
 
@@ -140,14 +174,52 @@ public sealed class BodyAnalysis
         OperatorBindings = builder.OperatorBindings.Values.ToImmutableArray();
         _expressions = builder.Expressions.ToImmutableDictionary();
         _bodies = builder.Bodies.ToImmutableDictionary();
+        _anonymousFunctionBodies = builder.AnonymousFunctionBodies.ToImmutableDictionary();
+        _lambdaBodies = builder.LambdaBodies.ToImmutableDictionary();
         _operators = builder.OperatorBindings.ToImmutableDictionary();
         _nodes = builder.Files.Keys.ToImmutableHashSet();
+        foreach (var (function, summary) in _anonymousFunctionBodies)
+        {
+            if (!_nodes.Contains(function) || !ReferenceEquals(function, summary.Function)
+                || summary.NormalExitCount < 0
+                || summary.OutParameters.Any(outParameter => !function.Parameters.Contains(outParameter.Parameter)))
+            { throw new InvalidOperationException("Anonymous-function summary is not owned by its source analysis."); }
+            Types.ValidateOwnership(summary.FunctionType);
+        }
+        foreach (var (lambda, summary) in _lambdaBodies)
+        {
+            if (!_nodes.Contains(lambda) || !ReferenceEquals(lambda, summary.Lambda)
+                || summary.FunctionType.Kind != ResolvedTypeKind.Function
+                || summary.NormalExitCount < 0
+                || summary.HasReachableFallthrough && summary.NormalExitCount == 0
+                || summary.OutParameters.Any(outParameter => !_nodes.Contains(outParameter.Parameter)
+                    || !lambda.Parameters.Contains(outParameter.Parameter)))
+            { throw new InvalidOperationException("Lambda summary is not owned by its source analysis."); }
+            Types.ValidateOwnership(summary.FunctionType);
+        }
+        _localSymbols = ImmutableHashSet.CreateRange<LocalSymbol>(ReferenceEqualityComparer.Instance,
+            Sources.Lexical.Scopes.SelectMany(scope => scope.Symbols));
+        var localTypes = ImmutableDictionary.CreateBuilder<LocalSymbol, ResolvedType>(ReferenceEqualityComparer.Instance);
+        foreach (var pair in builder.LocalTypes)
+        {
+            if (!_localSymbols.Contains(pair.Key))
+            { throw new InvalidOperationException("Body analysis produced a type for a foreign local symbol."); }
+            Types.ValidateOwnership(pair.Value);
+            localTypes.Add(pair.Key, pair.Value);
+        }
+        _localTypes = localTypes.ToImmutable();
         UnverifiedNodes = builder.Unverified.OrderBy(n => n.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(n => n.Origin.Span.Start).ToImmutableArray();
         Expressions = _expressions.Values.OrderBy(e => e.Expression.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(e => e.Expression.Origin.Span.Start).ToImmutableArray();
         Bodies = _bodies.Values.OrderBy(b => b.Declaration.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(b => b.Declaration.Origin.Span.Start).ToImmutableArray();
+        AnonymousFunctionBodies = _anonymousFunctionBodies.Values
+            .OrderBy(summary => summary.Function.Origin.Source.Path, StringComparer.Ordinal)
+            .ThenBy(summary => summary.Function.Origin.Span.Start).ToImmutableArray();
+        LambdaBodies = _lambdaBodies.Values
+            .OrderBy(summary => summary.Lambda.Origin.Source.Path, StringComparer.Ordinal)
+            .ThenBy(summary => summary.Lambda.Origin.Span.Start).ToImmutableArray();
         Diagnostics = Sources.Diagnostics.Concat(builder.Diagnostics).Distinct()
             .OrderBy(d => d.Source.Path, StringComparer.Ordinal).ThenBy(d => d.Span.Start)
             .ThenBy(d => d.Code, StringComparer.Ordinal).Take(Sources.Declarations.Options.DiagnosticLimit).ToImmutableArray();
@@ -160,6 +232,10 @@ public sealed class BodyAnalysis
     internal ImmutableArray<BodyOperatorBinding> OperatorBindings { get; }
     public ImmutableArray<ExpressionBinding> Expressions { get; }
     public ImmutableArray<BodySummary> Bodies { get; }
+    /// <summary>Per-function body flow facts for anonymous functions with a resolved signature and analyzed body.</summary>
+    public ImmutableArray<AnonymousFunctionBodySummary> AnonymousFunctionBodies { get; }
+    /// <summary>Per-lambda body-flow facts for lambdas with a resolved signature and analyzed body.</summary>
+    public ImmutableArray<LambdaBodySummary> LambdaBodies { get; }
     public ImmutableArray<Diagnostic> Diagnostics { get; }
     public bool HasErrors => Sources.HasErrors || Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
     public bool IsComplete { get; }
@@ -187,6 +263,64 @@ public sealed class BodyAnalysis
         ArgumentNullException.ThrowIfNull(declaration);
         if (!_nodes.Contains(declaration)) { throw new ArgumentException("The declaration belongs to another source analysis.", nameof(declaration)); }
         return _bodies.GetValueOrDefault(declaration);
+    }
+
+    /// <summary>
+    /// Returns body-flow facts for an owned anonymous function, or null when its signature did not resolve
+    /// or the source body is missing.
+    /// </summary>
+    public AnonymousFunctionBodySummary? GetAnonymousFunctionBody(AstAnonymousFunction function)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        if (!_nodes.Contains(function))
+        { throw new ArgumentException("The anonymous function belongs to another source analysis.", nameof(function)); }
+        return _anonymousFunctionBodies.GetValueOrDefault(function);
+    }
+
+    /// <summary>
+    /// Returns body-flow facts for an owned lambda, or null when its signature could not be
+    /// resolved or its body analysis did not reach a summary.
+    /// </summary>
+    public LambdaBodySummary? GetLambdaBody(AstLambda lambda)
+    {
+        ArgumentNullException.ThrowIfNull(lambda);
+        if (!_nodes.Contains(lambda))
+        { throw new ArgumentException("The lambda belongs to another source analysis.", nameof(lambda)); }
+        return _lambdaBodies.GetValueOrDefault(lambda);
+    }
+
+    /// <summary>
+    /// Returns a local's resolved semantic type, or null when this analysis has no non-error type
+    /// proof for it. The result is analysis-owned and is not a runtime layout or storage guarantee.
+    /// </summary>
+    public ResolvedType? GetLocalType(LocalSymbol local)
+    {
+        ArgumentNullException.ThrowIfNull(local);
+        if (!_localSymbols.Contains(local))
+        { throw new ArgumentException("The local symbol is not owned by this source analysis.", nameof(local)); }
+        if (_localTypes.TryGetValue(local, out var type))
+        {
+            return ContainsError(type) ? null : type;
+        }
+        if (local.WrittenType is null) { return null; }
+        var written = Sources.Types.GetType(local.WrittenType);
+        Types.ValidateOwnership(written);
+        return ContainsError(written) ? null : written;
+    }
+
+    private static bool ContainsError(ResolvedType root)
+    {
+        var pending = new Stack<ResolvedType>();
+        var seen = new HashSet<ResolvedType>(ReferenceEqualityComparer.Instance);
+        pending.Push(root);
+        while (pending.TryPop(out var current))
+        {
+            if (!seen.Add(current)) { continue; }
+            if (current.IsError) { return true; }
+            foreach (var argument in current.Arguments) { pending.Push(argument); }
+            foreach (var effect in current.Effects) { pending.Push(effect); }
+        }
+        return false;
     }
 
     internal BodyOperatorBinding? GetOperator(AstNode site)

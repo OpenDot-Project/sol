@@ -59,6 +59,24 @@ internal sealed partial class CallBindingBuilder
         {
             var local = lookup.Locals[0];
             if (local.Kind == LocalSymbolKind.ConstructorProperty) { return new(null, false, null); }
+            if (local.Kind == LocalSymbolKind.Function)
+            {
+                var function = _files[atom].Nodes.OfType<AstFunction>().FirstOrDefault(candidate =>
+                    ReferenceEquals(candidate.Origin.Element, local.Origin.Element));
+                if (function is null || function.TypeParameters.Any() || function.ReturnType is not { } returnType
+                    || function.Parameters.Any(parameter => parameter.Type is null))
+                { return new(null, false, null); }
+                var result = Sources.Types.GetType(returnType);
+                var parameters = function.Parameters.Select(parameter =>
+                {
+                    var type = Sources.Types.GetType(parameter.Type!);
+                    return parameter.PassingMode == AstPassingMode.Vararg ? Types.GetArray(type) : type;
+                }).ToArray();
+                var modes = function.Parameters.Select(parameter => parameter.PassingMode == AstPassingMode.Vararg
+                    ? AstPassingMode.Value : parameter.PassingMode);
+                return new(Types.GetFunction(parameters, result, modes,
+                    function.ThrownTypes.Select(Sources.Types.GetType)), false, null);
+            }
             if (local.WrittenType is { } written)
             {
                 var type = Sources.Types.GetType(written);

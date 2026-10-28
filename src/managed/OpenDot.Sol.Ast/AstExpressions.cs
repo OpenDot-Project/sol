@@ -118,6 +118,30 @@ public sealed class AstLambda : AstExpression
     public AstExpression? TailExpression => (Statements.LastOrDefault() as AstExpressionStatement)?.Expression;
 }
 
+/// <summary>A source-level anonymous function expression with its own explicit callable signature.</summary>
+public sealed class AstAnonymousFunction : AstExpression
+{
+    /// <param name="Parameters">Flattened parameters while retaining their original group origins.</param>
+    /// <param name="ReturnType">The explicit result type, or null when inferred by later analysis.</param>
+    /// <param name="ThrownTypes">The ordered checked-effect types declared by the expression.</param>
+    /// <param name="Body">The expression body node and kind; it is missing when syntax recovery found no body.</param>
+    internal AstAnonymousFunction(int id, AstOrigin origin, ImmutableArray<AstNode> children,
+        ImmutableArray<AstParameter> parameters, AstType? returnType,
+        ImmutableArray<AstType> thrownTypes, AstBody body)
+        : base(id, origin, children)
+    {
+        Parameters = parameters;
+        ReturnType = returnType;
+        ThrownTypes = thrownTypes;
+        Body = body;
+    }
+
+    public ImmutableArray<AstParameter> Parameters { get; }
+    public AstType? ReturnType { get; }
+    public ImmutableArray<AstType> ThrownTypes { get; }
+    public AstBody Body { get; }
+}
+
 public sealed class AstGenericApplication : AstExpression
 {
     internal AstGenericApplication(int id, AstOrigin origin, ImmutableArray<AstNode> children)

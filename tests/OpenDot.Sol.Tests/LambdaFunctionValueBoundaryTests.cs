@@ -104,15 +104,20 @@ public sealed class LambdaFunctionValueBoundaryTests
     }
 
     [Fact]
-    public void NullableFunctionValueDoesNotCrossTheCurrentNativePointerBoundary()
+    public void NullableFunctionValueIsAcceptedAsANullableCodePointer()
     {
         var source = AstTestSources.Parse("object Main { func main(args: []String) {\n"
-            + "val callback: (() -> int)? = { -> 1 }\n} }");
+            + "val callback: (() -> int)? = func() { 1 }\n} }");
 
         var compilation = FirCompilation.Create([source], TestContext.Current.CancellationToken);
 
-        Assert.Null(compilation.Program);
-        Assert.Contains(compilation.Diagnostics, diagnostic => diagnostic.Code is "SOL2220" or "SOL2400");
+        Assert.True(compilation.Program is not null, string.Join("\n", compilation.Diagnostics
+            .Select(diagnostic => diagnostic.Code + ": " + diagnostic.Message)));
+        var program = Assert.IsType<VerifiedFirProgram>(compilation.Program).Program;
+        var function = Assert.Single(program.Functions, item => item.Name == "main");
+        var slot = Assert.Single(function.Slots, item => item.Name == "callback");
+        Assert.True(FirVerifier.IsNullableFunction(slot.Type));
+        Assert.IsType<FirFunctionReference>(Assert.IsType<FirDeclare>(function.Body!.Statements[0]).Initializer);
     }
 
     [Fact]

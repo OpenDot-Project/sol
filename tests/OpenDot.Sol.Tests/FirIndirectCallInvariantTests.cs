@@ -40,7 +40,7 @@ public sealed class FirIndirectCallInvariantTests
         using var json = JsonDocument.Parse(FirJson.Serialize(
             FirVerifier.Verify(program, TestContext.Current.CancellationToken).Program!,
             TestContext.Current.CancellationToken));
-        Assert.Equal(6, json.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(7, json.RootElement.GetProperty("schema").GetInt32());
         var serializedInstance = Assert.Single(json.RootElement.GetProperty("functions").EnumerateArray(),
             function => function.GetProperty("id").GetInt32() == instance.Id);
         Assert.Equal([Assert.Single(instance.SpecializationArguments).Id], serializedInstance

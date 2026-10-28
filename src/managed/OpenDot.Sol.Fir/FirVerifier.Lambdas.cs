@@ -46,6 +46,8 @@ public static partial class FirVerifier
                 ReferenceEquals(candidate.Psi, lambda.Origin.Element.Snapshot));
             if (file is null)
             { Fail("Synthetic lambda has no source file in this program.", _function.Origin); return; }
+            if (FunctionValueNestingDepth(lambda, file) >= MaximumNativeFunctionValueNesting)
+            { Fail("Synthetic lambda exceeds the 128-level source nesting budget.", lambda.Origin); }
 
             AstFunction? parentFunction = null;
             AstTypeDeclaration? parentType = null;
@@ -113,7 +115,7 @@ public static partial class FirVerifier
                     if (_function.Parameters[index].Id != index
                         || _function.Parameters[index].Type != signature.Arguments[index]
                         || _function.Parameters[index].Mode != signature.ParameterModes[index]
-                        || !_function.Parameters[index].IsParameter)
+                        || !_function.Parameters[index].IsParameter || _function.Parameters[index].IsEscaping)
                     { Fail("Synthetic lambda parameter slot differs from its contextual signature.", _function.Origin); }
                 }
             }
@@ -129,11 +131,13 @@ public static partial class FirVerifier
             var scopes = program.Analysis.Sources.Lexical.Scopes;
             var scope = scopes.SingleOrDefault(candidate => ReferenceEquals(candidate.Owner, lambda));
             if (scope is null) { return false; }
+            if (!program.Analysis.Sources.Lexical.GetLambdaReceiverCaptures(lambda).IsEmpty) { return false; }
 
             foreach (var node in lambda.Descendants())
             {
-                if (node.SyntaxKind == NodeKind.AnonymousFunctionExpression || node is AstFunction)
+                if (node is AstFunction)
                 { return false; }
+                if (IsInsideNestedAnonymousFunction(lambda, node, file)) { continue; }
                 if (node is not AstAtom atom) { continue; }
                 AstLambda? nearest = null;
                 for (var parent = file.GetParent(atom); parent is not null; parent = file.GetParent(parent))
@@ -161,6 +165,16 @@ public static partial class FirVerifier
             }
 
             return true;
+        }
+
+        private static bool IsInsideNestedAnonymousFunction(AstLambda lambda, AstNode node, AstSnapshot file)
+        {
+            for (AstNode? parent = file.GetParent(node); parent is not null; parent = file.GetParent(parent))
+            {
+                if (ReferenceEquals(parent, lambda)) { return false; }
+                if (parent is AstAnonymousFunction or AstFunction) { return true; }
+            }
+            return false;
         }
 
         private ResolvedType? ContextualLambdaType(AstLambda lambda)

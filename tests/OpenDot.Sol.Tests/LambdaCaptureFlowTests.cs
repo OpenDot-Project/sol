@@ -80,12 +80,12 @@ public sealed class LambdaCaptureFlowTests
     }
 
     [Fact]
-    public void NestedClosureCannotCaptureARefLambdaParameter()
+    public void NestedNonescapingClosureCanCaptureARefLambdaParameter()
     {
         var analysis = Analyze("func create(): () { val callback: (ref int) -> () = "
             + "{ ref value -> val nested = { value }; () } }");
 
-        Error(analysis, "SOL2262");
+        Assert.DoesNotContain(analysis.Diagnostics, diagnostic => diagnostic.Code == "SOL2262");
         var captures = analysis.Sources.Lexical.LambdaCaptures;
         var capture = Assert.Single(captures, candidate => candidate.Local.Name == "value");
         Assert.Equal(AstPassingMode.Ref, capture.Local.PassingMode);
@@ -98,8 +98,8 @@ public sealed class LambdaCaptureFlowTests
         var analysis = Analyze("func create(): () { val callback: (out int) -> () = "
             + "{ out value -> val nested = { value = 1 }; () } }");
 
-        Error(analysis, "SOL2262");
         Error(analysis, "SOL2242");
+        Assert.DoesNotContain(analysis.Diagnostics, diagnostic => diagnostic.Code == "SOL2262");
         var capture = Assert.Single(analysis.Sources.Lexical.LambdaCaptures,
             candidate => candidate.Local.Name == "value");
         Assert.Equal(AstPassingMode.Out, capture.Local.PassingMode);

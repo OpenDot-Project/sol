@@ -375,7 +375,7 @@ ordered type vector for verification and JSON inspection. The target `FirFunctio
 must carry the same vector. A nongeneric target has an initialized empty vector. A default immutable
 array is not interchangeable with an explicitly initialized empty array where metadata is serialized.
 
-`FirJson` schema 6 records ordered function specialization arguments, call type arguments, and
+`FirJson` schema 7 records ordered function specialization arguments, call type arguments, and
 call-value references as compilation-local data. A default expression that reads an earlier formal
 uses a `FirCallValueReference` to an earlier position in the call evaluation plan. Type IDs are not
 persistent ABI identities or cross-build cache keys. Source byte spans remain available, while

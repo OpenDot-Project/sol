@@ -14,6 +14,78 @@ internal sealed partial class BodyBindingBuilder
         ResolvedType Type, ImmutableArray<ResolvedType> TypeArguments,
         IntrinsicConversion Conversion, int Rank);
 
+    private Value LocalFunctionValue(AstAtom location, AstFunction function, LocalSymbol local,
+        ResolvedType? expected)
+    {
+        var signature = FunctionValueSignature(function);
+        if (signature is null)
+        {
+            Defer(location);
+            return new(null, Local: local);
+        }
+
+        var typeParameters = Sources.Types.GetTypeParameters(function);
+        if (typeParameters.IsEmpty)
+        {
+            ValidateFunctionEffects(signature, location);
+            return new(signature, Local: local);
+        }
+
+        var expectedFunction = expected is { Kind: ResolvedTypeKind.Function } direct ? direct
+            : expected is { IsNullable: true, Arguments.Length: 1 } nullable
+                && nullable.Arguments[0].Kind == ResolvedTypeKind.Function ? nullable.Arguments[0] : null;
+        if (expectedFunction is null)
+        {
+            Defer(location);
+            return new(null, Local: local);
+        }
+
+        var inference = _genericInference.Solve(typeParameters,
+            ImmutableDictionary<ResolvedType, ResolvedType>.Empty,
+            [new(signature, expectedFunction, GenericInferenceRelation.Expected, "local function value")]);
+        if (inference.Status is GenericInferenceStatus.MissingEvidence or GenericInferenceStatus.ResourceLimit)
+        {
+            Defer(location);
+            return new(null, Local: local);
+        }
+        if (inference.Status is GenericInferenceStatus.ConflictingEvidence
+            or GenericInferenceStatus.IncompatibleShape)
+        {
+            Report("SOL2206", "Local generic function does not match the expected function type.", location);
+            return new(null, Local: local);
+        }
+        if (inference.Status != GenericInferenceStatus.Solved
+            || typeParameters.Any(parameter => !inference.Substitution.ContainsKey(parameter)))
+        {
+            Defer(location);
+            return new(null, Local: local);
+        }
+
+        var typeArguments = typeParameters.Select(parameter => inference.Substitution[parameter]).ToImmutableArray();
+        var constraints = Types.CheckConstraints(function, typeArguments, _cancellation);
+        if (constraints.Status == ConstraintStatus.Indeterminate)
+        {
+            Defer(location);
+            return new(null, Local: local);
+        }
+        if (constraints.Status == ConstraintStatus.Unsatisfied)
+        {
+            Report("SOL2206", "Local generic function value does not satisfy its type-parameter constraints.", location);
+            return new(null, Local: local);
+        }
+
+        var substitution = typeParameters.Zip(typeArguments)
+            .ToDictionary(pair => pair.First, pair => pair.Second);
+        var closedSignature = Types.Substitute(signature, substitution, _cancellation);
+        if (Types.ClassifyConversion(closedSignature, expectedFunction, _cancellation) == IntrinsicConversion.None)
+        {
+            Report("SOL2206", "Local generic function does not convert to the expected function type.", location);
+            return new(null, Local: local);
+        }
+        ValidateFunctionEffects(closedSignature, location);
+        return new(closedSignature, Local: local);
+    }
+
     private Value OverloadedFunctionValue(AstNode location,
         System.Collections.Immutable.ImmutableArray<DeclarationSymbol> symbols, ResolvedType? expected)
     {

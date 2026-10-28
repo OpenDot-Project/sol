@@ -26,6 +26,7 @@ public enum LambdaEscapeUseKind
     ImmediateInvocation,
     ReturnValue,
     CallArgument,
+    NonescapingCallArgument,
     LocalStorage,
     LocalAlias,
     LocalInvocation,
@@ -63,13 +64,18 @@ internal static class LambdaEscapeAnalysis
         Dictionary<AstNode, AstSnapshot> files,
         IEnumerable<NameBinding> bindings,
         ImmutableArray<LambdaCapture> captures,
+        AnalysisSession declarations,
+        TypeAnalysis types,
         CancellationToken cancellationToken)
     {
         IEqualityComparer<AstLambda> comparer = ReferenceEqualityComparer.Instance;
         var capturesByLambda = captures.GroupBy(capture => capture.Lambda, comparer)
             .ToDictionary(group => group.Key, group => group.ToImmutableArray(), comparer);
-        var aliases = LambdaEscapeAliasAnalysis.Create(scopes, scopeOf, files, bindings,
-            capturesByLambda, cancellationToken);
+        var bindingArray = bindings.ToArray();
+        IEqualityComparer<AstAtom> atomComparer = ReferenceEqualityComparer.Instance;
+        var bindingByReference = bindingArray.ToDictionary(binding => binding.Reference, atomComparer);
+        var aliases = LambdaEscapeAliasAnalysis.Create(scopes, scopeOf, files, bindingByReference.Values,
+            capturesByLambda, declarations, types, cancellationToken);
         var escapes = ImmutableArray.CreateBuilder<LambdaEscape>();
 
         foreach (var lambda in files.Keys.OfType<AstLambda>()
@@ -91,7 +97,7 @@ internal static class LambdaEscapeAnalysis
                 parent = file.GetParent(parent);
             }
 
-            var (disposition, use) = Classify(lambda, value, parent, file);
+            var (disposition, use) = Classify(lambda, value, parent, file, bindingByReference, declarations, types);
             escapes.Add(new(lambda, disposition, [use], capturesByLambda.GetValueOrDefault(lambda, [])));
         }
 
@@ -109,14 +115,22 @@ internal static class LambdaEscapeAnalysis
     }
 
     private static (LambdaEscapeDisposition Disposition, LambdaEscapeUse Use) Classify(
-        AstLambda lambda, AstNode value, AstNode? parent, AstSnapshot file)
+        AstLambda lambda, AstNode value, AstNode? parent, AstSnapshot file,
+        Dictionary<AstAtom, NameBinding> bindings, AnalysisSession declarations, TypeAnalysis types)
     {
         if (parent is AstCall call)
         {
             if (ReferenceEquals(call.Target, value))
             { return (LambdaEscapeDisposition.ProvenNonEscaping, new(call, LambdaEscapeUseKind.ImmediateInvocation)); }
-            if (call.Arguments.Any(argument => IsTransparentValue(argument.Value, lambda, file)))
-            { return (LambdaEscapeDisposition.MayEscape, new(call, LambdaEscapeUseKind.CallArgument)); }
+            for (int index = 0; index < call.Arguments.Length; index++)
+            {
+                if (!IsTransparentValue(call.Arguments[index].Value, lambda, file)) { continue; }
+                var contract = EscapeParameterContracts.Resolve(call, index, bindings,
+                    declarations, types);
+                return contract == CallArgumentEscapeContract.NonEscaping
+                    ? (LambdaEscapeDisposition.ProvenNonEscaping, new(call, LambdaEscapeUseKind.NonescapingCallArgument))
+                    : (LambdaEscapeDisposition.MayEscape, new(call, LambdaEscapeUseKind.CallArgument));
+            }
         }
 
         if (parent is AstReturn { Value: { } returned } statement && ReferenceEquals(returned, value))

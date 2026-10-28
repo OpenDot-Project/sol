@@ -29,6 +29,8 @@ public sealed class BodyFlowTests
     [InlineData("func f(): long = -9223372036854775808")]
     [InlineData("func f(): int { var items: []int = []; items.length }")]
     [InlineData("func f(): int { var items: []int = [1, 2]; items[0] = 3; items[0] }")]
+    [InlineData("func f(callback: () -> int): bool = callback != null")]
+    [InlineData("func f(callback: String): bool = (callback) == null")]
     [InlineData("func f(flag: bool): int { var x: int; if flag { return 1 } else { x = 2 }; x }")]
     [InlineData("func f(out x: int) { try { return } finally { x = 1 } }")]
     public void ValidFlowEdges(string source) => Valid(Analyze(source));
@@ -39,6 +41,7 @@ public sealed class BodyFlowTests
     [InlineData("func f(a, b: double): double = a & b", "SOL2207")]
     [InlineData("func f(a: double): double = ~a", "SOL2207")]
     [InlineData("func f(a, b: long): long = a << b", "SOL2207")]
+    [InlineData("func f(value: int): bool = value != null", "SOL2207")]
     [InlineData("func f(): int { var x: int; for false { x = 1 }; x }", "SOL2240")]
     [InlineData("func f(): int { for { break } }", "SOL2247")]
     [InlineData("func f(): int { return 1; 2 }", "SOL2245")]
@@ -136,4 +139,17 @@ public sealed class BodyFlowTests
         Assert.True(result.IsComplete);
         Assert.Empty(result.UnverifiedNodes);
     }
+
+    [Theory]
+    [InlineData("func nested() { observe(Item()) }")]
+    [InlineData("val nested: () -> () = func() { observe(Item()) }")]
+    [InlineData("val nested: () -> () = { observe(Item()) }")]
+    public void DeclaringLocalCallableDoesNotInvalidateDeferredSmartCast(string declaration)
+    {
+        Valid(Analyze("class Item { val value: int = 1 }\n"
+            + "func observe(item: Item) {}\n"
+            + "func f() { var item: Item? = Item(); if item == null { return }; "
+            + "defer { item.value }; " + declaration + " }"));
+    }
+
 }

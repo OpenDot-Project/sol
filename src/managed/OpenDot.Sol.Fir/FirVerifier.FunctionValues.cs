@@ -91,7 +91,7 @@ public static partial class FirVerifier
                 if (argument.Parameter != index || argument.Mode != mode)
                 { Fail("Indirect argument position or passing mode differs from its function signature.", call.Origin); }
                 Expression(argument.Value);
-                Exact(argument.Value.Type, signature.Arguments[index], argument.Value.Origin);
+                Assignable(argument.Value.Type, signature.Arguments[index], argument.Value.Origin);
                 if (mode is AstPassingMode.Ref or AstPassingMode.Out)
                 {
                     if (argument.Value is not FirRead read)
@@ -113,6 +113,16 @@ public static partial class FirVerifier
                 if (GetSourceExpression(lambda)?.Type is not { Kind: ResolvedTypeKind.Function } type
                     || Substitute(type) != actual.Type)
                 { Fail("FIR lambda reference signature differs from source analysis.", actual.Origin); }
+                return;
+            }
+            if (source is AstAnonymousFunction anonymousFunction)
+            {
+                if (actual.Target < 0 || actual.Target >= program.Functions.Length
+                    || !ReferenceEquals(program.Functions[actual.Target].AnonymousFunctionSource, anonymousFunction))
+                { Fail("FIR anonymous-function reference differs from its source identity.", actual.Origin); }
+                if (GetSourceExpression(anonymousFunction)?.Type is not { Kind: ResolvedTypeKind.Function } type
+                    || Substitute(type) != actual.Type)
+                { Fail("FIR anonymous-function signature differs from source analysis.", actual.Origin); }
                 return;
             }
 

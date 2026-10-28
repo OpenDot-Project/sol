@@ -290,7 +290,7 @@ call. A failed instance prevents the dependent `FirCompilation` from returning a
 
 ## Inspection format
 
-FIR JSON schema 6 carries ordered `specializationArguments` on function records and ordered
+FIR JSON schema 7 carries ordered `specializationArguments` on function records and ordered
 `typeArguments` on direct call nodes. Values refer to the same compilation-local resolved type table
 as function signatures and expression nodes.
 
@@ -338,7 +338,7 @@ When changing nested specialization, inspect all layers together:
 9. Does the independent verifier compare source binding, call metadata and target instance metadata?
 10. Are constraints checked for every concrete instance rather than inherited by name?
 11. Does unsupported ABI shape fail before the LLVM module is emitted?
-12. Is schema 6 updated when a serialized field or semantic invariant changes?
+12. Is schema 7 updated when a serialized field or semantic invariant changes?
 13. Are generic functions kept out of unmanaged exports unless a separate ABI contract authorizes them?
 14. Do documentation and status notes say exactly which generic body semantics are still unimplemented?
 15. Is every new source and documentation file below the repository's 750-line preferred limit?

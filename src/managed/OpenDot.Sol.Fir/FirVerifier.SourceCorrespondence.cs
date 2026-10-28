@@ -22,12 +22,13 @@ public static partial class FirVerifier
             _sourceCallMatches.Clear();
             _sourceOperatorMatches.Clear();
             var lambda = _function.LambdaSource;
-            var sourceFunction = lambda is null
+            var anonymousFunction = _function.AnonymousFunctionSource;
+            var sourceFunction = lambda is null && anonymousFunction is null
                 ? program.Analysis.Sources.Declarations.Files.SelectMany(file => file.Nodes)
                     .OfType<AstFunction>().SingleOrDefault(function => ReferenceEquals(function.Origin.Element, _function.Origin.Element))
                 : null;
-            AstNode? sourceRoot = lambda is not null ? lambda : sourceFunction;
-            AstNode? sourceBody = lambda is not null ? lambda : sourceFunction?.Body.Node;
+            AstNode? sourceRoot = lambda ?? (AstNode?)anonymousFunction ?? sourceFunction;
+            AstNode? sourceBody = lambda ?? (AstNode?)anonymousFunction?.Body.Node ?? sourceFunction?.Body.Node;
             if (sourceRoot is null || sourceBody is null)
             {
                 Fail("FIR body has no source body to correspond to.", _function.Origin);
@@ -40,6 +41,10 @@ public static partial class FirVerifier
                 if (lambda is not null)
                 {
                     MatchLambdaBlock(_function.Body!, lambda);
+                }
+                else if (anonymousFunction is not null)
+                {
+                    MatchAnonymousFunctionBody(_function.Body!, anonymousFunction);
                 }
                 else if (sourceBody is AstBlock sourceBlock)
                 {
@@ -354,6 +359,9 @@ public static partial class FirVerifier
                     case AstLambda lambda when actual is FirFunctionReference reference:
                         MatchFunctionReference(reference, lambda);
                         break;
+                    case AstAnonymousFunction function when actual is FirFunctionReference reference:
+                        MatchFunctionReference(reference, function);
+                        break;
                     case AstAtom { SyntaxKind: NodeKind.PositionalExpression } positional when actual is FirRead read:
                         MatchPositionalRead(read, positional);
                         break;
@@ -434,7 +442,10 @@ public static partial class FirVerifier
         {
             SameOrigin(actual, source);
             if (actual.Slot != slot.Id) { Fail("FIR read names a different source local slot.", actual.Origin); }
-            if (actual.Type != slot.Type) { Fail("FIR read type differs from its source local slot.", actual.Origin); }
+            bool narrowed = IsNullableFunction(slot.Type) && actual.Type == slot.Type.Arguments[0]
+                && GetSourceExpression(source)?.Type is { } sourceType && Substitute(sourceType) == actual.Type;
+            if (actual.Type != slot.Type && !narrowed)
+            { Fail("FIR read type differs from its source local slot without a source-proven non-null refinement.", actual.Origin); }
         }
 
         private FirSlot? ResolveLocalSlot(AstAtom source)

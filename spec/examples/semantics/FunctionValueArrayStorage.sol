@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: semantic examples; rows identify source and FIR behavior, while runtime qualification is recorded separately.
+// Status: exact-ABI nullable function values now have verified FIR, AOT and ORC coverage for
+// locals, parameters, results, ref/out, defaults, varargs, arrays and flow-narrowed indirect calls.
+// The native pointer subset still excludes captures, adapters and checked null assertions.
 module examples.semantics.function_value_array_storage
 
 func increment(value: int): int = value + 1
@@ -49,12 +51,50 @@ func emptyCallbacks(): () {
 }
 // expect: Source: Bound; FIR: Ready; length=0; element signature remains available for later reads.
 
+// A nullable function element is one pointer-sized slot. Null has the zero pointer representation;
+// function addresses remain non-GC scalar data in Yellow Tea's element descriptor.
+func nullableCallbacks(): int {
+    val callbacks: []((() -> int)?) = [null, func() { 42 }]
+    val first = callbacks[0]
+    if first == null { return 0 }
+    first()
+}
+// expect: Source: Bound; FIR: Ready; AOT/ORC test verifies null and non-null entries in one array.
+
+func replaceNullableCallback(): int {
+    var callback: (() -> int)? = null
+    if callback == null { callback = func() { 41 } }
+    if callback != null { return callback() + 1 }
+    0
+}
+// expect: Source: Bound; FIR: Ready; the mutable slot narrows only after the null comparison.
+
+func invokeAfterNullExit(callback: (() -> int)?): int {
+    if callback == null { return 0 }
+    callback()
+}
+// expect: Source: Bound; FIR: Ready; the surviving continuation has a source-proven function type.
+
+func nullableCallbackParameter(callback: (() -> int)?): int {
+    if callback != null { return callback() }
+    0
+}
+// expect: A nullable function is passed as one pointer value; a non-null call requires a branch proof.
+
 // Matching source types do not manufacture a closure environment.
 func capturedCallback(seed: int): []((int) -> int) {
     [{ value -> value + seed }]
 }
 // expect: Source: Bound; FIR: Rejected(SOL2400); closure capture requires environment ownership and GC roots.
 
-// Nullable function elements are still outside the admitted layout.
-func nullableCallbackElements(callbacks: [](((String) -> String)?)): int = callbacks.length
-// expect: Source: Bound; FIR: Rejected(SOL2400, nullable function-value element layout).
+// Requiring a nullable element type does not make the array reference itself nullable.
+func nullableCallbackElements(callbacks: [](((String) -> String)?)): int {
+    val callback = callbacks[0]
+    if callback == null { return 0 }
+    callback("Sol").length
+}
+// expect: Source: Bound; FIR: Ready; element stride is pointer-sized and the leaf has no GC scan shape.
+
+// A nullable non-function object and a nullable function are different native layouts.
+func nullableObjectStillOutside(values: []String?, value: String?): () = ()
+// expect: Source: Bound; FIR: Rejected(SOL2400); managed nullable references need the object ABI.

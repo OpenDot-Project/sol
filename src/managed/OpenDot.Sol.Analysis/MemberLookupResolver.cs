@@ -46,18 +46,19 @@ internal sealed class MemberLookupResolver
     private const int MaximumVisitedTypes = 8192;
     private const int MaximumPathsPerCandidate = 128;
 
-    private readonly SourceAnalysis _sources;
+    private readonly TypeAnalysis _analysis;
     private readonly TypeSpecialization _types;
     private readonly CancellationToken _cancellation;
     private readonly HashSet<AstNode> _ownedNodes = new(ReferenceEqualityComparer.Instance);
 
-    internal MemberLookupResolver(SourceAnalysis sources, TypeSpecialization types,
-        CancellationToken cancellationToken)
+    internal MemberLookupResolver(TypeAnalysis analysis, TypeSpecialization types,
+        IEnumerable<AstSnapshot> files, CancellationToken cancellationToken)
     {
-        _sources = sources ?? throw new ArgumentNullException(nameof(sources));
+        _analysis = analysis ?? throw new ArgumentNullException(nameof(analysis));
         _types = types ?? throw new ArgumentNullException(nameof(types));
+        ArgumentNullException.ThrowIfNull(files);
         _cancellation = cancellationToken;
-        foreach (var file in sources.Declarations.Files)
+        foreach (var file in files)
         {
             foreach (var node in file.Nodes) { _ownedNodes.Add(node); }
         }
@@ -250,8 +251,8 @@ internal sealed class MemberLookupResolver
 
         var leftMap = OwnerSubstitution(left.DeclaringType);
         var rightMap = OwnerSubstitution(right.DeclaringType);
-        var leftParameters = _sources.Types.GetTypeParameters(leftFunction);
-        var rightParameters = _sources.Types.GetTypeParameters(rightFunction);
+        var leftParameters = _analysis.GetTypeParameters(leftFunction);
+        var rightParameters = _analysis.GetTypeParameters(rightFunction);
         for (int index = 0; index < leftParameters.Length; index++)
         {
             rightMap[rightParameters[index]] = leftParameters[index];
@@ -263,8 +264,8 @@ internal sealed class MemberLookupResolver
             var rightParameter = rightFunction.Parameters[index];
             if (leftParameter.PassingMode != rightParameter.PassingMode
                 || leftParameter.Type is null || rightParameter.Type is null) { return false; }
-            var leftType = _sources.Types.GetType(leftParameter.Type);
-            var rightType = _sources.Types.GetType(rightParameter.Type);
+            var leftType = _analysis.GetType(leftParameter.Type);
+            var rightType = _analysis.GetType(rightParameter.Type);
             if (leftMap.Count != 0) { leftType = _types.Substitute(leftType, leftMap, _cancellation); }
             if (rightMap.Count != 0) { rightType = _types.Substitute(rightType, rightMap, _cancellation); }
             if (!ReferenceEquals(leftType, rightType)) { return false; }
@@ -276,7 +277,7 @@ internal sealed class MemberLookupResolver
     {
         var result = new Dictionary<ResolvedType, ResolvedType>();
         if (owner.Declaration is not { } symbol) { return result; }
-        var parameters = _sources.Types.GetTypeParameters(symbol.Parts[0]);
+        var parameters = _analysis.GetTypeParameters(symbol.Parts[0]);
         if (parameters.Length != owner.Arguments.Length) { return result; }
         for (int index = 0; index < parameters.Length; index++)
         {
@@ -290,7 +291,7 @@ internal sealed class MemberLookupResolver
         if (type.Kind == ResolvedTypeKind.Nominal) { return _types.GetDirectBases(type, _cancellation); }
         if (type.Kind != ResolvedTypeKind.Parameter || type.Parameter is not { } identity) { return []; }
 
-        return ParameterBounds(identity).Select(_sources.Types.GetType)
+        return ParameterBounds(identity).Select(_analysis.GetType)
             .Distinct().OrderBy(bound => bound.Id).ToImmutableArray();
     }
 

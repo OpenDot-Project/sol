@@ -12,6 +12,11 @@ internal sealed partial class FirBuilder
 {
     private FirExpression LambdaReference(AstLambda lambda, ResolvedType type)
     {
+        if (FunctionValueNestingDepth(lambda) >= FirVerifier.MaximumNativeFunctionValueNesting)
+        {
+            Unsupported(lambda, "Nested function-value lifting exceeds the 128-level FIR budget");
+            return new FirConstant("()", Empty, lambda.Origin);
+        }
         if (!CanLowerLambda(lambda, type))
         {
             Unsupported(lambda, "Lambda capture, parent context, or function ABI is outside the verified native subset");
@@ -50,9 +55,11 @@ internal sealed partial class FirBuilder
             .SingleOrDefault(scope => ReferenceEquals(scope.Owner, lambda));
         if (lambdaScope is null) { return false; }
         if (!_analysis.Sources.Lexical.GetLambdaCaptures(lambda).IsEmpty) { return false; }
+        if (!_analysis.Sources.Lexical.GetLambdaReceiverCaptures(lambda).IsEmpty) { return false; }
 
         foreach (var atom in lambda.Descendants().OfType<AstAtom>())
         {
+            if (IsInsideNestedAnonymousFunction(lambda, atom)) { continue; }
             if (!ReferenceEquals(NearestLambda(atom), lambda)) { continue; }
             if (atom.Spelling is "this" or "super") { return false; }
             if (atom.SyntaxKind != NodeKind.NameExpression) { continue; }
@@ -69,14 +76,14 @@ internal sealed partial class FirBuilder
             { return false; }
         }
 
-        // The first FIR lambda slice does not introduce another callable ABI or a generic caller
-        // identity. The nested lambda itself may still be lifted if it has no captures.
-        foreach (var nestedFunction in lambda.Descendants().Where(node =>
-            node.SyntaxKind == NodeKind.AnonymousFunctionExpression || node is AstFunction))
+        // A nested anonymous function can be lifted independently when it is capture-free. Named
+        // local functions still require an environment-aware callable representation.
+        foreach (var nestedFunction in lambda.Descendants().Where(node => node is AstFunction))
         { return false; }
 
         foreach (var call in lambda.Descendants().OfType<AstCall>())
         {
+            if (IsInsideNestedAnonymousFunction(lambda, call)) { continue; }
             if (!ReferenceEquals(NearestLambda(call), lambda)) { continue; }
             var binding = BoundCall(call);
             if (binding?.Target is AstFunction target && target.TypeParameters.Any()
@@ -85,6 +92,7 @@ internal sealed partial class FirBuilder
         }
         foreach (var expression in lambda.Descendants().OfType<AstExpression>())
         {
+            if (IsInsideNestedAnonymousFunction(lambda, expression)) { continue; }
             if (!ReferenceEquals(NearestLambda(expression), lambda)) { continue; }
             var binding = BoundExpression(expression);
             if (binding?.FunctionValueTarget is { } target && target.TypeParameters.Any()
@@ -93,6 +101,17 @@ internal sealed partial class FirBuilder
         }
 
         return true;
+    }
+
+    private bool IsInsideNestedAnonymousFunction(AstLambda lambda, AstNode node)
+    {
+        for (AstNode? parent = _files[node].GetParent(node); parent is not null;
+            parent = _files[node].GetParent(parent))
+        {
+            if (ReferenceEquals(parent, lambda)) { return false; }
+            if (parent is AstAnonymousFunction or AstFunction) { return true; }
+        }
+        return false;
     }
 
     private FirFunction BuildLambdaFunction(AstLambda lambda, int id, ResolvedType type)
@@ -139,7 +158,7 @@ internal sealed partial class FirBuilder
                 var mode = type.ParameterModes[index];
                 var slot = new FirSlot(index, name, type.Arguments[index],
                     local?.IsMutable == true || mode is AstPassingMode.Ref or AstPassingMode.Out,
-                    mode, true, origin);
+                    mode, true, origin) { IsEscaping = false };
                 parameters.Add(slot);
                 if (local is not null) { _slots.Add(local, slot); }
             }

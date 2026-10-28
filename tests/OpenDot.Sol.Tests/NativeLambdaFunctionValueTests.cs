@@ -23,14 +23,16 @@ public sealed class NativeLambdaFunctionValueTests
         + "val named: (int) -> int = { value -> value + 1 }\n"
         + "val positional: (int) -> int = { $0 + 1 }\n"
         + "val sparse: (int, int, int) -> int = { $0 + $2 }\n"
-        + "val constant: () -> int = { -> 7 }\n"
+        + "val bareConstant: () -> int = { 7 }\n"
+        + "val arrowConstant: () -> int = { -> 7 }\n"
         + "val forwarded: (int) -> int = { value -> increment(value) }\n"
         + "val inferred = { value: int -> value + 1 }\n"
         + "val action = { println(\"from lambda\") }\n"
         + "val callbacks: []((int) -> int) = [{ value -> value + 1 }, { $0 + 2 }]\n"
         + "println(named(41)); println(positional(41)); println(sparse(20, 999, 22)); println(forwarded(41));\n"
         + "println(inferred(41));\n"
-        + "println(constant()); action(); println(apply(41) { value -> value + 1 });\n"
+        + "println(bareConstant()); println(arrowConstant()); action(); "
+        + "println(apply(41) { value -> value + 1 });\n"
         + "println(callbacks[0](41)); println(callbacks[1](41))\n"
         + "} }";
 
@@ -48,7 +50,7 @@ public sealed class NativeLambdaFunctionValueTests
 
         var program = Assert.IsType<VerifiedFirProgram>(compilation.Program).Program;
         var lambdas = program.Functions.Where(function => function.LambdaSource is not null).ToArray();
-        Assert.Equal(10, lambdas.Length);
+        Assert.Equal(11, lambdas.Length);
         Assert.All(lambdas, function =>
         {
             Assert.Equal("<lambda>", function.Name);
@@ -84,7 +86,7 @@ public sealed class NativeLambdaFunctionValueTests
             .Select(diagnostic => diagnostic.Code + ": " + diagnostic.Message)));
         var program = Assert.IsType<VerifiedFirProgram>(compilation.Program);
         string backend = NativeCompiler.BackendRoot(null);
-        const string expected = "42\n42\n42\n42\n42\n7\nfrom lambda\n42\n42\n43\n";
+        const string expected = "42\n42\n42\n42\n42\n7\n7\nfrom lambda\n42\n42\n43\n";
 
         var artifact = NativeCompiler.Compile(program, backendDirectory: backend,
             cancellationToken: TestContext.Current.CancellationToken);

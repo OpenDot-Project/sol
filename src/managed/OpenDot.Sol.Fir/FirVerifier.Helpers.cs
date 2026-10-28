@@ -21,6 +21,16 @@ public static partial class FirVerifier
             return expression;
         }
 
+        private static int FunctionValueNestingDepth(AstNode node, AstSnapshot file)
+        {
+            int depth = 0;
+            for (AstNode? parent = file.GetParent(node); parent is not null; parent = file.GetParent(parent))
+            {
+                if (parent is AstAnonymousFunction or AstLambda) { depth++; }
+            }
+            return depth;
+        }
+
         private bool IsChecked(ResolvedType type) => !program.Analysis.Types.Types.Any(t => t.Declaration is { ModuleName: "std.core", Name: "RuntimeException" }
             && program.Analysis.Types.ClassifyConversion(type, t, cancellation) != IntrinsicConversion.None);
         private FirSlot? Slot(int id, AstOrigin origin)

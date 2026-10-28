@@ -7,7 +7,7 @@ using System.Threading;
 namespace OpenDot.Sol.Ast;
 
 /// <summary>Checks source-model invariants. This verifier does not certify type or runtime safety.</summary>
-public static class AstVerifier
+public static partial class AstVerifier
 {
     public static void Verify(AstSnapshot snapshot, CancellationToken cancellationToken = default)
     {
@@ -40,21 +40,29 @@ public static class AstVerifier
             }
             if (node is AstCallable callable)
             {
-                foreach (var parameter in callable.Parameters)
-                {
-                    if (parameter.Type is not null) { snapshot.ValidateOwnership(parameter.Type); }
-                    if (parameter.DefaultValue is not null) { snapshot.ValidateOwnership(parameter.DefaultValue); }
-                    if (!ReferenceEquals(parameter.GroupOrigin.Element.Snapshot, snapshot.Psi)
-                        || !ReferenceEquals(parameter.NameOrigin.Element.Snapshot, snapshot.Psi))
-                    {
-                        throw new InvalidOperationException("A parameter origin belongs to another snapshot.");
-                    }
-                }
+                VerifyParameters(snapshot, callable.Parameters);
+            }
+            if (node is AstAnonymousFunction anonymous)
+            {
+                VerifyParameters(snapshot, anonymous.Parameters);
+                VerifyAnonymousFunction(snapshot, anonymous);
             }
         }
         if (visited.Count != snapshot.Nodes.Length || snapshot.GetParent(snapshot.Root) is not null)
         {
             throw new InvalidOperationException("The AST has detached nodes or a parented root.");
+        }
+    }
+
+    private static void VerifyParameters(AstSnapshot snapshot, IEnumerable<AstParameter> parameters)
+    {
+        foreach (var parameter in parameters)
+        {
+            if (parameter.Type is not null) { snapshot.ValidateOwnership(parameter.Type); }
+            if (parameter.DefaultValue is not null) { snapshot.ValidateOwnership(parameter.DefaultValue); }
+            if (!ReferenceEquals(parameter.GroupOrigin.Element.Snapshot, snapshot.Psi)
+                || !ReferenceEquals(parameter.NameOrigin.Element.Snapshot, snapshot.Psi))
+            { throw new InvalidOperationException("A parameter origin belongs to another snapshot."); }
         }
     }
 }

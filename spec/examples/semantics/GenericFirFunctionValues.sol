@@ -253,12 +253,12 @@ func <T> invokeRefOut(callback: (ref T, out T) -> (), ref source: T, out destina
 }
 // expect: Source obligations include exact T storage and out assignment; native indirect call is rejected.
 
-func refLocationCannotBeCaptured(): () {
-    var value = 1
-    val callback: () -> int = { value }
-    val use: (ref int) -> int = { ref location: int -> callback() }
+func refLocationCannotEscape(ref value: int): () -> int {
+    val callback: () -> int = { -> value }
+    return callback
 }
-// expect: Capturing a ref/out location or borrowed address is rejected absent a non-escape proof.
+// expect: Source rejects the returned callback because it retains caller-owned ref storage;
+// a proven local invocation can be admitted by source analysis without defining a native closure ABI.
 
 func refOutDoesNotUseTemporary(): () {
     var value: short = 1
@@ -341,9 +341,18 @@ func closureSurvivesCreatingFrame(): () -> String {
 }
 // expect: Returning closure requires environment ownership after frame exit; not a stack-only raw pointer.
 
-// 14. Ref-like and borrowed captures remain rejected even under generic constraints.
+// 14. Ref-like and borrowed captures require a proven local lifetime.
 func <T> captureRefLike(value: T): () -> T where T: allows ref struct = { value }
 // expect: A ref-like T cannot enter a heap closure environment or escape the call.
+
+ref struct BorrowedView { val value: int = 42 }
+
+func nonEscapingBorrowedCapture(value: BorrowedView): int {
+    val callback = { -> value.value }
+    callback()
+}
+// expect: Source: Bound; the callback is proven local and runs before `value` leaves its activation.
+// FIR: Rejected because capturing closure environments have no verified native ABI yet.
 
 func spanCallback(span: Span<int>): () -> int = { span[0] }
 // expect: Source borrow analysis must reject escaping capture of Span storage.

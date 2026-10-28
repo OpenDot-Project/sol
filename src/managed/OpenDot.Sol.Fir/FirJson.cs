@@ -48,12 +48,13 @@ public static class FirJson
         }
         return JsonSerializer.Serialize(new
         {
-            schema = 6, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
+            schema = 7, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
             functions = program.Program.Functions.Select(f => new { f.Id, f.Name, runtime = f.RuntimeFunction.ToString(),
                 specializationArguments = f.SpecializationArguments.Select(t => t.Id).ToArray(),
                 returnType = f.ReturnType.Id, effects = f.Effects.Select(effect => effect.Id).ToArray(),
                 parameters = f.Parameters.Select(p => p.Id).ToArray(),
-                slots = f.Slots.Select(s => new { s.Id, s.Name, type = s.Type.Id, s.Mutable, mode = s.Mode.ToString(), s.IsParameter }).ToArray(),
+                slots = f.Slots.Select(s => new { s.Id, s.Name, type = s.Type.Id, s.Mutable,
+                    mode = s.Mode.ToString(), s.IsParameter, s.IsEscaping }).ToArray(),
                 body = f.Body is null ? null : Node(f.Body) }).ToArray(),
             types = program.Program.Analysis.Types.Types.Select(t => new
             {

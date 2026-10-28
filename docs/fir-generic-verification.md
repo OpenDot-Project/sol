@@ -372,7 +372,9 @@ The specialization argument check rejects:
 - ref-like argument types;
 - types outside `FirVerifier.Supported`;
 - nominal applications that lack a proven native layout;
-- unsupported function, tuple, nullable, or multidimensional forms.
+- function, tuple, nullable, or multidimensional forms without an implemented native layout. The
+  current nullable exception is a closed exact-ABI function pointer and an array element of that
+  same type; other nullable wrappers remain unsupported.
 
 This is not the full runtime object model. The verifier must not infer representation from a source
 type name. String uses its known runtime representation, arrays use the qualified runtime array ABI,
@@ -423,13 +425,14 @@ diagnostic limit.
 
 ## Serialization and observability
 
-`FirJson.Serialize` is deterministic for the same verified program. Schema 6 contains:
+`FirJson.Serialize` is deterministic for the same verified program. Schema 7 contains:
 
 - a function's `specializationArguments` as an ordered array of type IDs;
 - a call's `typeArguments` as an ordered array of type IDs;
 - ordered explicit/default call values and `FirCallValueReference` nodes for earlier captured formals;
 - `FirFunctionReference` target IDs and `FirIndirectCall` function/argument trees;
 - each function's source name, ID, signature, effects, slots, and body;
+- the source `@escaping` contract on every formal parameter slot;
 - function type parameter modes and checked effects in the resolved type table;
 - the derived flow graph, where indirect-call sites have a null direct target.
 
@@ -548,9 +551,9 @@ Do not begin with class layout or generic interface dispatch. Those features req
 substitution, constructed inheritance, receiver lookup, object layout, vtable dispatch, and runtime
 semantics that are outside this first free-function slice.
 
-Function arrays, nullable callable values, closure conversion, receiver capture, broader default and
-vararg forms, ref-like arguments, and generic export ABI still need their own explicit design and
-verifier contracts before admission.
+Exact-ABI function arrays and nullable function pointers have bounded verifier and runtime contracts.
+Closure conversion, receiver capture, broader default and vararg forms, ref-like arguments, and
+generic export ABI still need their own explicit design and verifier contracts before admission.
 
 ## Maintainer review checklist
 
@@ -680,7 +683,7 @@ The implementation is distributed across these source files:
 | `src/managed/OpenDot.Sol.Fir/FirBuilder.ForEach.cs` | Specialized iterable element types |
 | `src/managed/OpenDot.Sol.Fir/FirNodes.cs` | FIR call/function specialization metadata |
 | `src/managed/OpenDot.Sol.Fir/FirVerifier.cs` | Independent type, source, constraint, and call checks |
-| `src/managed/OpenDot.Sol.Fir/FirJson.cs` | Deterministic schema-6 inspection output |
+| `src/managed/OpenDot.Sol.Fir/FirJson.cs` | Deterministic schema-7 inspection output |
 | `src/managed/OpenDot.Sol.Lowering/LlvmEmitter.cs` | LLVM function declarations and ID-based calls |
 
 `docs/generic-calls.md` describes the broader source analysis surface. `spec/GenericFirSpecialization.sol`

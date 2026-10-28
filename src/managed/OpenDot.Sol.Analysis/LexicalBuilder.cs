@@ -167,8 +167,9 @@ internal sealed class LexicalBuilder
                 foreach (var name in group.Children.Where(n => n.SyntaxKind == NodeKind.Name))
                 {
                     Add(scope, name.Origin.Text, LocalSymbolKind.Parameter, name.Origin,
-                        group.Children.OfType<AstType>().FirstOrDefault(), false, name.Origin.Span.End,
-                        PassingMode(group));
+                        group.Children.OfType<AstType>().FirstOrDefault(),
+                        PassingMode(group) is AstPassingMode.Ref or AstPassingMode.Out,
+                        name.Origin.Span.End, PassingMode(group));
                 }
             }
         }

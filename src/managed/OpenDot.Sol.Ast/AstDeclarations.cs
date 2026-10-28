@@ -70,7 +70,15 @@ public sealed record AstParameter(
     bool IsProperty,
     bool IsMutable,
     AstOrigin NameOrigin,
-    AstOrigin GroupOrigin);
+    AstOrigin GroupOrigin)
+{
+    /// <summary>Annotations retained from the source parameter group.</summary>
+    public ImmutableArray<AstNode> Annotations { get; init; } = [];
+
+    /// <summary>Whether the source declares that this function-valued parameter may escape.</summary>
+    public bool IsEscaping => Annotations.Any(annotation => annotation.Origin.Element is PsiAnnotation
+        { Name: "escaping" });
+}
 
 public abstract class AstCallable : AstDeclaration
 {

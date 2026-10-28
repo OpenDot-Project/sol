@@ -39,12 +39,19 @@ internal sealed partial class FirBuilder
                 if (locals is [var capturedParameter] && _callValueReferences is { } references
                     && references.TryGetValue(capturedParameter, out int evaluationIndex))
                 { return new FirCallValueReference(evaluationIndex, type, atom.Origin); }
-                if (locals is [var local] && _slots.TryGetValue(local, out var slot)) { return new FirRead(slot.Id, slot.Type, atom.Origin); }
+                if (locals is [var local] && _slots.TryGetValue(local, out var slot))
+                {
+                    var readType = FirVerifier.IsNullableFunction(slot.Type) && type == slot.Type.Arguments[0]
+                        ? type : slot.Type;
+                    return new FirRead(slot.Id, readType, atom.Origin);
+                }
                 return Invalid(atom);
             case AstMember member when binding.FunctionValueTarget is { } functionTarget:
                 return FunctionReference(member, functionTarget, type);
             case AstLambda lambda:
                 return LambdaReference(lambda, type);
+            case AstAnonymousFunction function:
+                return AnonymousFunctionReference(function, type);
             case AstSequence { IsGrouping: true } grouping when grouping.Elements.SingleOrDefault() is { } inner:
                 return Expression(inner);
             case AstSequence { SyntaxKind: NodeKind.ArrayExpression } array:
@@ -198,7 +205,8 @@ internal sealed partial class FirBuilder
                 var initializer = property.Initializer is null ? null : Expression(property.Initializer);
                 var type = property.Type is null ? initializer?.Type : Specialize(_analysis.Sources.Types.GetType(property.Type));
                 if (local is null || type is null || property.BindingNames.Count() != 1 || property.Delegate is not null) { Unsupported(node, "Local binding"); return null; }
-                var slot = new FirSlot(_slots.Count, local.Name, type, local.IsMutable, AstPassingMode.Value, false, property.Origin);
+                var slot = new FirSlot(_slots.Count, local.Name, type, local.IsMutable, AstPassingMode.Value,
+                    false, property.Origin) { IsEscaping = false };
                 _slots[local] = slot;
                 return new FirDeclare(slot.Id, initializer, node.Origin);
             case AstAssignment assignment when assignment.Location is AstAtom location && assignment.Value is not null:

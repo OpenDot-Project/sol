@@ -13,15 +13,12 @@ public static partial class FirVerifier
     {
         private static bool BelongsToSourceBody(AstNode node, AstNode sourceRoot, AstSnapshot file)
         {
-            AstLambda? nearest = null;
             for (var parent = file.GetParent(node); parent is not null; parent = file.GetParent(parent))
             {
-                if (parent is AstLambda lambda) { nearest = lambda; break; }
                 if (ReferenceEquals(parent, sourceRoot)) { break; }
+                if (parent is AstLambda or AstAnonymousFunction or AstFunction) { return false; }
             }
-            return sourceRoot is AstLambda sourceLambda
-                ? ReferenceEquals(nearest, sourceLambda)
-                : nearest is null;
+            return true;
         }
 
         private void MatchLambdaBlock(FirBlock actual, AstLambda source)
@@ -50,6 +47,48 @@ public static partial class FirVerifier
                 if (last is not FirReturn { Value: null }
                     || !ReferenceEquals(last.Origin.Element, source.Origin.Element))
                 { Fail("Implicit unit return differs from the source lambda tail.", last.Origin); }
+            }
+        }
+
+        private void MatchAnonymousFunctionBody(FirBlock actual, AstAnonymousFunction source)
+        {
+            SameOrigin(actual, source);
+            if (source.Body.Kind == AstBodyKind.Expression && source.Body.Node is AstExpression expression)
+            {
+                if (actual.Statements is not [FirReturn { Value: { } value } ret])
+                { Fail("Expression-bodied anonymous function must lower to one value return.", actual.Origin); }
+                else
+                {
+                    SameOrigin(ret, expression);
+                    MatchExpression(value, expression);
+                }
+                return;
+            }
+            if (source.Body.Node is not AstBlock block)
+            { Fail("Anonymous-function FIR body has no corresponding source block.", actual.Origin); return; }
+
+            var statements = block.Statements.ToArray();
+            bool finalSourceReturns = statements.LastOrDefault() is AstReturn
+                || !IsEmpty(_function.ReturnType)
+                    && statements.LastOrDefault() is AstExpressionStatement { Expression: not null };
+            bool appendUnitReturn = IsEmpty(_function.ReturnType) && !finalSourceReturns;
+            int expectedCount = statements.Length + (appendUnitReturn ? 1 : 0);
+            if (actual.Statements.Length != expectedCount)
+            { Fail("Anonymous-function FIR statement count differs from its source body.", actual.Origin); }
+
+            int common = Math.Min(statements.Length, actual.Statements.Length);
+            for (int index = 0; index < common; index++)
+            {
+                bool tailValue = index == statements.Length - 1 && !IsEmpty(_function.ReturnType)
+                    && statements[index] is AstExpressionStatement { Expression: not null };
+                MatchStatement(actual.Statements[index], statements[index], tailValue);
+            }
+            if (appendUnitReturn && actual.Statements.Length > statements.Length)
+            {
+                var last = actual.Statements[^1];
+                if (last is not FirReturn { Value: null }
+                    || !ReferenceEquals(last.Origin.Element, source.Origin.Element))
+                { Fail("Implicit unit return differs from the source anonymous-function tail.", last.Origin); }
             }
         }
     }

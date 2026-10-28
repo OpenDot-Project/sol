@@ -65,9 +65,20 @@ Numeric variables do not silently widen. Contextual literals are checked against
 including negative signed minima. Binary128 contextual rounding remains unverified.
 
 Named and positional lambdas use expected function parameter/result types. Headerless parameterless
-lambdas can infer their tail result. Implicit `it` is not introduced. Ref/out lambda headers retain
-their syntax mode and out obligations. Function effects can broaden to a compatible callback budget;
-a callback cannot silently discard checked effects.
+lambdas can infer their tail result. Without an expected result type, labeled lambda returns and the
+reachable tail are joined using the unique common-type rules; nested callable returns do not enter
+that join. Bare local returns contribute `()`, and bottom-valued returns do not create a normal
+exit. Implicit `it` is not introduced. Ref/out lambda headers retain their syntax mode and out
+obligations. Function effects can broaden to a compatible callback budget; a callback cannot
+silently discard checked effects.
+
+`BodyAnalysis.LambdaBodies` and `GetLambdaBody` expose each resolved lambda signature, abstract
+normal-exit-state count, reachable fallthrough, per-out-parameter assignment, and subtree
+completeness. These are source facts, not runtime executions, closure layouts, or FIR admission.
+Missing signatures have no body summary; deferred or diagnosed bodies can have a summary marked
+incomplete. A non-null lambda can be source-typed in a nullable function context and widened to the
+nullable destination. The current FIR/native nullable-lift gate still rejects those lambda-origin
+values with `SOL2400`.
 
 Arithmetic operators and single-step conversions can bind companion declarations. Operator checks
 validate owner and arity rules, required comparison/truth pairs, Boolean results, shift counts, and
@@ -147,7 +158,7 @@ generation are not implemented by these source checks.
 |---|---|
 | `SOL2200`–`SOL2207` | Return inference, expression domains, conversions, and operators. |
 | `SOL2210`–`SOL2215` | Receivers, value/member lookup, indexing, and access. |
-| `SOL2220`–`SOL2225` | Lambda shape, callable applicability/ambiguity, and local returns. |
+| `SOL2220`–`SOL2226` | Lambda shape, callable applicability/ambiguity, local returns, and anonymous-function default parameters. |
 | `SOL2230`–`SOL2235` | Override contract compatibility. |
 | `SOL2240`–`SOL2247` | Assignment, writable storage, nullable receivers, and continuation/result flow. |
 | `SOL2250`–`SOL2255` | Checked effects, Throwable validity, catch reachability, and cleanup transfer. |

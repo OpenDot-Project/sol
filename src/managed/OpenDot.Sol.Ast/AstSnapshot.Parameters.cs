@@ -37,7 +37,11 @@ public sealed partial class AstSnapshot
             {
                 parameters.Add(new(name.Text, type, mode, value, psi.DeclaresProperty,
                     psi.Children.Any(n => n.Kind == NodeKind.Modifier && n.Text == "var"),
-                    new(name), group.Origin));
+                    new(name), group.Origin)
+                {
+                    Annotations = group.Children.Where(child => child.SyntaxKind == NodeKind.Annotation)
+                        .ToImmutableArray(),
+                });
             }
         }
         return parameters.ToImmutable();
