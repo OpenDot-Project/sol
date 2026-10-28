@@ -2,17 +2,20 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Yellow Tea
 
-Yellow Tea is the native garbage collector being developed for Sol programs on Windows x86-64. Its initial
-algorithm is precise, non-moving, non-generational concurrent mark and sweep. Marking and sweeping
-run alongside application threads. Cycle start and mark termination use coordinated thread handshakes.
+Yellow Tea is the native garbage collector for Sol programs on Windows x86-64. The implementation is an
+experimental precise, non-moving, non-generational concurrent mark-and-sweep collector. Marking and
+sweeping run alongside application threads; cycle start and mark termination use coordinated handshakes.
 
-**Implementation status:** an experimental concurrent baseline now has descriptors, generated roots,
-barriers, handles, a collector worker, and native ASan/model/stress fixtures. The span allocator,
-complete source object/EH support, and performance qualification remain incomplete. Resident span
-tracing, bounded allocation assists and native diagnostics now have direct runtime fixtures. Read the
-[current implementation](current-implementation.md) for exact boundaries. These design chapters do
-not claim every described feature is implemented or released. There are no measured pause,
-throughput, memory-overhead, or production-readiness claims.
+**Implementation status:** the native runtime has fixed-size span allocation, dedicated large regions,
+exact descriptors, generated root frames and barriers, strong/weak handles, a collector worker, bounded
+allocation assists, and resident mark/gray bitmaps. AOT and process-isolated ORC use a restricted runtime
+subset. Native ASan, model, reachability, concurrency, and integration fixtures cover selected paths.
+
+The span allocator exists; broader allocator concurrency and workload qualification remain open. General
+source object layouts, source exception unwinding, moving/generational collection, concurrent stack
+scanning, measured latency guarantees, and production readiness are not claimed. The [current
+implementation inventory](current-implementation.md) gives the exact supported boundaries. These design
+chapters specify contracts and acceptance criteria beyond the released implementation.
 
 ## Ownership
 

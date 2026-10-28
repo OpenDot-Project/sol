@@ -114,8 +114,8 @@
   href: native-tooling.md
 - name: Status and roadmap
   href: status.md
-- name: Sol 0.0.2 release preparation
-  href: release-notes/0.0.2.md
+- name: Sol 0.1.0 release notes
+  href: release-notes/0.1.0.md
 - name: API reference
   href: ../out/docfx/metadata/toc.yml
 - name: GitHub

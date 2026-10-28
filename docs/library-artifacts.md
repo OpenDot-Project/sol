@@ -2,8 +2,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Native and Sol library artifacts
 
-Development builds support the four artifact selections. The released 0.0.1 component remains a
-CST frontend; this page describes unreleased implementation, not availability in that release.
+The Sol 0.1.0 native component supports the four artifact selections for the documented closed verified subset. It does not provide general-purpose library compatibility or complete language support.
 
 | Selection | Primary output | Current boundary |
 |---|---|---|

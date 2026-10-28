@@ -522,7 +522,7 @@ Release availability is determined by the versioned release manifest, packaged f
 installation path, native component compatibility, and release notes. A release statement should
 identify the compiler version, target, supported artifact, runtime linkage, and source subset.
 
-The 0.0.1 release remains the initial frontend component. The artifact and generic FIR behavior in
+The 0.0.1 release remains the initial frontend component. Sol 0.1.0 adds only the verified artifact and generic FIR subset described here. The artifact and generic FIR behavior in
 this guide describes current development work; it must not be attributed to 0.0.1 without published
 release evidence.
 

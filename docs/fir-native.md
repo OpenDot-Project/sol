@@ -2,10 +2,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Verified FIR and the first native programs
 
-Development builds can produce verified FIR, LLVM IR, and Windows x86-64 AOT executables for a
-restricted bootstrap subset. This functionality is not in the published Sol 0.0.1 release. The
-complete language, general object model, native exception unwinding, and Yellow Tea are still incomplete.
-
+The Sol 0.1.0 native component produces verified FIR, LLVM IR, and Windows x86-64 AOT executables
+for a restricted bootstrap subset. ORC executes the same admitted subset in a separate native
+guest process. The complete language, general object model, native exception unwinding, and full
+Yellow Tea qualification remain incomplete.
 ## Build and run
 
 Use the pinned .NET 10 SDK, MSVC C++/CLI tools, a Windows x64 SDK, and LLVM 23.1.3. `LLVM_ROOT` must
@@ -177,7 +177,7 @@ provisional and does not establish the future collectible ABI.
 Generated functions register zero-initialized root slots, publish reference stores through a barrier,
 poll on entry/backedges, and pop frames on normal returns. A worker performs concurrent mark/sweep
 between root handshakes. Native C++ exception carriers own traced Throwable handles, but source EH
-lowering remains gated. Individual aligned allocations currently replace the planned span allocator.
+lowering remains gated. Small objects are allocated from fixed-size-class spans; large objects use dedicated regions. The span allocator is implemented, while its broader concurrency and workload qualification remains in progress.
 Read the [implementation inventory](yellow-tea/current-implementation.md) for limits and qualification
 work; the [design chapters](yellow-tea/index.md) are not claims of full ABI or GC completion.
 
@@ -190,6 +190,7 @@ allocation/shutdown, layout/alignment, UTF-8 conversion, and literal descriptor 
 
 Managed regressions test FIR construction, rejection, cancellation, deterministic inspection, and
 independent verifier failures after deliberate FIR corruption. The Native backend workflow uses only
-Windows 2025 and verifies the pinned LLVM archive digest before extraction. CodeQL's native build
-also captures the runtime and unmanaged bridge translation unit. These checks do not certify a
-collector, full language semantics, or native exception support.
+Windows 2025 and verifies the pinned LLVM archive digest before extraction. CodeQL traces the
+tracked runtime and unmanaged bridge translation units; the downloaded LLVM/vcpkg sources are
+outside the checkout and native dependencies use separate advisory qualification. These checks do
+not certify a collector, full language semantics, or native exception support.

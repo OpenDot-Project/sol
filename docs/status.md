@@ -2,34 +2,35 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Status and roadmap
 
-## Sol 0.0.1
+## Sol 0.1.0
 
-Sol 0.0.1 is the first frontend release for Windows x86-64. It is useful for exploring the supported
-syntax subset and developing source analysis infrastructure. It cannot compile or run a Sol program.
+Sol 0.1.0 ships two Windows x86-64 components: a frontend package for CST/AST/verified-FIR
+inspection, and a native package that adds LLVM 23.1.3, SolRT, AOT linking, and process-isolated
+ORC for a restricted verified subset. Neither package implements the complete language specification.
 
-| Capability | Current state |
+| Capability | Sol 0.1.0 state |
 |---|---|
-| Immutable UTF-8 source, byte spans, scalar/UTF-16 positions | Implemented. |
-| Lossless lexer, comments/trivia, malformed-input diagnostics | Implemented initial lexical surface. |
-| CST declarations and expressions | Initial subset; unsupported productions diagnosed explicitly. |
-| Explicit module names independent of file paths | Parsed and indexed; no import binding. |
-| CLI, response files, CST JSON, output transactions | Implemented for the CST stage. |
-| Private .NET 10 component and native launcher | Released for Windows x86-64. |
-| PSI/AST/FIR, symbol/type/effect/escape analysis | Planned. |
-| LLVM 23.1.3 AOT and ORC, native artifacts and entry validation | Planned. |
-| C++/CLI LLVM bridge | Added only when actual backend interop needs it. |
-| Native runtime and Yellow Tea | Planned; no published latency measurements. |
-| Standard library | Planned; imports in source examples do not imply available implementations. |
+| UTF-8 source, byte spans, scalar/UTF-16 positions, lexer and bounded parser | Implemented; grammar remains a subset and unsupported productions are diagnosed. |
+| PSI and structural AST | Implemented and included in the compiler component; not a stable NuGet SDK. |
+| Module/declaration and body analysis | Implemented in partial source-analysis slices; unsupported facts remain deferred or diagnostic. |
+| Verified FIR | Implemented for a closed bootstrap subset with an independent verifier and CFG assignment checks. |
+| LLVM AOT and artifact output | Implemented in the native component for admitted FIR: bin, cdylib, staticlib, and solib have separate limits. |
+| ORC | Implemented for bin execution in a separate native guest process. |
+| Yellow Tea and SolRT | Experimental precise concurrent mark/sweep with span allocation, generated roots and barriers; no measured latency guarantee. |
+| Standard library | Restricted std.core, std.stdio, and integral std.math bootstrap APIs; most specified modules remain unimplemented. |
+| Package runtime | Each component carries its private .NET 10 runtime; neither NativeAOT nor SDK self-contained publishing is used. |
 
-## Implementation order
+The original Sol 0.0.1 release remains an immutable CST-only frontend package. This status page
+describes 0.1.0 and the current implementation; it does not retroactively change that release's
+capabilities.
 
-### Current development branch (Unreleased)
+### Implementation at 0.1.0
 
 The CST parser now includes braced `if/else`, the four `for` forms, `switch` with flat payload/type
 patterns, `try/catch/finally` in statement/value contexts, `defer`, and `unsafe`. Function expressions
 add typed/ref/out lambda headers, local return labels, anonymous functions, trailing lambdas, and
 structured named/ref/out/spread call arguments. Casts and type tests are parsed with their precedence.
-These additions are not in the published 0.0.1 component. Parsing them alone does not establish
+These additions extend beyond the initial 0.0.1 parser; the 0.1.0 native backend admits only a closed verified subset. Parsing them alone does not establish
 type/effect/escape/exhaustiveness validation or executable output. See the [frontend guide](frontend.md).
 
 Nominal declarations now include class, struct/ref struct, object/companion, interface, enum payloads,
@@ -75,15 +76,15 @@ evidence, and borrow-origin proof remain incomplete. These are source-analysis f
 does not produce verified FIR or native output. See the [cleanup/construction guide](cleanup-construction.md)
 for the exact supported boundary.
 
-The [Yellow Tea implementation inventory](yellow-tea/current-implementation.md) records experimental
-concurrent mark/sweep, generated roots/barriers, handles, and native validation fixtures. The design
-also specifies pending span allocation, pacing and broader qualification. No measured latency or
-production-readiness guarantee is available. SolRT defaults to dynamic; static linkage is explicit.
+The [Yellow Tea implementation inventory](yellow-tea/current-implementation.md) records the experimental
+concurrent mark/sweep collector, generated roots/barriers, handles, and span allocator. Broader allocator
+concurrency/workload qualification and pacing work remain open. No measured latency or production-readiness
+guarantee is available. SolRT defaults to dynamic; static linkage is explicit.
 
 The [verified FIR/native path](fir-native.md) admits a closed scalar/stateless subset, independently
 checks FIR types/calls/CFG assignment, and lowers through a qualified C++20/CLI LLVM bridge to AMD64
 COFF and a Windows executable. Default dynamic and explicit static SolRT modes are execution-tested.
-Collectible Strings/scalar arrays and selected String/integral math APIs are available in development.
+Collectible Strings/scalar arrays and selected String/integral math APIs are included in the 0.1.0 native component.
 [Library artifacts](library-artifacts.md) now include scalar C DLL/staticlib output and closed-subset
 Sol containers; external Sol module consumption remains pending. ORC runs in a separate native guest
 process. Closed module-level generic functions have a verified FIR/native slice for admitted
@@ -100,7 +101,7 @@ lists implemented and pending modules.
 3. Expand the verified FIR subset with full nullability, checked exception/cleanup CFG, borrowing,
    closures, broader generic specialization, and general object layouts.
 4. Qualify complete Windows/ORC exception handling, library consumption and extended native ABI.
-5. Complete and validate the native allocator, Yellow Tea concurrency invariants, and `std.core`;
+5. Broaden allocator/concurrency workload qualification, validate Yellow Tea invariants, and implement `std.core`;
    expand the standard library with module-level API contracts and tests.
 
 Testing, malformed-input exploration, security analysis, and documentation evolve with each stage.

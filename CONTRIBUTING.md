@@ -3,14 +3,15 @@
 # Contributing to Sol
 
 Contributions should make one compiler behavior easier to specify, verify, or maintain.
-Sol is at an early frontend stage; check the [current status](docs/status.md) before relying on an
-unimplemented compiler stage.
+Sol 0.1.0 contains an experimental verified-FIR/native subset alongside a broader language
+specification; check the [current status](docs/status.md) before relying on an unimplemented stage.
 
 ## Set up a checkout
 
 Use Windows and PowerShell 7. Install the exact .NET SDK selected by `global.json`
 (currently 10.0.402). Managed frontend work does not require LLVM, C++/CLI, or the native launcher.
-Native launcher and packaging work additionally require Visual Studio C++ build tools, a Windows SDK,
+Native backend, C++/CLI bridge, launcher, and packaging work additionally require Visual Studio C++
+build tools, a Windows SDK,
 and an installed MSVC v143 or v145 toolset with C++20 support.
 
 ```powershell
@@ -69,7 +70,7 @@ Do not update unrelated packages to fix a local restore problem.
 ## Review and validation
 
 CI uses Windows 2025 exclusively. Separate workflows cover Debug/Release regression tests,
-coverage upload, DocFX, CodeQL for C# and native C++, actionlint, zizmor, OSV, and component packaging.
+coverage upload, DocFX, CodeQL for C# and Sol-owned native C++, actionlint, zizmor, OSV, and component packaging.
 Codecov coverage is additional evidence; it does not replace assertions about correctness.
 Do not suppress a failure, weaken a required check, or label a skipped capability as tested.
 

@@ -4,12 +4,14 @@
 
 Native package execution tests, source analysis, advisory matching and release qualification
 provide different evidence. A passing compiler or GC test does not clear an upstream advisory.
-This page records the native dependency review for the experimental 0.0.2 release target.
+This page records the native dependency review for the Sol 0.1.0 native component. The latest
+merged-source qualification is tied to SHA `4b70a251ebeca855736e66cfdbe9304be71f15da`; the tag
+workflow must repeat the checks for the exact release commit.
 
 ## Exact inputs
 
 `eng/native-advisories.json` records the source repositories, release tags, annotated tag objects
-and dereferenced commits verified on October 23, 2026. LLVM remains pinned to 23.1.3.
+and dereferenced commits verified on October 26, 2026. LLVM remains pinned to 23.1.3.
 The three native libraries are selected by the hash-pinned vcpkg revision in
 `eng/llvm-native-dependencies.json`.
 
@@ -61,10 +63,11 @@ component evidence, duplicate advisory identities, repeated continuation tokens 
 beyond ten pages. Each continuation retains the original source commit. Unknown or failed
 queries fail qualification; they are not converted into empty results. All returned advisories
 remain in the report, including records without numerical severity. Unknown advisories block.
-The two mapped libxml2 records can receive a reported-path-absent annotation after binary
-qualification. They still block: their shared root functions remain, and removing a reported
-caller alone does not prove that another route cannot trigger the same defect. No advisory
-receives an automatic not-affected disposition or severity suppression.
+Both raw libxml2 records remain in the OSV report. In this exact build, the pinned tag history contains
+the verified upstream fixes, and the matching binary qualification proves that HTML/XInclude code and
+symbols are absent. Those records are therefore non-blocking under the explicit evidence rule; unknown
+records, missing history, mismatched source, or stale binary proof still block. No advisory is deleted
+or severity-suppressed.
 
 `eng/test-native-dependencies.ps1` requires the generated HTML/XInclude macros to be absent,
 rejects all defined `html[A-Z]*` and `xmlXInclude*` symbols in the static library, and requires
@@ -105,8 +108,8 @@ those raw records and verifies the upstream fix commits against the pinned v2.15
 
 | Component | Advisory | Reported affected behavior | Disposition |
 |---|---|---|---|
-| zlib | [CVE-2026-76844](https://osv.dev/vulnerability/CVE-2026-76844) | Stale gzip write input after a failed write can lead to a heap buffer overflow. | Fixed source built locally; fresh query returned no records and the failed-write regression passed. Full package qualification remains pending. |
-| zlib | [CVE-2026-85091](https://osv.dev/vulnerability/CVE-2026-85091) | Non-blocking gzip writes followed by formatted writes can reach an invalid buffer move. | Same fixed source and local regression evidence; comprehensive vendor sanitizer coverage is not established. |
+| zlib | [CVE-2026-76844](https://osv.dev/vulnerability/CVE-2026-76844) | Stale gzip write input after a failed write can lead to a heap buffer overflow. | The pinned source includes the upstream fix; the latest commit query returned no advisory records and the hash-bound failed-write regression passed. This is not comprehensive vendor sanitizer coverage. |
+| zlib | [CVE-2026-85091](https://osv.dev/vulnerability/CVE-2026-85091) | Non-blocking gzip writes followed by formatted writes can reach an invalid buffer move. | The same fixed source and regression evidence apply; the latest commit query returned no advisory records. This is not comprehensive vendor sanitizer coverage. |
 | libxml2 | [OSV-2021-777](https://osv.dev/vulnerability/OSV-2021-777) | Heap use-after-free in an XInclude sibling/copy path. | [Upstream fix 8f5ccada](https://gitlab.gnome.org/GNOME/libxml2/-/commit/8f5ccada05ddd4a1ff8e399ad39fc7cd4bd33325) is present in the pinned tag; XInclude is disabled and its symbols are absent. Raw OSV record remains in the report. |
 | libxml2 | [OSV-2024-698](https://osv.dev/vulnerability/OSV-2024-698) | Heap use-after-free in an encoding-close/HTML-save path. | [Upstream fix fcb7a777](https://gitlab.gnome.org/GNOME/libxml2/-/commit/fcb7a777ce19ff2bef020ed2966a0c96e4f4da4c) is present in the pinned tag; HTML is disabled and its symbols are absent. Raw OSV record remains in the report. |
 
@@ -120,8 +123,11 @@ the node returned by `xmlAddNextSibling`/`xmlAddChild` while XInclude copies a n
 defines that output-buffer creation leaves the encoder with its caller on failure, with HTML save
 callers closing it explicitly. CI verifies each immutable commit SHA and subject in the pinned
 tag's relevant file history, then binds the disabled-feature and absent-symbol proof to the exact
-static library bytes. Local validation passes; complete product requalification still depends on
-PR CI. This does not claim that all libxml2 defects are fixed or that all XML paths are absent.
+static library bytes. The merged-source Native dependency advisories run `40684411758` succeeded on SHA
+`4b70a251ebeca855736e66cfdbe9304be71f15da`. Its OSV results were LLVM 23.1.3: 0 records;
+zlib 1.3.2: 0; zstd 1.5.7: 0; libxml2 2.15.4: 2 raw records, both with verified upstream
+fixes and 0 blocking. The `v0.1.0` tag run must produce its own successful result. This does not
+claim that all libxml2 defects are fixed or that all XML paths are absent.
 No CodeQL finding has been dismissed, and no general security clearance is implied.
 
 The affected helper functions remain present in general libxml2 code, so symbol presence alone
@@ -132,33 +138,41 @@ cannot describe these fixes. The verified fixes change the vulnerable caller/own
 | `OSV-2021-777` | Copy helpers retain the node pointer returned by sibling/child insertion; the change covers both XInclude range and XPointer copy paths. | Exact commit in `xinclude.c` history; XInclude option macros and symbols absent in the built library. |
 | `OSV-2024-698` | Encoder ownership on output-buffer creation failure is explicit; HTML save callers release the encoder on failure. | Exact commit in `xmlIO.c` and `HTMLtree.c` histories; HTML option macros and symbols absent in the built library. |
 
-## CodeQL review remains separate
+## CodeQL review and dependency source boundary
 
-The existing main revision `901666fdc43aac7c08ff8500a1c8b879df911d37` had 72 open C++
-CodeQL records: 17 in downloaded LLVM headers and 55 in vcpkg dependency build sources.
-The review snapshot had no first-party source locations. That observation does not clear
-the upstream records or prove absence of first-party vulnerabilities.
+At main commit `4b70a251ebeca855736e66cfdbe9304be71f15da`, GitHub reported 73 open C++ alerts.
+Their CodeQL locations are all under ignored `out/` build output: pinned LLVM 23.1.3 headers or
+vcpkg build sources for zlib 1.3.2, zstd 1.5.7 and libxml2 2.15.4. The alert API showed no
+tracked first-party C++ locations at that revision. These alerts are static-analysis findings in
+upstream code; their presence alone does not establish exploitability or a Sol-owned defect.
 
-| Query family | Records | Required review |
-|---|---:|---|
-| Suspicious pointer scaling | 34 | Allocation/layout invariants and the actual instantiated types. |
-| Wrong format argument type | 8 | Vararg types, format conversions and platform ABI. |
-| Incorrect logical-not operator use | 7 | Intended Boolean/bitmask expression semantics. |
-| Invalid pointer dereference | 6 | Bounds, buffer lifetimes and full caller preconditions. |
-| External entity expansion | 4 | Parser options and callers that can supply external resources. |
-| Unsafe string concatenation | 4 | Source lengths and destination capacity at every call. |
-| Integer multiplication conversion | 3 | Operand limits and arithmetic width before multiplication. |
-| Pointer overflow check | 2 | Pointer provenance, integer bounds and supported platform semantics. |
-| Non-constant format | 1 | The actual format-string source and caller trust boundary. |
-| Path injection | 1 | Catalog input and permitted filesystem access. |
-| Filesystem check/use race | 1 | File identity, replacement and read-size handling. |
-| Type confusion | 1 | LLVM object/use storage and placement invariants. |
+| Query family | Alerts |
+|---|---:|
+| Suspicious pointer scaling | 34 |
+| Wrong format argument type | 8 |
+| Incorrect logical-not operator use | 7 |
+| Invalid pointer dereference | 6 |
+| External entity expansion | 4 |
+| Unsafe string concatenation | 4 |
+| Integer multiplication conversion | 3 |
+| Pointer overflow check | 2 |
+| Non-constant format | 2 |
+| Path injection | 1 |
+| Filesystem check/use race | 1 |
+| Type confusion | 1 |
+| **Total** | **73** |
 
-Initial source inspection found explicit capacity checks in the reported zstd RLE write
-helper and configurable options in the reported libxml2 parser wrappers. Those observations
-are not complete interprocedural proofs. The records remain open; vendor-path location alone
-does not justify suppression, exclusion, or automatic risk acceptance.
+The C++ CodeQL job now places the LLVM toolchain, vcpkg source/build trees and installed native
+headers under the runner's temporary directory, outside the checkout. It still builds and analyzes
+Sol's tracked C++/CLI and native sources. The workflow does not use `paths-ignore`, CodeQL query
+filters or alert dismissals. Native source versions and known advisories continue through the
+hash-pinned OSV commit review and binary qualification described above.
 
-The protected merge of the resident-span GC change does not publish 0.0.2 or resolve this
-dependency review. Native release publication requires remediation or verified binary-specific
-applicability evidence, fresh advisory results, and the separate merged-SHA/tag/package gates.
+This source-boundary correction does not patch the upstream files or clear their findings in those
+upstream repositories. If a future scan reports a finding in a tracked Sol source file, it remains
+in scope and must be fixed or explicitly reviewed on its own evidence. GitHub's treatment of prior
+`out/` locations after reanalysis is not evidence that an upstream defect was fixed.
+
+The protected merge of the resident-span GC change does not publish 0.1.0. A release still requires
+successful CI for the exact merge and tag commits, successful native advisory qualification, and
+a verified package built from the tag.

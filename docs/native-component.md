@@ -2,8 +2,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Native component packaging
 
-This page describes unreleased source development. Published Sol 0.0.1 remains the initial CST
-frontend. A development archive does not publish or replace that release.
+This page documents the optional native component shipped with Sol 0.1.0. It complements the frontend-only component with the LLVM backend and guest runtime. The provisional ABI and supported source subset remain experimental.
 
 After `eng/build-backend.ps1`, run
 `eng/package.ps1 -IncludeNative -OutputDirectory out/packages/native` to assemble Solc with its

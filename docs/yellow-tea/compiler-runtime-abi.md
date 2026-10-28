@@ -5,7 +5,7 @@
 This page specifies the target native GC ABI. The development branch has provisional descriptor
 version 0, native roots/barriers, collectible Strings/arrays, and a concurrent baseline. It does not
 establish compatibility with the complete ABI described below. The [implementation inventory](current-implementation.md)
-separates current native code from pending layout, source EH, and allocator work.
+separates current native code from pending general layouts, source EH, and broader allocator qualification.
 
 ## Descriptor responsibilities
 
@@ -32,10 +32,9 @@ interpreted as references. A source integer containing a pointer-like bit patter
 The compiler validates imported library target, compiler identity, runtime ABI, and LLVM identity
 before native linking. A descriptor layout mismatch cannot fall back to conservative scanning.
 
-## Planned entry points
+## Exported runtime entry points
 
-The following names describe responsibilities. They are a design inventory, not declarations of
-callable exports in the current release:
+The following C ABI exports are implemented by SolRT. This inventory does not imply that they are part of the Sol language API; the native runtime ABI remains provisional.
 
 | Native entry | Responsibility |
 |---|---|
@@ -60,8 +59,8 @@ selects static SolRT linkage instead. This selects runtime linkage independently
 requesting a `staticlib` artifact does not itself select static SolRT, and selecting static SolRT
 does not turn a binary artifact into a library.
 
-The development [native bootstrap](../fir-native.md) implements both modes with a provisional native
-runtime. The published 0.0.1 frontend release contains neither mode's native components. Neither mode
+The Sol 0.1.0 [native component](../native-component.md) implements both modes with a provisional native
+runtime. The frontend-only component contains neither mode's native components. Neither mode
 changes the collector's root/barrier/EH contract or replaces the tools' separately packaged .NET runtime.
 
 Static embedding must not create two independent collector/handle registries that exchange managed

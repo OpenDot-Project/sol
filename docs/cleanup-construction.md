@@ -634,7 +634,6 @@ that the catch actually covers. A missing step in any of those analyses leaves t
 | LLVM lowering | Encoded cleanup/personality/root operations | Actual Windows runtime behavior without execution |
 | Executed Windows test | The exercised behavior for that exact binary/configuration | Unexecuted paths, sanitizer coverage, or universal safety |
 
-The current release stops at the initial CST frontend. Every later row is a future qualification
-boundary. A report must name the layer reached and the exact evidence collected. “Compiles” must
+The historical 0.0.1 release stopped at the initial CST frontend. Sol 0.1.0 admits only the source and native paths separately documented as implemented; every unsupported row remains a qualification boundary. A report must name the layer reached and the exact evidence collected. “Compiles” must
 not be used as a substitute for “verified,” and “verified source” must not be used as a substitute
 for “native behavior executed.”
