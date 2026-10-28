@@ -289,8 +289,22 @@ internal sealed partial class BodyBindingBuilder
                         "argument " + entry.ArgumentIndex, out _)) { return null; }
             }
         }
-        if (expected is not null && callable.ReturnType is not null)
-        { inference.Add(new(Written(callable.ReturnType), expected, GenericInferenceRelation.Expected, "expected result")); }
+        if (expected is not null && !inferParameters.IsEmpty)
+        {
+            var returnTemplate = callable.ReturnType is { } declaredReturn
+                ? Written(declaredReturn)
+                : callable is AstFunction { Body.Kind: AstBodyKind.Expression } expressionFunction
+                    ? InferredFunctionReturnTemplate(expressionFunction, state)
+                    : null;
+            if (returnTemplate is not null)
+            {
+                // Non-null results widen to the payload of a nullable expected type; the final
+                // selected result is still checked against the complete nullable target.
+                var expectedTemplate = expected.IsNullable && !returnTemplate.IsNullable
+                    ? expected.Arguments[0] : expected;
+                inference.Add(new(returnTemplate, expectedTemplate, GenericInferenceRelation.Expected, "expected result"));
+            }
+        }
         if (!inferParameters.IsEmpty)
         {
             var genericInference = GenericInference.Solve(inferParameters, substitution, inference);
@@ -479,6 +493,13 @@ internal sealed partial class BodyBindingBuilder
         var actualEffectSet = Types.GetFunction([], marker, [], actual.Effects);
         constraints.Add(new(formalEffectSet, actualEffectSet, GenericInferenceRelation.Input,
             "argument " + argumentIndex + " lambda checked effects"));
+    }
+
+    private ResolvedType? InferredFunctionReturnTemplate(AstFunction function, State state)
+    {
+        var summary = Speculate(state, () => CheckBody(function), out bool reportedDiagnostic);
+        if (reportedDiagnostic || summary.Status != BodyBindingStatus.Bound) { return null; }
+        return summary.ReturnType;
     }
 
     private bool AddArrayLiteralEvidence(ImmutableArray<GenericInferenceConstraint>.Builder constraints,
