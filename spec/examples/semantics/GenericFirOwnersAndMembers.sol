@@ -504,7 +504,7 @@ class OpenRunner<T>(val value: T) {
     func run(): String = value.describe()
 }
 
-// expect: body.rebinding | Source: May be bound through T's declared bound | FIR: Rejected(SOL2400) until body is rebound for a concrete owner.
+// expect: body.rebinding | Source: Internal on-demand body view supports a direct, closed, top-level generic owner and exact method arguments; ordinary call analysis does not request the view automatically. Nested/inherited owner routes remain outside this query. | FIR: Rejected(SOL2400, generic owner member).
 
 // 49. Generic owner metadata cannot be dropped from an artifact.
 

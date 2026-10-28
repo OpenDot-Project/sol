@@ -260,16 +260,31 @@ public static partial class FirVerifier
             if (targetExpression is not AstMember { IsSafe: false, Name: var name, Receiver: { } receiver }
                 || name != target.Name) { return false; }
 
-            string? firstQualifier = null;
-            var current = receiver;
-            while (current is AstMember { IsSafe: false, Name: { } memberName, Receiver: { } parent })
+            return MatchesCanonicalOwnerQualifier(receiver, targetOwner);
+        }
+
+        private bool MatchesCanonicalOwnerQualifier(AstExpression expression,
+            GenericMethodOwnerIdentity targetOwner)
+        {
+            var suffix = new Stack<string>();
+            var current = expression;
+            while (current is AstMember { IsSafe: false, Name: { Length: > 0 } name, Receiver: { } parent })
             {
-                firstQualifier ??= memberName;
+                suffix.Push(name);
                 current = parent;
             }
-            return current is AstAtom { SyntaxKind: NodeKind.NameExpression } root
-                && !program.Analysis.Sources.Lexical.Lookup(root, root.Spelling).IsLocal
-                && (firstQualifier ?? root.Spelling) == targetOwner.Declaration.Name;
+            if (current is not AstAtom { SyntaxKind: NodeKind.NameExpression, Spelling: { Length: > 0 } } root
+                || program.Analysis.Sources.Lexical.Lookup(root, root.Spelling).IsLocal
+                || !_genericMethodFiles.TryGetValue(root.Origin.Element.Snapshot, out var file))
+            { return false; }
+
+            var parts = new List<string>(suffix.Count + 1) { root.Spelling };
+            while (suffix.TryPop(out var part)) { parts.Add(part); }
+            var candidates = parts.Count == 1
+                ? program.Analysis.Sources.Declarations.Lookup(file.Root, parts[0]).Candidates
+                : program.Analysis.Sources.Declarations.LookupQualified(file.Root,
+                    string.Join('.', parts.Take(parts.Count - 1)), parts[^1]).Candidates;
+            return candidates.Length == 1 && ReferenceEquals(candidates[0], targetOwner.Symbol);
         }
 
         private IEnumerable<FirCall> EnumerateGenericMethodCalls(FirNode root)

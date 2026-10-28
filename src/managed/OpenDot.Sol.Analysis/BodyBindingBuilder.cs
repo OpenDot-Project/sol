@@ -223,6 +223,117 @@ internal sealed partial class BodyBindingBuilder
         return new(this, function, arguments, summary);
     }
 
+    /// <summary>
+    /// Rebinds a member body for one direct, closed generic owner and one closed method argument
+    /// vector. This is source-analysis evidence only; it does not admit the member to FIR.
+    /// </summary>
+    internal SpecializedBodyAnalysis BuildGenericMemberBody(AstFunction function,
+        ResolvedType constructedOwner, ImmutableArray<ResolvedType> methodArguments)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        ArgumentNullException.ThrowIfNull(constructedOwner);
+        _cancellation.ThrowIfCancellationRequested();
+
+        var file = Files.TryGetValue(function, out var sourceFile) ? sourceFile
+            : throw new ArgumentException("The member is not owned by this source analysis.", nameof(function));
+        var owner = file.GetParent(function);
+        while (owner is not null && owner is not AstTypeDeclaration)
+        { owner = file.GetParent(owner); }
+        if (owner is not AstTypeDeclaration declaration
+            || !declaration.Members.Any(member => ReferenceEquals(member, function)))
+        { throw new ArgumentException("A generic member body requires a directly declared type member.", nameof(function)); }
+
+        var ownerSymbol = Sources.Declarations.GetDeclaredSymbol(declaration);
+        if (ownerSymbol is null || ownerSymbol.Kind != SymbolKind.Type || ownerSymbol.Arity == 0
+            || declaration.SyntaxKind is not (NodeKind.ClassDeclaration or NodeKind.StructDeclaration
+                or NodeKind.RefStructDeclaration or NodeKind.InterfaceDeclaration)
+            || ownerSymbol.Parts.IsEmpty || ownerSymbol.Parts.Any(part => part is not AstTypeDeclaration type
+                || type.SyntaxKind != declaration.SyntaxKind
+                || type.Arity != ownerSymbol.Arity
+                || !ReferenceEquals(Sources.Declarations.GetDeclaredSymbol(type), ownerSymbol)))
+        { throw new ArgumentException("The member owner is not one canonical generic type declaration.", nameof(function)); }
+        for (var parent = file.GetParent(declaration); parent is not null; parent = file.GetParent(parent))
+        {
+            if (parent is AstTypeDeclaration)
+            { throw new ArgumentException("Nested generic member owners are not in the source-rebinding slice.", nameof(function)); }
+        }
+        if (constructedOwner.Kind != ResolvedTypeKind.Nominal
+            || !ReferenceEquals(constructedOwner.Declaration, ownerSymbol)
+            || constructedOwner.Arguments.Length != ownerSymbol.Arity)
+        { throw new ArgumentException("The constructed receiver must directly name this generic owner.", nameof(constructedOwner)); }
+        if (function.Body.Kind == AstBodyKind.Missing)
+        { throw new ArgumentException("A generic member body must have a source body.", nameof(function)); }
+        if (methodArguments.IsDefault
+            || Sources.Types.GetTypeParameters(function).Length != methodArguments.Length)
+        { throw new ArgumentException("A generic member body requires every ordered method argument.", nameof(methodArguments)); }
+
+        var ownerParameters = Sources.Types.GetTypeParameters(ownerSymbol.Parts[0]);
+        var methodParameters = Sources.Types.GetTypeParameters(function);
+        if (ownerParameters.Length != ownerSymbol.Arity)
+        { throw new InvalidOperationException("Canonical owner parameter metadata has an invalid arity."); }
+
+        var substitutions = new Dictionary<ResolvedType, ResolvedType>();
+        for (int index = 0; index < ownerParameters.Length; index++)
+        {
+            var argument = constructedOwner.Arguments[index];
+            Types.ValidateOwnership(argument);
+            if (ContainsTypeParameter(argument))
+            { throw new ArgumentException("A generic member body requires closed owner arguments.", nameof(constructedOwner)); }
+            substitutions.Add(ownerParameters[index], argument);
+        }
+        for (int index = 0; index < methodParameters.Length; index++)
+        {
+            var argument = methodArguments[index];
+            Types.ValidateOwnership(argument);
+            if (ContainsTypeParameter(argument))
+            { throw new ArgumentException("A generic member body requires closed method arguments.", nameof(methodArguments)); }
+            if (!substitutions.TryAdd(methodParameters[index], argument))
+            { throw new InvalidOperationException("Owner and method generic parameter identities overlap."); }
+        }
+
+        var ownerConstraintStatus = ConstraintStatus.Satisfied;
+        foreach (var part in ownerSymbol.Parts.OfType<AstTypeDeclaration>())
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            var constraints = Types.CheckConstraints(part, constructedOwner.Arguments, _cancellation);
+            if (constraints.Status == ConstraintStatus.Unsatisfied)
+            {
+                Report("SOL2221", "Generic owner constraints are not satisfied for the closed member body.", part);
+                ownerConstraintStatus = ConstraintStatus.Unsatisfied;
+                break;
+            }
+            if (constraints.Status == ConstraintStatus.Indeterminate)
+            { ownerConstraintStatus = ConstraintStatus.Indeterminate; }
+        }
+        if (ownerConstraintStatus == ConstraintStatus.Indeterminate)
+        { Defer(function); }
+
+        var ownerSubstitution = ownerParameters.Select((parameter, index) =>
+            new KeyValuePair<ResolvedType, ResolvedType>(parameter, constructedOwner.Arguments[index]))
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
+        var methodConstraints = Types.CheckConstraintsWithSubstitution(function, methodArguments,
+            ownerSubstitution, _cancellation);
+        if (methodConstraints.Status == ConstraintStatus.Unsatisfied)
+        { Report("SOL2221", "Generic method constraints are not satisfied for the closed member body.", function); }
+        else if (methodConstraints.Status == ConstraintStatus.Indeterminate)
+        { Defer(function); }
+
+        _bodySubstitution = substitutions;
+        if (ownerConstraintStatus != ConstraintStatus.Satisfied
+            || methodConstraints.Status != ConstraintStatus.Satisfied)
+        {
+            var status = ownerConstraintStatus == ConstraintStatus.Indeterminate
+                || methodConstraints.Status == ConstraintStatus.Indeterminate
+                    ? BodyBindingStatus.Deferred : BodyBindingStatus.Invalid;
+            var rejected = new BodySummary(function, null, true, status, []);
+            return new(this, function, constructedOwner.Arguments, methodArguments, constructedOwner, rejected);
+        }
+
+        var summary = CheckBody(function);
+        _cancellation.ThrowIfCancellationRequested();
+        return new(this, function, constructedOwner.Arguments, methodArguments, constructedOwner, summary);
+    }
+
     internal void Build()
     {
         foreach (var declaration in Files.Keys.OfType<AstCallable>()) { CheckBody(declaration); }
@@ -347,6 +458,21 @@ internal sealed partial class BodyBindingBuilder
     {
         var written = Sources.Types.GetType(type);
         return _bodySubstitution.Count == 0 ? written : Types.Substitute(written, _bodySubstitution, _cancellation);
+    }
+
+    private static bool ContainsTypeParameter(ResolvedType root)
+    {
+        var pending = new Stack<ResolvedType>();
+        var seen = new HashSet<ResolvedType>(ReferenceEqualityComparer.Instance);
+        pending.Push(root);
+        while (pending.TryPop(out var current))
+        {
+            if (!seen.Add(current)) { continue; }
+            if (current.Kind == ResolvedTypeKind.Parameter) { return true; }
+            foreach (var argument in current.Arguments) { pending.Push(argument); }
+            foreach (var effect in current.Effects) { pending.Push(effect); }
+        }
+        return false;
     }
     private ResolvedType? Core(string name) => Sources.Declarations.Modules.GetValueOrDefault("std.core")?.Declarations
         .Where(s => s.Kind == SymbolKind.Type && s.Name == name && s.Arity == 0).Select(s => Types.Nominal(s, [])).SingleOrDefault();

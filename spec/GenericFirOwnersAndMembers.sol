@@ -476,10 +476,12 @@ module source.spec.generic_fir_owners_and_members
 // same spelling do not denote the same thrown type. Nullable wrapping or source null checks do not
 // erase a checked effect.
 //
-// Source-body effects are computed from reachable operations and exceptional edges. Full native
-// generic member support must rerun this analysis after substitution. Merely replacing E with a
-// concrete Throwable subtype in the function signature is insufficient if the body selected a
-// different getter, operator, or override.
+// Source-body effects are computed from reachable operations and exceptional edges. The current
+// implementation can build an on-demand source body view for one direct, closed, top-level generic
+// owner and rechecks these facts from the original AST. The regular call-analysis path does not yet
+// consume that view, and native generic member support remains unavailable. Full support must rerun
+// this analysis after substitution. Merely replacing E with a concrete Throwable subtype in the
+// function signature is insufficient if the body selected a different getter, operator, or override.
 
 // 19. Runtime layout and GC obligations
 // -------------------------------------
@@ -526,7 +528,14 @@ module source.spec.generic_fir_owners_and_members
 //
 // Current source analysis can provide facts for generic member lookup, constructed-base projection,
 // candidate-local argument mapping, explicit/expected/input evidence, nominal constraints, and
-// source effects. Those facts are useful to analysis clients and do not certify a native body.
+// source effects. In addition, an internal on-demand query can rebind a member body from its original
+// AST for one direct, closed, top-level generic class, struct, ref struct, or interface owner and
+// one exact method argument vector. It applies owner and method substitutions simultaneously, checks
+// both constraint sets, and recomputes body calls, expression types, effects, nullability, and flow.
+// Partial declarations share their canonical owner identity. Only a complete Bound result with no
+// diagnostics or unverified nodes is cached; invalid, deferred, canceled, or incomplete work is not.
+// This query does not yet participate automatically in ordinary member call binding. It provides
+// source-analysis evidence only and does not certify a native body.
 //
 // The current native FIR specialization slice accepts closed module-level generic free functions
 // and directly called methods on stateless, non-generic, module-level objects when their argument
@@ -545,10 +554,54 @@ module source.spec.generic_fir_owners_and_members
 //
 // It does not emit a generic class/struct/ref-struct layout, a generic constructor, stateful or
 // nested/companion owner method, generic property/indexer/operator, open owner body, virtual generic
-// dispatch slot, generic closure, generic exported symbol, or runtime reified type descriptor.
+// dispatch slot, generic closure, generic exported symbol, or runtime reified type descriptor. The
+// source body-view query rejects inherited owner projections and nested owners, and ordinary call
+// binding does not automatically request the view.
 // Unsupported owner/member native requests must receive an explicit diagnostic. They must not
 // create an empty body, replace a selected member with a free function, or fall back to a different
 // overload.
+
+// 21a. Direct closed generic member body views
+// --------------------------------------------
+//
+// The current internal BodyAnalysis.GetGenericMemberBody query accepts a source AstFunction, its
+// direct constructed generic owner, and the complete method type-argument vector. The owner must be
+// a canonical top-level generic class, struct, ref struct, or interface that directly declares the
+// method. A source body is required. Compatible partial declarations share the validated canonical
+// owner and parameter identities.
+//
+// Owner and method type arguments are separate ordered vectors. Their substitution keys are the
+// canonical owner and method parameter identities, not source names. Both maps are applied at once
+// to the original body analysis. If owner and method each declare a parameter named T, the closed
+// owner may supply Widget while the method supplies String; the `this` type is Owner<Widget>, while
+// the method parameter and result are String.
+//
+// The query rejects a non-direct owner, an inherited projection, a nested owner, an incomplete or
+// incorrectly ordered vector, a foreign-workspace type, or an argument that still contains a type
+// parameter. This is a rejected internal query, not a new language diagnostic on an ordinary call.
+// The generic owner and method constraints are rechecked for the closed vectors. Each compatible
+// partial owner part contributes its constraint obligations. An unsatisfied proof is Invalid with
+// SOL2221; an indeterminate proof is Deferred. Neither outcome creates a successful cached entry.
+//
+// The query binds the original method body again. It does not replace type names on the declaration
+// signature or reuse its open selected calls. The rebound view recomputes the expression and call
+// bindings, overload choice, result and local types, reachable checked effects, nullable types,
+// definite assignment, and supported ref/out flow. For example, an open Owner<T>.resolve(value: T)
+// may select choose(Object), while Owner<Widget>.resolve(value: Widget) selects choose(Widget); the
+// closed view records the latter target and its result/effects. The view keeps original AST origins
+// and records the constructed owner, owner argument vector, and method argument vector independently.
+//
+// The analysis cache belongs to one BodyAnalysis/TypeSpecialization workspace. Its identity is the
+// source method plus ordered owner and method type IDs. A canceled request is observed before a
+// cached result is returned and while waiting for the single-flight gate. Only a complete Bound view
+// with no diagnostics and no unverified source nodes is cached. Invalid, Deferred, canceled, or
+// partially analyzed results are never cached as successful results. The query is internal and is
+// not yet called automatically by ordinary source member binding.
+//
+// A successful body view is source-analysis evidence only. It does not admit a generic member call
+// to FIR and does not prove an owner layout, receiver ABI, method dispatch, property storage, stack
+// or heap lifetime, exception cleanup, runtime type descriptor, Yellow Tea root map, barrier, AOT
+// code, or ORC code. Native generic owner/member requests continue to fail closed with SOL2400.
 
 // 22. Required order for future implementation
 // ---------------------------------------------
@@ -560,7 +613,9 @@ module source.spec.generic_fir_owners_and_members
 // 3. Map source arguments and solve owner and method substitutions in isolated candidates.
 // 4. Select one source member; retain canonical declaration identity, substitutions, origins, modes,
 //    defaults, and effects.
-// 5. Rebind and recheck the body under the complete closed owner/method substitution.
+// 5. The current internal source query rebinds/rechecks one direct closed generic owner body on
+//    demand. Integrate complete source call paths and inherited/nested projection only after their
+//    canonical identities and route proofs are implemented.
 // 6. Validate override/dispatch slots, initialization, field layout, ref-like lifetime and escape.
 // 7. Construct concrete FIR and independently verify every source binding and runtime invariant.
 // 8. Generate exact GC descriptors, stack maps and runtime type metadata for the concrete layout.
@@ -596,8 +651,10 @@ module source.spec.generic_fir_owners_and_members
 //   ambiguity;
 // - constructors, properties, indexers, operators, delegation, and virtual/interface calls retain
 //   exact source target identities and evaluation order;
+// - regular source member-call analysis requests a closed body view where applicable; the current
+//   internal direct-owner query is not yet wired into that call path;
 // - per-instance body binding recomputes overloads, access, effects, flow, assignment, nullability,
-//   constraints, borrow and escape facts;
+//   constraints, borrow and escape facts for every supported owner route;
 // - value/reference/ref-like layouts use exact calling conventions, GC maps, barriers and descriptors;
 // - generic instances have deterministic bounded keys, recursion handling, source origins, caches,
 //   diagnostics, and cancellation behavior;

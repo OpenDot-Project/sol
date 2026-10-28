@@ -32,9 +32,12 @@ The current native lowering path does not qualify every `out var` declaration sh
 source binding as proof that the destination has a verified slot or that its lifetime and definite
 assignment are safe. The examples mark those cases `SourceBound` or `not-qualified` when appropriate.
 
-This implementation substitutes already-bound body facts into the generic instance. It does not
-rerun full source overload and body analysis after every concrete substitution. Generic operations
-that require per-instance overload/member lookup remain outside the admitted native surface.
+Closed generic free-function instances rerun body analysis under their function arguments. For a
+generic owner member, the compiler now also has an internal on-demand source body view for one direct,
+closed, top-level generic owner and complete method argument vector. That query rebinds the original
+body, but ordinary member call analysis does not request it automatically and it does not admit the
+result to FIR. Inherited/nested owner routes and full call-path integration remain future work. The
+generic owner/member native surface continues to stop at `SOL2400`.
 
 ## Status and diagnostic labels
 
@@ -50,10 +53,10 @@ The adjacent fixture distinguishes the source contract from the executable subse
 
 `Planned` describes normative behavior whose implementation remains future work. It is not a source
 diagnostic and does not mean the compiler currently accepts a call. Defaults, vararg array packing,
-spread lowering, closure environments, full `out var` flow proof, and generic member rebinding are
-listed as planned in the remaining-work section. A source-invalid call uses its argument or inference
-diagnostic; a source-valid call outside native admission uses `SOL2400`; an inconsistent FIR uses
-`SOL2402`.
+spread lowering, closure environments, full `out var` flow proof, and call-path-integrated generic
+member body analysis are listed as remaining work. The bounded on-demand owner body view is a source
+analysis result only. A source-invalid call uses its argument or inference diagnostic; a source-valid
+call outside native admission uses `SOL2400`; an inconsistent FIR uses `SOL2402`.
 
 ## Terms and identities
 
@@ -447,7 +450,7 @@ may narrow the effective program further.
 | User vararg | Element or whole-array mapping | Rejected by current native gate |
 | Array spread | Source order and per-element mapping | Rejected by current native gate |
 | Trailing lambda | Final function-parameter mapping | Supported for a closed selected target and exact-ABI noncapturing lambda; captures/adapters remain rejected |
-| Generic member/owner call | Receiver substitution and member lookup | Rejected by current native slice |
+| Generic member/owner call | Receiver substitution and member lookup; internal on-demand body rebind exists for direct closed owners only | Rejected by current native slice |
 | Open generic argument | Deferred or rejected by source inference | Never a closed FIR instance |
 | Unsupported type argument | Source mapping may still be valid | Rejected before verified FIR |
 
@@ -503,10 +506,11 @@ the relevant compiler phase.
 
 ## Remaining work
 
-The normative source rules cover more than the current backend. Remaining work includes complete
-per-instance source rebinding, generic member and owner composition, broader default evaluation and
-effect analysis, vararg array construction, spread lowering, closure environments, full `out var`
-flow/lifetime proof, checked exception handling, and generic artifact/export rules.
+The normative source rules cover more than the current backend. Remaining work includes wiring the
+bounded closed owner body view into member call analysis, inherited/nested owner composition,
+broader default evaluation and effect analysis, vararg array construction, spread lowering, closure
+environments, full `out var` flow/lifetime proof, checked exception handling, and generic
+artifact/export rules.
 
 Each extension adds separate obligations. A default requires value/effect checks under the selected
 substitution. A spread requires array representation, conversion, evaluation order, and roots. A

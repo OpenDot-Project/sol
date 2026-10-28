@@ -83,10 +83,17 @@ internal sealed class SpecializedBodyAnalysis
 
     internal SpecializedBodyAnalysis(BodyBindingBuilder builder, AstFunction function,
         ImmutableArray<ResolvedType> typeArguments, BodySummary summary)
+        : this(builder, function, [], typeArguments, null, summary) { }
+
+    internal SpecializedBodyAnalysis(BodyBindingBuilder builder, AstFunction function,
+        ImmutableArray<ResolvedType> ownerTypeArguments, ImmutableArray<ResolvedType> typeArguments,
+        ResolvedType? constructedOwner, BodySummary summary)
     {
         Sources = builder.Sources;
         Declaration = function;
+        OwnerTypeArguments = ownerTypeArguments;
         TypeArguments = typeArguments;
+        ConstructedOwner = constructedOwner;
         Summary = summary;
         _expressions = builder.Expressions.ToImmutableDictionary();
         _bodies = builder.Bodies.ToImmutableDictionary();
@@ -110,7 +117,9 @@ internal sealed class SpecializedBodyAnalysis
 
     internal SourceAnalysis Sources { get; }
     internal AstFunction Declaration { get; }
+    internal ImmutableArray<ResolvedType> OwnerTypeArguments { get; }
     internal ImmutableArray<ResolvedType> TypeArguments { get; }
+    internal ResolvedType? ConstructedOwner { get; }
     internal BodySummary Summary { get; }
     internal ImmutableArray<ExpressionBinding> Expressions { get; }
     internal ImmutableArray<BodyCallBinding> Calls { get; }
@@ -154,7 +163,7 @@ internal sealed class SpecializedBodyAnalysis
 /// </summary>
 public sealed class BodyAnalysis
 {
-    private readonly record struct GenericBodyKey(AstFunction Function, string TypeIds);
+    private readonly record struct GenericBodyKey(AstFunction Function, string OwnerTypeIds, string MethodTypeIds);
     private readonly ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
     private readonly ImmutableDictionary<AstCallable, BodySummary> _bodies;
     private readonly ImmutableDictionary<AstAnonymousFunction, AnonymousFunctionBodySummary> _anonymousFunctionBodies;
@@ -345,8 +354,8 @@ public sealed class BodyAnalysis
             if (ContainsTypeParameter(argument))
             { throw new ArgumentException("A generic body instance requires closed type arguments.", nameof(typeArguments)); }
         }
-        string ids = string.Join(",", typeArguments.Select(argument => argument.Id.ToString(CultureInfo.InvariantCulture)));
-        var key = new GenericBodyKey(function, ids);
+        string methodTypeIds = TypeIds(typeArguments);
+        var key = new GenericBodyKey(function, "", methodTypeIds);
         // Binding a closed body is intentionally single-flight so concurrent requests cannot
         // duplicate its resource-bounded work. A monitor's ordinary lock acquisition cannot
         // observe cancellation while queued, so acquire in bounded waits instead.
@@ -368,6 +377,78 @@ public sealed class BodyAnalysis
         }
         finally { Monitor.Exit(_genericBodyGate); }
     }
+
+    internal SpecializedBodyAnalysis GetGenericMemberBody(AstFunction function, ResolvedType constructedOwner,
+        ImmutableArray<ResolvedType> methodTypeArguments, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        ArgumentNullException.ThrowIfNull(constructedOwner);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_nodes.Contains(function))
+        { throw new ArgumentException("The function belongs to another source analysis.", nameof(function)); }
+        Types.ValidateOwnership(constructedOwner);
+
+        var owner = GenericMethodSourcePolicy.DirectOwner(function, Sources);
+        var ownerSymbol = owner is null ? null : Sources.Declarations.GetDeclaredSymbol(owner);
+        if (owner is null || ownerSymbol is null || owner.Arity <= 0
+            || ownerSymbol.Parts.IsEmpty
+            || !owner.Members.Any(member => ReferenceEquals(member, function))
+            || constructedOwner.Kind != ResolvedTypeKind.Nominal
+            || !ReferenceEquals(constructedOwner.Declaration, ownerSymbol))
+        { throw new ArgumentException("A generic member body requires its direct constructed owner type.", nameof(constructedOwner)); }
+
+        var ownerFile = Sources.Declarations.Files.Single(file => file.Nodes.Contains(owner));
+        for (var parent = ownerFile.GetParent(owner); parent is not null; parent = ownerFile.GetParent(parent))
+        {
+            if (parent is AstTypeDeclaration)
+            { throw new ArgumentException("Nested generic owners are not supported for member body reanalysis.", nameof(function)); }
+        }
+
+        if (!ReferenceEquals(Sources.Declarations.GetDeclaredSymbol(ownerSymbol.Parts[0]), ownerSymbol)
+            || ownerSymbol.Arity != constructedOwner.Arguments.Length
+            || Sources.Types.GetTypeParameters(owner).Length != ownerSymbol.Arity)
+        { throw new ArgumentException("The constructed owner is not a canonical closed generic declaration.", nameof(constructedOwner)); }
+
+        var methodParameters = Sources.Types.GetTypeParameters(function);
+        if (methodTypeArguments.IsDefault || methodParameters.Length != methodTypeArguments.Length)
+        { throw new ArgumentException("A generic member body requires every ordered method type argument.", nameof(methodTypeArguments)); }
+        if (constructedOwner.Arguments.IsDefault || constructedOwner.Arguments.Length != ownerSymbol.Arity)
+        { throw new ArgumentException("The constructed owner has an incomplete type argument vector.", nameof(constructedOwner)); }
+
+        foreach (var argument in constructedOwner.Arguments)
+        { ValidateClosedBodyArgument(argument, nameof(constructedOwner)); }
+        foreach (var argument in methodTypeArguments)
+        { ValidateClosedBodyArgument(argument, nameof(methodTypeArguments)); }
+
+        string ownerTypeIds = TypeIds(constructedOwner.Arguments);
+        string methodTypeIds = TypeIds(methodTypeArguments);
+        var key = new GenericBodyKey(function, ownerTypeIds, methodTypeIds);
+        while (!Monitor.TryEnter(_genericBodyGate, millisecondsTimeout: 25))
+        { cancellationToken.ThrowIfCancellationRequested(); }
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_genericBodies.TryGetValue(key, out var cached)) { return cached; }
+            var builder = new BodyBindingBuilder(Sources, Types, cancellationToken);
+            var result = builder.BuildGenericMemberBody(function, constructedOwner, methodTypeArguments);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (result.Summary.Status == BodyBindingStatus.Bound
+                && result.Diagnostics.IsEmpty && result.UnverifiedNodes.IsEmpty)
+            { _genericBodies.Add(key, result); }
+            return result;
+        }
+        finally { Monitor.Exit(_genericBodyGate); }
+    }
+
+    private void ValidateClosedBodyArgument(ResolvedType argument, string parameterName)
+    {
+        Types.ValidateOwnership(argument);
+        if (ContainsTypeParameter(argument))
+        { throw new ArgumentException("A generic member body requires closed type arguments.", parameterName); }
+    }
+
+    private static string TypeIds(ImmutableArray<ResolvedType> arguments) => string.Join(",",
+        arguments.Select(argument => argument.Id.ToString(CultureInfo.InvariantCulture)));
 
     private static bool ContainsTypeParameter(ResolvedType type)
     {

@@ -135,6 +135,14 @@ public static partial class FirVerifier
                 Fail("FIR function reference target differs from source name resolution.", actual.Origin);
                 return;
             }
+            if (target.TypeParameters.Any()
+                && GenericMethodSourcePolicy.DirectOwner(target, program.Analysis.Sources) is not null
+                && !GenericObjectMethodFunctionValuePolicy.IsSupportedSource(source, target,
+                    program.Analysis.Sources))
+            {
+                Fail("Generic object method function reference receiver is not a direct, verified singleton reference.",
+                    actual.Origin);
+            }
             var selectedArguments = binding.FunctionValueTypeArguments.Select(Substitute).ToImmutableArray();
             if (selectedArguments.IsDefault
                 || !selectedArguments.SequenceEqual(program.Functions[actual.Target].SpecializationArguments))
