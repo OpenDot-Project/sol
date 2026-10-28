@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-using System.Linq;
 using System.Collections.Immutable;
+using System.Linq;
 using OpenDot.Sol.Analysis;
 using OpenDot.Sol.Ast;
 
@@ -11,7 +11,16 @@ internal sealed partial class FirBuilder
 {
     private FirExpression FunctionReference(AstExpression source, AstFunction target, ResolvedType type)
     {
-        var typeArguments = BoundExpression(source)?.FunctionValueTypeArguments ?? [];
+        var sourceBinding = BoundExpression(source);
+        var typeArguments = sourceBinding?.FunctionValueTypeArguments ?? [];
+        if (target.TypeParameters.Any()
+            && GenericMethodSourcePolicy.DirectOwner(target, _analysis.Sources) is not null
+            && (!ReferenceEquals(sourceBinding?.FunctionValueTarget, target)
+                || !GenericObjectMethodFunctionValuePolicy.IsSupportedSource(source, target, _analysis.Sources)))
+        {
+            Unsupported(source, "Generic object method function value receiver is not a direct, verified singleton reference");
+            return new FirConstant("()", Empty, source.Origin);
+        }
         if (!TryFunctionReferenceTarget(target, type, typeArguments))
         {
             Unsupported(source, "Function value does not have a closed, source-matched native function signature");

@@ -15,7 +15,8 @@ internal sealed partial class BodyBindingBuilder
     {
         var declaration = Ancestors(node).OfType<AstTypeDeclaration>().FirstOrDefault();
         if (declaration is null || Sources.Declarations.GetDeclaredSymbol(declaration) is not { } symbol) { return null; }
-        return Types.Nominal(symbol, Sources.Types.GetTypeParameters(symbol.Parts[0]));
+        var open = Types.Nominal(symbol, Sources.Types.GetTypeParameters(symbol.Parts[0]));
+        return _bodySubstitution.Count == 0 ? open : Types.Substitute(open, _bodySubstitution, _cancellation);
     }
 
     private Dictionary<ResolvedType, ResolvedType> Substitution(ResolvedType? receiver)

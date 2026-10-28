@@ -93,11 +93,23 @@ generic function references. Generic owners/members, broad generic ABI, source c
 complete allocator, and full borrowing remain gated. The [standard library inventory](standard-library.md)
 lists implemented and pending modules.
 
+### Unreleased source-analysis work
+
+The `feature/closed-generic-member-analysis` branch adds an internal on-demand body view for a direct,
+closed, top-level generic class/struct/ref-struct/interface member. It applies separate owner and
+method argument vectors, checks both constraint sets, rebinds the original AST body, and recomputes
+the supported source call, expression, effect, nullable and flow facts. Partial parts use their
+canonical merged owner. The ordinary member-call pipeline does not request this view automatically;
+it is not in Sol 0.1.0, is not a public SDK API, and does not admit generic owners or members to FIR.
+Native requests remain rejected with `SOL2400` until the source integration, verifier, owner layout,
+receiver ABI, GC metadata and runtime gates are implemented and qualified.
+
 ### Remaining stages
 
 1. Continue grammar edge coverage and source tooling against the shared CST/PSI surface.
-2. Complete receiver visibility/default conflict rules, remaining generic body semantic coverage,
-   generated members, and complete overload/expression typing on top of the new constructed-member resolver.
+2. Integrate the bounded closed generic member body view into source call analysis; expand inherited
+   routes and remaining receiver visibility/default conflict rules, generated members, and complete
+   overload/expression typing on top of the constructed-member resolver.
 3. Expand the verified FIR subset with full nullability, checked exception/cleanup CFG, borrowing,
    closures, broader generic specialization, and general object layouts.
 4. Qualify complete Windows/ORC exception handling, library consumption and extended native ABI.

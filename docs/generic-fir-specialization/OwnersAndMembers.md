@@ -5,15 +5,17 @@
 This guide explains how generic nominal types and their members fit into the FIR specialization
 boundary. The normative source contract is in
 [GenericFirOwnersAndMembers.sol](../../spec/GenericFirOwnersAndMembers.sol); the associated
-[example matrix](../../spec/examples/semantics/GenericFirOwnersAndMembers.sol) records expected
-source binding separately from native admission.
+[example matrices](../../spec/examples/semantics/GenericFirOwnersAndMembers.sol) and
+[GenericOwnerBodyRebinding.sol](../../spec/examples/semantics/GenericOwnerBodyRebinding.sol) record
+expected source binding separately from native admission.
 
 ## Current implementation boundary
 
 Source analysis can resolve generic member candidates, substitute constructed receiver types along
 base edges, collect candidate-local inference evidence, and check nominal constraints. That work
 answers source questions such as which member is selected for a `Box<String>` receiver and whether
-its declared signature is applicable.
+its declared signature is applicable. An internal on-demand query also rebinds a member body for a
+direct closed generic owner; the scope and limits are listed below.
 
 Verified generic FIR has a narrower scope. It specializes closed, directly called module-level
 generic free functions and generic methods declared by a stateless, non-generic, module-level
@@ -32,11 +34,38 @@ properties, accessors, indexers, operators, virtual slots, or generic runtime de
 source-selected member outside the FIR slice receives an explicit native-admission rejection. The
 compiler must not substitute a similarly named free function or a lower-ranked overload.
 
-Substituting the declared types in an already analyzed member body is not enough for a future member
-implementation. A closed owner can change overload applicability, property and accessor selection,
-operator choice, dispatch, effects, flow, nullability, definite assignment, borrowing, escape and
-layout. Full support requires rebinding and rechecking those obligations for each closed owner and
-method substitution before a verified FIR graph exists.
+### Source-only member body views
+
+`BodyAnalysis.GetGenericMemberBody` creates a source-only body view from the original member AST and
+one exact owner/method argument pair. It does not copy the open body's winning calls and patch type
+names. It constructs one simultaneous substitution from canonical owner parameters and canonical
+method parameters, checks constraints, then reruns body binding so overloads, expressions and flow
+facts are recomputed in the closed context.
+
+| Request condition | Current result |
+|---|---|
+| Owner is a direct, canonical, top-level generic class, struct, ref struct or interface | Eligible for a source body view |
+| Method belongs directly to that merged owner and has a source body | Eligible; method type arguments must match its full declared arity, including an empty vector for a nongeneric method |
+| Owner or method argument is open, belongs to another analysis workspace, or has the wrong vector length | Rejected before body publication |
+| Owner constraint fails in any compatible partial part | Invalid with `SOL2221`; body is not treated as bound |
+| Method constraint fails after owner substitution | Invalid with `SOL2221`; body is not treated as bound |
+| Constraint proof is indeterminate | Deferred; no successful cache entry |
+| Requested receiver is an inherited projection or the declaration is nested | Rejected by this bounded query |
+| Body binding is canceled, has diagnostics, or retains unverified nodes | Not cached as a successful result |
+| Body is complete and Bound with no diagnostics or unverified nodes | Cacheable by source method plus ordered owner and method type identities |
+
+The query exposes the constructed owner, both ordered argument vectors, summary, expressions, calls,
+and body facts for analysis clients inside the compiler. It is not a public NuGet SDK contract and
+ordinary member call analysis does not yet request it automatically. It does not emit FIR or change
+the `SOL2400` native boundary. A source-bound call on a generic class remains non-executable until
+the regular source pipeline consumes the proof and the independent FIR/runtime gates are implemented.
+
+Rebinding is a necessary but incomplete stage for native member support. Generic properties,
+accessors, operators, dispatch, borrowing and escape can add obligations that are not certified by
+this query's current direct-body scope. A closed owner can change overload applicability, selected
+calls, effects, flow, nullability and definite assignment; simply substituting a signature never
+proves those facts. The runtime still needs owner layout, receiver ABI, object descriptors, precise
+GC maps, barriers, exception cleanup and separate AOT/ORC qualification.
 
 ## Owner and parameter identity
 
@@ -390,7 +419,9 @@ share source body spans, so the instance context is required to explain which cl
 3. Resolve the accessible receiver candidate set over constructed inheritance paths.
 4. Map source arguments, then solve owner and method substitutions candidate by candidate.
 5. Select one source declaration and preserve effects, modes, defaults and source origins.
-6. Rebind and recheck the body under the complete closed owner/method maps.
+6. Use the existing internal source-only body view for its supported direct-owner shape; integrate
+   complete source call paths, inherited projections and nested owners only after their canonical
+   identities and route proofs are implemented.
 7. Validate construction, override/dispatch slots, field layout, escape and runtime effects.
 8. Build concrete FIR with source-origin identity and verify the graph independently.
 9. Generate matching GC descriptors, stack maps, runtime metadata and ABI signatures.
@@ -444,6 +475,8 @@ artifact combinations have evidence for:
 
 - stable partial and nested owner identities, including import aliases and source-set changes;
 - composed owner/method substitution, constraints and overload winner identity;
+- direct closed member body reanalysis is complete only for the internal bounded query; source-call
+  integration, inherited/nested routes and generic FIR admission still require separate evidence;
 - constructors, field initialization, properties/accessors, indexers, operators and delegates;
 - virtual and interface dispatch, override effects and constructed base projections;
 - per-instance body rebinding, flow, definite assignment, nullability, effects, borrowing and escape;

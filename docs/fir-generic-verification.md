@@ -3,7 +3,8 @@
 # Verified FIR generic specialization
 
 This document describes the maintainer contract for specializing module-level generic functions
-into closed FIR bodies. The subject is the boundary between source binding and the native subset.
+into closed FIR bodies and records the source-only boundary for generic owner member body views. The
+subject is the boundary between source binding and the native subset.
 It does not define the full Sol generic language, its source syntax, or the eventual public ABI.
 
 The central requirement is simple: LLVM receives only a verified FIR program whose function
@@ -23,7 +24,7 @@ body support.
 | Generic function declarations and call binding | Implemented for the currently supported analysis surface | Emitted only when a closed native specialization is admitted |
 | Ordered generic type arguments on a resolved call | Preserved by body-call binding | Recorded on `FirCall` and compared by the verifier |
 | Generic module-level free-function bodies | Open bodies are checked using declaration-owned type parameters | Closed instances are rebound and rechecked through `BodyAnalysis`; unsupported body forms remain outside verified FIR |
-| Generic methods and generic owners | May be analyzed in source-level contexts | Rejected by the verified native subset |
+| Generic methods and generic owners | Member calls are analyzed in source contexts. An internal on-demand query can rebind one direct closed top-level generic member body for exact owner and method vectors; ordinary call analysis does not request that view. | Rejected by the verified native subset, including a successfully rebound member body |
 | Native type support | Broader than the native backend | Limited by `FirVerifier.Supported` and the selected ABI slice |
 | Generic function values | Expected function type closes each type parameter; overloads are ranked after closure | Exact-signature free-function and stateless-object references are admitted for supported native layouts, including vararg arrays and ref/out modes |
 | Closure capture | Analysis may retain facts or defer | Not admitted; no environment object or capture-root ABI exists |
@@ -85,6 +86,37 @@ Substitution is simultaneous. If a caller instance maps `T` to `int`, then a nes
 whose argument is `T` is specialized once to `int`. The replacement is not recursively rewritten
 using another mapping for the replacement value. This keeps declaration identity and avoids
 order-dependent chains.
+
+## On-demand source views for generic owner members
+
+`BodyAnalysis.GetGenericMemberBody` is an internal source-analysis query for a narrowly bounded
+member shape. Given a source member, a direct constructed owner, and the complete ordered method
+argument vector, it rechecks constraints and binds the member's original AST body under both maps.
+The resulting `SpecializedBodyAnalysis` records the constructed owner and the owner and method
+argument vectors separately. It recomputes supported call selection, expression types, return facts,
+checked effects, nullable types and flow; it does not reuse the open body's selected call table.
+
+The query accepts a direct canonical top-level generic class, struct, ref struct or interface that
+declares the member. Partial parts must already have merged to one validated declaration identity.
+Owner and method vectors must have exact arity, belong to the current `TypeSpecialization` workspace,
+and contain no open type parameter. Owner constraints are checked against every validated part;
+method constraints are checked after the owner map is applied to their bounds. A failed proof produces
+an invalid result with `SOL2221`; an indeterminate proof stays Deferred. A wrong owner, incomplete
+vector, foreign type, nested declaration or inherited receiver projection is a rejected API request,
+not a source-language diagnostic emitted for an ordinary call.
+
+Successful results are keyed by the source `AstFunction` identity and separate ordered owner/method
+type ID vectors. A cached result is returned only after cancellation is checked. Invalid, Deferred,
+canceled, diagnostic-bearing or incomplete results are not cached as Bound. The cache is local to one
+`BodyAnalysis` workspace; numeric type IDs must not escape into serialized output or persistent
+identity.
+
+This query does not run automatically from ordinary member call binding, is not part of the public
+frontend SDK, and does not create FIR. Generic owner calls still fail native admission with
+`SOL2400`. It proves no object layout, receiver ABI, dispatch slot, allocation, ref-like escape,
+exception unwind, GC descriptor, root map, write barrier, AOT body or ORC body. The eventual FIR
+builder and verifier must independently anchor a selected call to source and prove every runtime
+obligation before LLVM can consume it.
 
 ## Body call binding contract
 

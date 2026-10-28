@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using OpenDot.Sol.Ast;
@@ -99,17 +100,45 @@ internal static class GenericMethodSourcePolicy
     private static bool IsDirectSingletonQualifier(AstExpression expression, AstTypeDeclaration owner,
         SourceAnalysis analysis)
     {
-        string? finalName = null;
+        var file = SourceFile(expression, analysis);
+        if (file is null || !TryGetQualifierParts(expression, out var root, out var parts)
+            || IsLocalName(root, analysis))
+        { return false; }
+
+        var ownerSymbol = analysis.Declarations.GetDeclaredSymbol(owner);
+        if (ownerSymbol is null) { return false; }
+
+        var candidates = parts.Length == 1
+            ? analysis.Declarations.Lookup(file.Root, parts[0]).Candidates
+            : analysis.Declarations.LookupQualified(file.Root,
+                string.Join('.', parts.Take(parts.Length - 1)), parts[^1]).Candidates;
+        return candidates.Length == 1 && candidates[0].Kind == SymbolKind.Type
+            && ReferenceEquals(candidates[0], ownerSymbol);
+    }
+
+    private static bool TryGetQualifierParts(AstExpression expression, out AstAtom root,
+        out ImmutableArray<string> parts)
+    {
+        var suffix = new Stack<string>();
         var current = expression;
-        while (current is AstMember { IsSafe: false, Name: { } name, Receiver: { } receiver })
+        while (current is AstMember { IsSafe: false, Name: { Length: > 0 } name, Receiver: { } receiver })
         {
-            finalName ??= name;
+            suffix.Push(name);
             current = receiver;
         }
-        if (current is not AstAtom { SyntaxKind: NodeKind.NameExpression, Spelling: { Length: > 0 } root }
-            || IsLocalName((AstAtom)current, analysis))
-        { return false; }
-        return owner.Name is { Length: > 0 } ownerName && (finalName ?? root) == ownerName;
+        if (current is not AstAtom { SyntaxKind: NodeKind.NameExpression, Spelling: { Length: > 0 } } atom)
+        {
+            root = null!;
+            parts = [];
+            return false;
+        }
+
+        root = atom;
+        var builder = ImmutableArray.CreateBuilder<string>(suffix.Count + 1);
+        builder.Add(atom.Spelling);
+        while (suffix.TryPop(out var part)) { builder.Add(part); }
+        parts = builder.ToImmutable();
+        return true;
     }
 
     private static bool IsLocalName(AstAtom atom, SourceAnalysis analysis)
