@@ -14,8 +14,9 @@ expected source binding separately from native admission.
 Source analysis can resolve generic member candidates, substitute constructed receiver types along
 base edges, collect candidate-local inference evidence, and check nominal constraints. That work
 answers source questions such as which member is selected for a `Box<String>` receiver and whether
-its declared signature is applicable. An internal on-demand query also rebinds a member body for a
-direct closed generic owner; the scope and limits are listed below.
+its declared signature is applicable. Internal on-demand queries also rebind a member body for a
+direct closed generic owner or project a source receiver to one unique inherited declaring owner;
+the scope and limits are listed below.
 
 Verified generic FIR has a narrower scope. It specializes closed, directly called module-level
 generic free functions and generic methods declared by a stateless, non-generic, module-level
@@ -50,15 +51,85 @@ facts are recomputed in the closed context.
 | Owner constraint fails in any compatible partial part | Invalid with `SOL2221`; body is not treated as bound |
 | Method constraint fails after owner substitution | Invalid with `SOL2221`; body is not treated as bound |
 | Constraint proof is indeterminate | Deferred; no successful cache entry |
-| Requested receiver is an inherited projection or the declaration is nested | Rejected by this bounded query |
+| Direct-owner query receives an inherited projection, or either query targets a nested declaration | Rejected by that query; the receiver projection query only accepts an eligible direct top-level generic owner method |
 | Body binding is canceled, has diagnostics, or retains unverified nodes | Not cached as a successful result |
 | Body is complete and Bound with no diagnostics or unverified nodes | Cacheable by source method plus ordered owner and method type identities |
 
-The query exposes the constructed owner, both ordered argument vectors, summary, expressions, calls,
-and body facts for analysis clients inside the compiler. It is not a public NuGet SDK contract and
-ordinary member call analysis does not yet request it automatically. It does not emit FIR or change
-the `SOL2400` native boundary. A source-bound call on a generic class remains non-executable until
-the regular source pipeline consumes the proof and the independent FIR/runtime gates are implemented.
+The direct-owner query exposes the constructed owner, both ordered argument vectors, summary,
+expressions, calls, and body facts for analysis clients inside the compiler. It is not a public NuGet
+SDK contract and ordinary member call analysis does not yet request it automatically. It does not
+emit FIR or change the `SOL2400` native boundary. A source-bound call on a generic class remains
+non-executable until the regular source pipeline consumes the proof and the independent FIR/runtime
+gates are implemented.
+
+### On-demand inherited owner projection
+
+`BodyAnalysis.GetGenericMemberBodyForReceiver(function, receiver, methodTypeArguments,
+cancellationToken)` is a separate internal query for an `AstFunction` declared directly on a canonical
+top-level generic class, struct, ref struct, or interface. The receiver is the source receiver's
+constructed `ResolvedType`; the method vector is complete and ordered. The query follows bounded
+constructed inheritance routes from that receiver to the method's declaring owner, then returns a
+`GenericMemberBodyProjectionAnalysis` with `Projection` and optional `Body` fields. It does not find
+or rank an overload. The caller supplies the already selected declaration.
+
+`Projection` contains a `Status`, `Candidates`, and optional `Reason`. Each candidate has a canonical
+`ConstructedOwner` `ResolvedType` and `Paths`, an ordered set of route sequences from the source
+receiver through the constructed base nodes to that owner. `Unique` has one candidate; `Missing` has
+none because no route reaches the declaration; `Ambiguous` has the distinct constructed candidates
+proven by complete lookup. `LimitExceeded` has no usable partial candidate set.
+
+Each inheritance edge applies its own owner substitution. The composed substitutions produce the
+canonical constructed declaring owner used to rebind the original method body. For example,
+`Leaf -> Middle<String> -> Base<[]String>` projects a `Leaf` receiver to `Base<[]String>`; the
+rebound body's `this` type is `Base<[]String>`. The receiver's own type arguments are not copied into
+the base owner, and the base arguments are not reconstructed from formatted type names.
+
+The projection result has four fail-closed outcomes:
+
+| `Projection.Status` | Meaning | `Body` |
+| --- | --- | --- |
+| `Unique` | Exactly one canonical constructed declaring-owner identity is proven | Rebound for that owner and the supplied method vector; body binding may still be Invalid or Deferred |
+| `Missing` | Complete search found no route to the declaring owner | `null` |
+| `Ambiguous` | Complete search found distinct constructed owner identities | `null` |
+| `LimitExceeded` | A deterministic route/path budget stopped search before completeness was proven | `null` |
+
+Routes that reach the same canonical declaring symbol with the same ordered constructed arguments
+collapse into one candidate. The candidate still retains every distinct inheritance path, so a
+diamond such as `Diamond -> Left<String> -> Root<String>` and
+`Diamond -> Right<String> -> Root<String>` has one `Root<String>` candidate with both paths. If the
+same generic declaration is reached as `Root<String>` and `Root<int>`, those are different
+constructed-owner identities and the result is `Ambiguous`. Traversal order, declaration order, and
+display spelling never pick a winner. The current search limits are 128 edges of depth, 8192
+distinct path states, and 128 distinct paths per constructed-owner candidate. Exhausting any limit
+fails closed as `LimitExceeded`; a partial set cannot be reported as complete or used to publish a
+body.
+
+Only `Unique` proceeds to body rebinding. The body uses the projected canonical declaring owner and
+the supplied method type-argument vector as distinct substitution maps, applied simultaneously to
+the original AST. Closed-type/workspace checks, constraint proofs, cancellation, diagnostics, and
+completed-Bound-only caching remain in force. This query is explicitly requested by analysis code;
+ordinary member call analysis still does not invoke it.
+
+The method argument vector must have the exact method arity and contain only workspace-owned closed
+types before projection starts. A unique route may still produce an open declaring owner, such as
+`Derived<U> -> Root<U>` for an open `U`; the projection itself is valid, but the body query rejects
+that open owner with `ArgumentException` instead of returning an incomplete body view. A bound that
+projects to a closed owner, such as `T: Root<String>`, can proceed normally.
+
+Complete projection outcomes are cached by the source receiver type identity and canonical declaring
+owner identity, independently of the selected method and its method arguments. This lets different
+member queries reuse the same route proof without mixing their body substitutions. Projection work
+is single-flight under the analysis cache gate; cancellation is observed while waiting and a canceled
+or interrupted traversal is never cached. Completed `Missing`, `Ambiguous`, and `LimitExceeded`
+outcomes are complete bounded-query answers and may be reused; none contains a usable partial route
+set. Body results keep their separate successful-`Bound`-only cache key, which includes the method and
+both ordered type-argument vectors.
+
+An inherited projection and its rebound body remain source-analysis evidence. Inherited FIR/native
+emission continues to fail with `SOL2400`. No generic layout, virtual/interface dispatch slot,
+receiver ABI, allocation, exception cleanup, Yellow Tea descriptor/root map/barrier, AOT code, ORC
+code, or artifact ABI is proven by this query. Nested-owner projection is also outside this bounded
+query.
 
 Rebinding is a necessary but incomplete stage for native member support. Generic properties,
 accessors, operators, dispatch, borrowing and escape can add obligations that are not certified by
