@@ -65,6 +65,7 @@ public sealed record BodyCallBinding(AstCall Call, AstCallable Target, ResolvedT
     ImmutableArray<CallArgumentBinding> Arguments, ImmutableArray<int> DefaultParameters)
 {
     public ImmutableArray<int> EmptyVarargParameters { get; init; } = [];
+    internal ResolvedType? SourceReceiver { get; init; }
 }
 
 /// <summary>Selected source operator target and its candidate-local closed signature.</summary>
@@ -73,10 +74,10 @@ public sealed record BodyOperatorBinding(AstNode Site, string Operator, AstFunct
     ResolvedType? ReturnType, ImmutableArray<ResolvedType> Effects, bool UsesNullableLifting);
 
 /// <summary>Closed semantic facts for one generic function instance within one BodyAnalysis.</summary>
-internal sealed class SpecializedBodyAnalysis
+internal sealed partial class SpecializedBodyAnalysis
 {
-    private readonly ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
-    private readonly ImmutableDictionary<AstCallable, BodySummary> _bodies;
+    private ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
+    private ImmutableDictionary<AstCallable, BodySummary> _bodies;
     private readonly ImmutableDictionary<AstCall, BodyCallBinding> _calls;
     private readonly ImmutableDictionary<AstNode, BodyOperatorBinding> _operators;
     private readonly ImmutableHashSet<AstNode> _nodes;
@@ -99,7 +100,7 @@ internal sealed class SpecializedBodyAnalysis
         _bodies = builder.Bodies.ToImmutableDictionary();
         _calls = builder.Calls.ToImmutableDictionary();
         _operators = builder.OperatorBindings.ToImmutableDictionary();
-        _nodes = builder.Files.Keys.ToImmutableHashSet();
+        _nodes = builder.OwnedNodes;
         Expressions = _expressions.Values.OrderBy(binding => binding.Expression.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(binding => binding.Expression.Origin.Span.Start).ToImmutableArray();
         Calls = _calls.Values.OrderBy(binding => binding.Call.Origin.Source.Path, StringComparer.Ordinal)
@@ -120,13 +121,13 @@ internal sealed class SpecializedBodyAnalysis
     internal ImmutableArray<ResolvedType> OwnerTypeArguments { get; }
     internal ImmutableArray<ResolvedType> TypeArguments { get; }
     internal ResolvedType? ConstructedOwner { get; }
-    internal BodySummary Summary { get; }
-    internal ImmutableArray<ExpressionBinding> Expressions { get; }
+    internal BodySummary Summary { get; private set; }
+    internal ImmutableArray<ExpressionBinding> Expressions { get; private set; }
     internal ImmutableArray<BodyCallBinding> Calls { get; }
     internal ImmutableArray<BodyOperatorBinding> OperatorBindings { get; }
-    internal ImmutableArray<BodySummary> Bodies { get; }
-    internal ImmutableArray<AstNode> UnverifiedNodes { get; }
-    internal ImmutableArray<Diagnostic> Diagnostics { get; }
+    internal ImmutableArray<BodySummary> Bodies { get; private set; }
+    internal ImmutableArray<AstNode> UnverifiedNodes { get; private set; }
+    internal ImmutableArray<Diagnostic> Diagnostics { get; private set; }
 
     internal ExpressionBinding? GetExpression(AstExpression expression)
     {
@@ -169,14 +170,14 @@ internal sealed record GenericMemberBodyProjectionAnalysis(
 /// Optional body checking over an immutable source set. Deferred facts are explicit proof gaps;
 /// HasErrors=false alone never certifies a program. No FIR or executable output is produced.
 /// </summary>
-public sealed class BodyAnalysis
+public sealed partial class BodyAnalysis
 {
     private readonly record struct GenericBodyKey(AstFunction Function, string OwnerTypeIds, string MethodTypeIds);
     private readonly record struct GenericOwnerProjectionKey(int ReceiverTypeId, int OwnerSymbolId);
-    private readonly ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
-    private readonly ImmutableDictionary<AstCallable, BodySummary> _bodies;
-    private readonly ImmutableDictionary<AstAnonymousFunction, AnonymousFunctionBodySummary> _anonymousFunctionBodies;
-    private readonly ImmutableDictionary<AstLambda, LambdaBodySummary> _lambdaBodies;
+    private ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
+    private ImmutableDictionary<AstCallable, BodySummary> _bodies;
+    private ImmutableDictionary<AstAnonymousFunction, AnonymousFunctionBodySummary> _anonymousFunctionBodies;
+    private ImmutableDictionary<AstLambda, LambdaBodySummary> _lambdaBodies;
     private readonly ImmutableDictionary<AstNode, BodyOperatorBinding> _operators;
     private readonly ImmutableHashSet<AstNode> _nodes;
     private readonly ImmutableHashSet<LocalSymbol> _localSymbols;
@@ -196,7 +197,7 @@ public sealed class BodyAnalysis
         _anonymousFunctionBodies = builder.AnonymousFunctionBodies.ToImmutableDictionary();
         _lambdaBodies = builder.LambdaBodies.ToImmutableDictionary();
         _operators = builder.OperatorBindings.ToImmutableDictionary();
-        _nodes = builder.Files.Keys.ToImmutableHashSet();
+        _nodes = builder.OwnedNodes;
         foreach (var (function, summary) in _anonymousFunctionBodies)
         {
             if (!_nodes.Contains(function) || !ReferenceEquals(function, summary.Function)
@@ -249,25 +250,32 @@ public sealed class BodyAnalysis
     public TypeSpecialization Types { get; }
     public ImmutableArray<BodyCallBinding> Calls { get; }
     internal ImmutableArray<BodyOperatorBinding> OperatorBindings { get; }
-    public ImmutableArray<ExpressionBinding> Expressions { get; }
-    public ImmutableArray<BodySummary> Bodies { get; }
+    public ImmutableArray<ExpressionBinding> Expressions { get; private set; }
+    public ImmutableArray<BodySummary> Bodies { get; private set; }
     /// <summary>Per-function body flow facts for anonymous functions with a resolved signature and analyzed body.</summary>
-    public ImmutableArray<AnonymousFunctionBodySummary> AnonymousFunctionBodies { get; }
+    public ImmutableArray<AnonymousFunctionBodySummary> AnonymousFunctionBodies { get; private set; }
     /// <summary>Per-lambda body-flow facts for lambdas with a resolved signature and analyzed body.</summary>
-    public ImmutableArray<LambdaBodySummary> LambdaBodies { get; }
-    public ImmutableArray<Diagnostic> Diagnostics { get; }
+    public ImmutableArray<LambdaBodySummary> LambdaBodies { get; private set; }
+    public ImmutableArray<Diagnostic> Diagnostics { get; private set; }
     public bool HasErrors => Sources.HasErrors || Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
-    public bool IsComplete { get; }
+    public bool IsComplete { get; private set; }
     /// <summary>Source locations still requiring a semantic proof; never silently treated as valid.</summary>
-    public ImmutableArray<AstNode> UnverifiedNodes { get; }
+    public ImmutableArray<AstNode> UnverifiedNodes { get; private set; }
 
     public static BodyAnalysis Create(SourceAnalysis sources, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sources);
         cancellationToken.ThrowIfCancellationRequested();
         var builder = new BodyBindingBuilder(sources, cancellationToken);
+        // Return inference must be available while ordinary bodies are being built. This private
+        // workspace contains only source/type ownership and never escapes as a completed analysis.
+        var inferenceWorkspace = new BodyAnalysis(builder);
+        builder.ClosedMemberReturn = inferenceWorkspace.ResolveClosedMemberReturn;
+        builder.ClosedOwnerReturnTemplate = inferenceWorkspace.ResolveClosedOwnerReturnTemplate;
         builder.Build();
-        return new(builder);
+        var result = new BodyAnalysis(builder);
+        result.AnalyzeGenericMemberCalls(cancellationToken);
+        return result;
     }
 
     public ExpressionBinding? GetExpression(AstExpression expression)
@@ -378,7 +386,10 @@ public sealed class BodyAnalysis
             cancellationToken.ThrowIfCancellationRequested();
             if (_genericBodies.TryGetValue(key, out var cached)) { return cached; }
             var builder = new BodyBindingBuilder(Sources, Types, cancellationToken);
+            builder.ClosedMemberReturn = ResolveClosedMemberReturn;
+            builder.ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate;
             var result = builder.BuildGenericBody(function, typeArguments);
+            AnalyzeSpecializedMemberCalls(result, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (result.Summary.Status == BodyBindingStatus.Bound
                 && result.Diagnostics.IsEmpty && result.UnverifiedNodes.IsEmpty)
@@ -440,6 +451,8 @@ public sealed class BodyAnalysis
             cancellationToken.ThrowIfCancellationRequested();
             if (_genericBodies.TryGetValue(key, out var cached)) { return cached; }
             var builder = new BodyBindingBuilder(Sources, Types, cancellationToken);
+            builder.ClosedMemberReturn = ResolveClosedMemberReturn;
+            builder.ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate;
             var result = builder.BuildGenericMemberBody(function, constructedOwner, methodTypeArguments);
             cancellationToken.ThrowIfCancellationRequested();
             if (result.Summary.Status == BodyBindingStatus.Bound
@@ -502,7 +515,7 @@ public sealed class BodyAnalysis
             }
             else
             {
-                var resolver = new MemberLookupResolver(Sources.Types, Types, Sources.Declarations.Files,
+                var resolver = new MemberLookupResolver(Sources.Types, Types, BodySourceIndex.Get(Sources),
                     cancellationToken);
                 projection = resolver.ProjectOwner(receiver, ownerSymbol, function);
                 cancellationToken.ThrowIfCancellationRequested();

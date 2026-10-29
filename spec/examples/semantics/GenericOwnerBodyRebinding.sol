@@ -8,8 +8,8 @@ module source.spec.examples.semantics.generic_owner_body_rebinding
 //
 // This example matrix distinguishes declaration-time analysis, an on-demand closed source body
 // view, and verified FIR/native output. The source body view is an internal analysis query. The
-// ordinary call-analysis path does not request it automatically. `Body: Bound` below describes the
-// result expected from that query, not an executable generic owner method.
+// ordinary call-analysis path now requests a bounded proof for selected closed owner methods.
+// `Body: Bound` below describes source evidence, not an executable generic owner method.
 //
 // FIR continues to reject generic class/struct/ref-struct/interface owners and their members with
 // SOL2400. Source binding, a closed body view, and an emitted native instance are separate results.
@@ -134,7 +134,7 @@ class Leaf: Middle<Text> {}
 func inheritedPair(owner: Leaf, ownerValue: []Text, value: int): Pair<[]Text, int> =
     owner.pair<int>(ownerValue, value)
 
-// expect: inherited.multi-edge | For the selected Base<T>.pair method, GetGenericMemberBodyForReceiver(Base.pair, Leaf, [int]) returns Projection: Unique with canonical owner Base<[]Text> and the route [Leaf, Middle<Text>, Base<[]Text>]. Body: Bound uses owner T=[]Text and method U=int; `this` is Base<[]Text>, and the body result is Pair<[]Text,int>. Ordinary member call analysis does not request this query. | FIR: Rejected(SOL2400).
+// expect: inherited.multi-edge | For the selected Base<T>.pair method, GetGenericMemberBodyForReceiver(Base.pair, Leaf, [int]) returns Projection: Unique with canonical owner Base<[]Text> and the route [Leaf, Middle<Text>, Base<[]Text>]. Body: Bound uses owner T=[]Text and method U=int; `this` is Base<[]Text>, and the body result is Pair<[]Text,int>. Selected closed member calls request this query through the automatic body-proof stage. | FIR: Rejected(SOL2400).
 
 // 10. A diamond collapses only when every route reaches the same constructed owner.
 

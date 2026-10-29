@@ -57,7 +57,8 @@ facts are recomputed in the closed context.
 
 The direct-owner query exposes the constructed owner, both ordered argument vectors, summary,
 expressions, calls, and body facts for analysis clients inside the compiler. It is not a public NuGet
-SDK contract and ordinary member call analysis does not yet request it automatically. It does not
+SDK contract. Selected source calls now request a bounded body proof automatically, as described in
+[automatic member body analysis](AutomaticMemberBodyAnalysis.md). It does not
 emit FIR or change the `SOL2400` native boundary. A source-bound call on a generic class remains
 non-executable until the regular source pipeline consumes the proof and the independent FIR/runtime
 gates are implemented.
@@ -107,8 +108,8 @@ body.
 Only `Unique` proceeds to body rebinding. The body uses the projected canonical declaring owner and
 the supplied method type-argument vector as distinct substitution maps, applied simultaneously to
 the original AST. Closed-type/workspace checks, constraint proofs, cancellation, diagnostics, and
-completed-Bound-only caching remain in force. This query is explicitly requested by analysis code;
-ordinary member call analysis still does not invoke it.
+completed-Bound-only caching remain in force. The automatic source-call proof stage requests this
+query after selection and keeps its result separate from overload ranking and FIR admission.
 
 The method argument vector must have the exact method arity and contain only workspace-owned closed
 types before projection starts. A unique route may still produce an open declaring owner, such as

@@ -35,9 +35,11 @@ assignment are safe. The examples mark those cases `SourceBound` or `not-qualifi
 Closed generic free-function instances rerun body analysis under their function arguments. For a
 generic owner member, internal on-demand source queries can rebind a direct closed owner body or
 project a source receiver through bounded constructed-base routes to one unique declaring owner and
-then rebind that body. Neither query is requested automatically by ordinary member call analysis,
-and neither admits its result to FIR. Nested-owner routes and full call-path integration remain future
-work. The generic owner/member native surface continues to stop at `SOL2400`.
+then rebind that body. Selected source calls now obtain an automatic bounded body proof, including
+member calls discovered in closed free-function bodies. Closed inferred member results are computed
+while binding source signatures. Nested owners remain outside that source body slice; generic
+owner/member native admission continues to stop at `SOL2400`. See
+[automatic member body analysis](AutomaticMemberBodyAnalysis.md) for the graph and inference limits.
 
 ## Status and diagnostic labels
 
@@ -53,8 +55,8 @@ The adjacent fixture distinguishes the source contract from the executable subse
 
 `Planned` describes normative behavior whose implementation remains future work. It is not a source
 diagnostic and does not mean the compiler currently accepts a call. Defaults, vararg array packing,
-spread lowering, closure environments, full `out var` flow proof, and call-path-integrated generic
-member body analysis are listed as remaining work. Direct and uniquely projected on-demand owner
+spread lowering, closure environments, and full `out var` flow proof remain work. Automatic selected
+member-call proofs, direct body views, and uniquely projected on-demand owner
 body views are source-analysis results only. A source-invalid call uses its argument or inference
 diagnostic; a source-valid call outside native admission uses `SOL2400`; an inconsistent FIR uses
 `SOL2402`.
@@ -507,8 +509,8 @@ the relevant compiler phase.
 
 ## Remaining work
 
-The normative source rules cover more than the current backend. Remaining work includes wiring the
-bounded owner body views into member call analysis, nested-owner composition, broader default
+The normative source rules cover more than the current backend. Remaining work includes
+nested-owner composition, broader default
 evaluation and effect analysis, vararg array construction, spread lowering, closure environments,
 full `out var` flow/lifetime proof, checked exception handling, and generic artifact/export rules.
 Inherited projection through the bounded on-demand query is implemented as a source-analysis
