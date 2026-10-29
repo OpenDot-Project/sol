@@ -184,6 +184,7 @@ public sealed partial class BodyAnalysis
     private readonly ImmutableDictionary<LocalSymbol, ResolvedType> _localTypes;
     private readonly object _genericBodyGate = new();
     private readonly Dictionary<GenericBodyKey, SpecializedBodyAnalysis> _genericBodies = [];
+    private readonly Dictionary<GenericBodyKey, SpecializedBodyAnalysis> _genericLocalBodies = [];
     private readonly Dictionary<GenericOwnerProjectionKey, ConstructedOwnerProjection> _genericOwnerProjections = [];
 
     private BodyAnalysis(BodyBindingBuilder builder)
@@ -359,6 +360,14 @@ public sealed partial class BodyAnalysis
 
     internal SpecializedBodyAnalysis GetGenericBody(AstFunction function,
         ImmutableArray<ResolvedType> typeArguments, CancellationToken cancellationToken)
+        => GetGenericBodyCore(function, typeArguments, cancellationToken, includeDependencies: true);
+
+    private SpecializedBodyAnalysis GetGenericBodyLocal(AstFunction function,
+        ImmutableArray<ResolvedType> typeArguments, CancellationToken cancellationToken)
+        => GetGenericBodyCore(function, typeArguments, cancellationToken, includeDependencies: false);
+
+    private SpecializedBodyAnalysis GetGenericBodyCore(AstFunction function,
+        ImmutableArray<ResolvedType> typeArguments, CancellationToken cancellationToken, bool includeDependencies)
     {
         ArgumentNullException.ThrowIfNull(function);
         cancellationToken.ThrowIfCancellationRequested();
@@ -384,16 +393,24 @@ public sealed partial class BodyAnalysis
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (_genericBodies.TryGetValue(key, out var cached)) { return cached; }
-            var builder = new BodyBindingBuilder(Sources, Types, cancellationToken);
-            builder.ClosedMemberReturn = ResolveClosedMemberReturn;
-            builder.ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate;
-            var result = builder.BuildGenericBody(function, typeArguments);
-            AnalyzeSpecializedMemberCalls(result, cancellationToken);
+            var cache = includeDependencies ? _genericBodies : _genericLocalBodies;
+            if (cache.TryGetValue(key, out var cached)) { return cached; }
+            SpecializedBodyAnalysis result;
+            if (includeDependencies)
+            {
+                result = GetGenericBodyLocal(function, typeArguments, cancellationToken).CopyForDependencyProof();
+                AnalyzeSpecializedMemberCalls(result, cancellationToken);
+            }
+            else
+            {
+                var builder = new BodyBindingBuilder(Sources, Types, cancellationToken)
+                { ClosedMemberReturn = ResolveClosedMemberReturn, ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate };
+                result = builder.BuildGenericBody(function, typeArguments);
+            }
             cancellationToken.ThrowIfCancellationRequested();
             if (result.Summary.Status == BodyBindingStatus.Bound
                 && result.Diagnostics.IsEmpty && result.UnverifiedNodes.IsEmpty)
-            { _genericBodies.Add(key, result); }
+            { cache.Add(key, result); }
             return result;
         }
         finally { Monitor.Exit(_genericBodyGate); }

@@ -48,6 +48,17 @@ After ordinary bodies are bound, the compiler collects selected member calls tha
 owner body proof. A separate bounded dependency graph checks the selected closed instances. The
 same graph check runs for member calls that appear after a free function is specialized.
 
+Generic free-function calls reached through those bodies also enter the dependency graph, including
+eligible stateless object methods. A member body cannot be certified solely because a generic free
+callee's signature matched: the callee's closed body and its outgoing generic dependencies must be
+checked too. Finite recursion can cross these callable boundaries without recursively starting a
+second independent proof analysis.
+
+Locally bound free-function snapshots and dependency-checked snapshots use separate caches. The
+dependency pass works on a copy of immutable local facts, so an invalid transitive dependency neither
+mutates a reusable local snapshot nor enters the successful dependency-checked cache. Generic local
+functions that require an enclosing lexical instance retain an explicit gap.
+
 ## Instance graph
 
 One graph node identifies the original source method, its canonical constructed declaring owner,
@@ -67,7 +78,7 @@ in the immutable proof tree identifies another already checked instance; it does
 the function terminates at runtime.
 
 The graph expands at most 128 distinct dependency levels, 1,024 canonical body instances, and 8,192
-member-call dependency edges. A
+generic-call dependency edges, including free-function bridges. A
 repeat visit to an existing instance is a graph edge and does not consume another instance. A chain
 that changes its type arguments on each recursive step still consumes new instances and therefore
 cannot evade these bounds. Exhaustion produces deferred evidence, never a truncated successful

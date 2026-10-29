@@ -38,6 +38,10 @@ public sealed partial class BodyAnalysis
         internal readonly List<Diagnostic> Diagnostics = [];
 
         internal bool RequiresProof(BodyCallBinding binding) => binding.Target is AstFunction function
+            && (function.TypeParameters.Any()
+                || GenericMethodSourcePolicy.DirectOwner(function, analysis.Sources) is { Arity: > 0 });
+
+        internal bool RequiresRootProof(BodyCallBinding binding) => binding.Target is AstFunction function
             && GenericMethodSourcePolicy.DirectOwner(function, analysis.Sources) is { Arity: > 0 };
 
         internal Request Collect(BodyCallBinding binding, int depth)
@@ -51,6 +55,11 @@ public sealed partial class BodyAnalysis
         {
             cancellation.ThrowIfCancellationRequested();
             var function = (AstFunction)binding.Target;
+            var directOwner = GenericMethodSourcePolicy.DirectOwner(function, analysis.Sources);
+            if (directOwner is null || directOwner.Arity == 0)
+            { return CollectFreeFunction(binding, function, directOwner, depth); }
+            if (!directOwner.Members.Any(member => ReferenceEquals(member, function)))
+            { return Deferred(binding, "Local functions require an enclosing lexical instance proof."); }
             var receiver = binding.SourceReceiver ?? binding.Receiver;
             if (receiver is null || ContainsTypeParameter(receiver) || receiver.IsError
                 || binding.TypeArguments.Any(type => type.IsError || ContainsTypeParameter(type)))
@@ -81,6 +90,36 @@ public sealed partial class BodyAnalysis
             if (depth >= 128 || _instances.Count >= 1024)
             { return Deferred(binding, "Generic member body dependency budget exceeded."); }
 
+            var instance = AddInstance(key, body, depth);
+            return ForCall(binding, projection, instance);
+        }
+
+        private Request CollectFreeFunction(BodyCallBinding binding, AstFunction function,
+            AstTypeDeclaration? owner, int depth)
+        {
+            if (binding.TypeArguments.IsDefaultOrEmpty
+                || binding.TypeArguments.Any(type => type.IsError || ContainsTypeParameter(type)))
+            { return Deferred(binding, "Generic callable body requires closed method arguments."); }
+            if (owner is not null && !GenericMethodSourcePolicy.IsSupportedGenericObjectMethod(function, analysis.Sources))
+            { return Deferred(binding, "This callable owner requires a separate lexical or receiver body proof."); }
+            var file = BodySourceIndex.Get(analysis.Sources).Files[function];
+            for (var parent = file.GetParent(function); parent is not null; parent = file.GetParent(parent))
+            {
+                if (parent is AstCallable or AstLambda or AstAnonymousFunction)
+                { return Deferred(binding, "Local generic functions require an enclosing lexical instance proof."); }
+            }
+            if (function.Body.Kind == AstBodyKind.Missing)
+            { return Deferred(binding, "The selected generic callable has no source body."); }
+            var key = new InstanceKey(function, 0, TypeIds(binding.TypeArguments));
+            if (_instances.TryGetValue(key, out var existing)) { return ForCall(binding, null, existing); }
+            if (depth >= 128 || _instances.Count >= 1024)
+            { return Deferred(binding, "Generic callable dependency budget exceeded."); }
+            var body = analysis.GetGenericBodyLocal(function, binding.TypeArguments, cancellation);
+            return ForCall(binding, null, AddInstance(key, body, depth));
+        }
+
+        private Instance AddInstance(InstanceKey key, SpecializedBodyAnalysis body, int depth)
+        {
             var instance = new Instance(_instances.Count, body);
             _instances.Add(key, instance);
             RecordDiagnostics(body.Diagnostics);
@@ -103,7 +142,7 @@ public sealed partial class BodyAnalysis
                 instance.Children.Add(request);
                 request.Target?.Parents.Add(instance);
             }
-            return ForCall(binding, projection, instance);
+            return instance;
         }
 
         private void RecordDiagnostics(IEnumerable<Diagnostic> diagnostics)
@@ -151,14 +190,15 @@ public sealed partial class BodyAnalysis
             {
                 return new(request.Binding, status, request.Projection, [],
                     "Reference to an instance in the checked recursive dependency group.")
-                { IsRecursiveReference = true };
+                { IsRecursiveReference = true, SpecializedBody = target.Body };
             }
             try
             {
                 var children = target.Children.Select(child => CreateProof(child, active)).ToImmutableArray();
                 var proof = new GenericMemberCallProof(request.Binding, target.Status, request.Projection,
                     children, target.Status == BodyBindingStatus.Bound ? null
-                        : "Selected generic member dependency group is not fully verified.");
+                        : "Selected generic callable dependency group is not fully verified.")
+                { SpecializedBody = target.Body };
                 _proofs.Add(target.Id, proof);
                 return AtCall(proof, request, status);
             }
@@ -169,7 +209,7 @@ public sealed partial class BodyAnalysis
             BodyBindingStatus status) => proof with { Binding = request.Binding, Projection = request.Projection,
                 Status = status, Reason = request.Reason ?? proof.Reason };
 
-        private static Request ForCall(BodyCallBinding binding, GenericMemberBodyProjectionAnalysis projection,
+        private static Request ForCall(BodyCallBinding binding, GenericMemberBodyProjectionAnalysis? projection,
             Instance instance)
         {
             bool agrees = ReferenceEquals(instance.Body.Summary.ReturnType, binding.ReturnType);

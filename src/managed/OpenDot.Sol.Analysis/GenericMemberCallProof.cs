@@ -11,12 +11,13 @@ using OpenDot.Sol.Diagnostics;
 
 namespace OpenDot.Sol.Analysis;
 
-/// <summary>Body evidence for an already selected source member call.</summary>
+/// <summary>Body evidence for a selected generic callable in a member dependency graph.</summary>
 internal sealed record GenericMemberCallProof(BodyCallBinding Binding, BodyBindingStatus Status,
     GenericMemberBodyProjectionAnalysis? Projection, ImmutableArray<GenericMemberCallProof> Dependencies,
     string? Reason)
 {
     internal bool IsRecursiveReference { get; init; }
+    internal SpecializedBodyAnalysis? SpecializedBody { get; init; }
 }
 
 public sealed partial class BodyAnalysis
@@ -43,7 +44,7 @@ public sealed partial class BodyAnalysis
             .ThenBy(binding => binding.Call.Origin.Span.Start))
         {
             cancellation.ThrowIfCancellationRequested();
-            if (worker.RequiresProof(binding)) { requests.Add(worker.Collect(binding, 0)); }
+            if (worker.RequiresRootProof(binding)) { requests.Add(worker.Collect(binding, 0)); }
         }
         worker.ResolveStatuses();
         foreach (var request in requests) { proofs.Add(request.Binding.Call, worker.CreateProof(request)); }

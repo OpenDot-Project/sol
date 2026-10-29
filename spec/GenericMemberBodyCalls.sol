@@ -30,10 +30,17 @@ module source.spec.generic_member_body_calls
 // appearing after closed free-function specialization are checked before that view is cached as
 // successful. This phase checks already selected source targets; it does not select a different
 // overload to make an invalid closed body pass.
+// Generic free-function dependencies, including eligible stateless object methods, participate in
+// this same graph. A matching free-function signature alone cannot certify a generic member body.
+// Locally bound free-function snapshots are cached separately from dependency-checked copies;
+// transitive failures cannot mutate local facts or enter the successful checked-view cache.
+// Generic local functions needing an enclosing lexical instance retain an explicit proof gap.
 //
 // The body dependency graph is keyed by original method identity, canonical constructed declaring
 // owner identity, and ordered method type identities. Repeated source call sites can share the
 // same instance while retaining separate origins, argument mappings, and projection paths.
+// Free-function instances omit the receiver-owner component and keep their source declaration
+// identity plus ordered method arguments; stateless object methods retain their declaration owner.
 //
 // Local body statuses and dependency statuses compose monotonically. Invalid dominates Deferred,
 // which dominates Bound. An invalid reachable dependency invalidates its callers; a missing,
@@ -43,7 +50,7 @@ module source.spec.generic_member_body_calls
 // proves source analysis of the group; it is not a termination proof.
 //
 // Expanding dependency chains are bounded to 128 distinct levels, 1024 canonical instances, and
-// 8192 member-call dependency edges, including repeated call sites that share a target instance.
+// 8192 generic-call dependency edges, including repeated call sites that share a target instance.
 // Revisiting an existing instance is an edge, not a new instance. Type-changing recursion that
 // creates a new constructed owner/method vector consumes the budget. Exhaustion returns Deferred
 // evidence and may not expose a truncated graph as complete.

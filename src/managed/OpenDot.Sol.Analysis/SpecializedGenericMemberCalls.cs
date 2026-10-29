@@ -29,6 +29,29 @@ public sealed partial class BodyAnalysis
 
 internal sealed partial class SpecializedBodyAnalysis
 {
+    private SpecializedBodyAnalysis(SpecializedBodyAnalysis local)
+    {
+        Sources = local.Sources;
+        Declaration = local.Declaration;
+        OwnerTypeArguments = local.OwnerTypeArguments;
+        TypeArguments = local.TypeArguments;
+        ConstructedOwner = local.ConstructedOwner;
+        Summary = local.Summary;
+        _expressions = local._expressions;
+        _bodies = local._bodies;
+        _calls = local._calls;
+        _operators = local._operators;
+        _nodes = local._nodes;
+        Expressions = local.Expressions;
+        Calls = local.Calls;
+        OperatorBindings = local.OperatorBindings;
+        Bodies = local.Bodies;
+        UnverifiedNodes = local.UnverifiedNodes;
+        Diagnostics = local.Diagnostics;
+    }
+
+    internal SpecializedBodyAnalysis CopyForDependencyProof() => new(this);
+
     private ImmutableDictionary<AstCall, GenericMemberCallProof> _genericMemberCalls =
         ImmutableDictionary<AstCall, GenericMemberCallProof>.Empty;
 
