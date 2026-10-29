@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using OpenDot.Sol.Ast;
 using OpenDot.Sol.Cst;
@@ -33,6 +34,23 @@ internal sealed record ResolvedMemberCandidate(
 internal sealed record MemberLookupResult(
     MemberLookupStatus Status,
     ImmutableArray<ResolvedMemberCandidate> Candidates,
+    string? Reason);
+
+internal enum OwnerProjectionStatus
+{
+    Unique,
+    Missing,
+    Ambiguous,
+    LimitExceeded,
+}
+
+internal sealed record ConstructedOwnerProjectionCandidate(
+    ResolvedType ConstructedOwner,
+    ImmutableArray<ImmutableArray<ResolvedType>> Paths);
+
+internal sealed record ConstructedOwnerProjection(
+    OwnerProjectionStatus Status,
+    ImmutableArray<ConstructedOwnerProjectionCandidate> Candidates,
     string? Reason);
 
 /// <summary>
@@ -151,6 +169,262 @@ internal sealed class MemberLookupResolver
             .ToImmutableArray();
         return Classify(merged);
     }
+
+    /// <summary>
+    /// Projects a receiver onto every reachable constructed instance of one declaration. Distinct
+    /// routes to the same constructed owner are retained for later source-analysis decisions.
+    /// </summary>
+    internal ConstructedOwnerProjection ProjectOwner(ResolvedType receiver,
+        DeclarationSymbol targetOwner, AstNode location)
+    {
+        ArgumentNullException.ThrowIfNull(receiver);
+        ArgumentNullException.ThrowIfNull(targetOwner);
+        ArgumentNullException.ThrowIfNull(location);
+        if (!ReferenceEquals(_types.Analysis, _analysis))
+        {
+            throw new ArgumentException("The type-specialization workspace does not belong to this source analysis.");
+        }
+        _types.ValidateOwnership(receiver);
+        ValidateTargetOwner(targetOwner);
+        if (!_ownedNodes.Contains(location))
+        {
+            throw new ArgumentException("The projection location is not owned by this source analysis.", nameof(location));
+        }
+        _cancellation.ThrowIfCancellationRequested();
+
+        if (receiver.IsError)
+        {
+            return ProjectionLimit("The receiver type is unresolved, so its owner projection is incomplete.");
+        }
+        if (receiver.IsNullable || receiver.Kind is ResolvedTypeKind.Bottom or ResolvedTypeKind.Primitive
+            or ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray or ResolvedTypeKind.Tuple
+            or ResolvedTypeKind.Function)
+        {
+            return new(OwnerProjectionStatus.Missing, [], null);
+        }
+        if (receiver.Kind is not (ResolvedTypeKind.Nominal or ResolvedTypeKind.Parameter))
+        {
+            return ProjectionLimit("The receiver kind cannot be projected with a complete nominal owner graph.");
+        }
+
+        var routesByOwner = new Dictionary<int, (ResolvedType Owner, List<ImmutableArray<ResolvedType>> Paths,
+            HashSet<string> PathKeys)>();
+        var pending = new Queue<(ResolvedType Type, int Depth, ImmutableArray<ResolvedType> Path)>();
+        var knownPaths = new HashSet<string>(StringComparer.Ordinal);
+        var initialPath = ImmutableArray.Create(receiver);
+        pending.Enqueue((receiver, 0, initialPath));
+        knownPaths.Add(PathKey(initialPath));
+
+        while (pending.TryDequeue(out var current))
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (current.Depth > MaximumDepth)
+            {
+                return ProjectionLimit("Constructed owner projection exceeds the 128-edge depth budget.");
+            }
+
+            if (current.Type.IsError)
+            {
+                return ProjectionLimit("A reachable base or type-parameter bound is unresolved.");
+            }
+
+            if (current.Type.Kind == ResolvedTypeKind.Nominal
+                && ReferenceEquals(current.Type.Declaration, targetOwner))
+            {
+                string routeKey = PathKey(current.Path);
+                if (!routesByOwner.TryGetValue(current.Type.Id, out var projection))
+                {
+                    projection = (current.Type, [], new(StringComparer.Ordinal));
+                    routesByOwner.Add(current.Type.Id, projection);
+                }
+                if (projection.PathKeys.Add(routeKey))
+                {
+                    if (projection.Paths.Count >= MaximumPathsPerCandidate)
+                    {
+                        return ProjectionLimit("One constructed owner is reachable through more than 128 distinct paths.");
+                    }
+                    projection.Paths.Add(current.Path);
+                    routesByOwner[current.Type.Id] = projection;
+                }
+            }
+
+            ImmutableArray<ResolvedType> bases;
+            try
+            {
+                bases = ProjectionBases(current.Type);
+            }
+            catch (TypeSpecializationException exception)
+            {
+                return ProjectionLimit(exception.Message);
+            }
+
+            foreach (var parent in bases)
+            {
+                _cancellation.ThrowIfCancellationRequested();
+                if (current.Path.Any(type => ReferenceEquals(type, parent))) { continue; }
+                int nextDepth = current.Depth + 1;
+                if (nextDepth > MaximumDepth)
+                {
+                    return ProjectionLimit("Constructed owner projection exceeds the 128-edge depth budget.");
+                }
+
+                var path = current.Path.Add(parent);
+                if (!knownPaths.Add(PathKey(path))) { continue; }
+                if (knownPaths.Count > MaximumVisitedTypes)
+                {
+                    return ProjectionLimit("Constructed owner projection exceeds the 8192-path-state budget.");
+                }
+                pending.Enqueue((parent, nextDepth, path));
+            }
+        }
+
+        var orderKeys = new Dictionary<int, string>();
+        var orderedCandidates = routesByOwner.Values
+            .Select(candidate =>
+            {
+                _cancellation.ThrowIfCancellationRequested();
+                return (Candidate: candidate, Key: ConstructedTypeOrderKey(candidate.Owner, orderKeys));
+            })
+            .OrderBy(item => item.Key, StringComparer.Ordinal)
+            .ThenBy(item => item.Candidate.Owner.Id)
+            .ToImmutableArray();
+        var results = ImmutableArray.CreateBuilder<ConstructedOwnerProjectionCandidate>(orderedCandidates.Length);
+        foreach (var item in orderedCandidates)
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            var orderedPaths = item.Candidate.Paths
+                .Select(path => (Path: path, Key: ProjectionPathOrderKey(path, orderKeys)))
+                .OrderBy(path => path.Path.Length)
+                .ThenBy(path => path.Key, StringComparer.Ordinal)
+                .ThenBy(path => PathKey(path.Path), StringComparer.Ordinal)
+                .Select(path => path.Path)
+                .ToImmutableArray();
+            results.Add(new(item.Candidate.Owner, orderedPaths));
+        }
+
+        var candidates = results.ToImmutable();
+        OwnerProjectionStatus status = candidates.Length switch
+        {
+            0 => OwnerProjectionStatus.Missing,
+            1 => OwnerProjectionStatus.Unique,
+            _ => OwnerProjectionStatus.Ambiguous,
+        };
+        return new(status, candidates, null);
+    }
+
+    private void ValidateTargetOwner(DeclarationSymbol targetOwner)
+    {
+        if (targetOwner.Kind != SymbolKind.Type || targetOwner.Parts.IsEmpty
+            || !ReferenceEquals(_analysis.Declarations.GetDeclaredSymbol(targetOwner.Parts[0]), targetOwner))
+        {
+            throw new ArgumentException("The target owner is not a type declaration owned by this analysis.", nameof(targetOwner));
+        }
+    }
+
+    private ImmutableArray<ResolvedType> ProjectionBases(ResolvedType type)
+    {
+        if (type.Kind == ResolvedTypeKind.Nominal)
+        {
+            return _types.GetDirectBases(type, _cancellation);
+        }
+        if (type.Kind != ResolvedTypeKind.Parameter || type.Parameter is not { } identity) { return []; }
+
+        var bounds = new List<ResolvedType>();
+        foreach (var syntax in ParameterBounds(identity))
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            var bound = _analysis.GetType(syntax);
+            _types.ValidateOwnership(bound);
+            if (bound.IsError || bound.Kind is not (ResolvedTypeKind.Nominal or ResolvedTypeKind.Parameter))
+            {
+                throw new TypeSpecializationException(SpecializationFailure.InvalidType,
+                    "A type-parameter bound is unresolved or cannot lead to a nominal owner.");
+            }
+            if (!bounds.Any(existing => ReferenceEquals(existing, bound))) { bounds.Add(bound); }
+        }
+        var orderKeys = new Dictionary<int, string>();
+        return bounds.OrderBy(bound => ConstructedTypeOrderKey(bound, orderKeys), StringComparer.Ordinal)
+            .ThenBy(bound => bound.Id).ToImmutableArray();
+    }
+
+    private string ProjectionPathOrderKey(ImmutableArray<ResolvedType> path,
+        Dictionary<int, string> orderKeys)
+    {
+        var builder = new StringBuilder();
+        foreach (var type in path)
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            AppendField(builder, ConstructedTypeOrderKey(type, orderKeys));
+        }
+        return builder.ToString();
+    }
+
+    private string ConstructedTypeOrderKey(ResolvedType type, Dictionary<int, string> cache)
+    {
+        _cancellation.ThrowIfCancellationRequested();
+        if (cache.TryGetValue(type.Id, out var prior)) { return prior; }
+
+        var builder = new StringBuilder();
+        AppendInvariant(builder, (int)type.Kind);
+        builder.Append(';');
+        AppendField(builder, type.Name);
+        if (type.Declaration is { } declaration)
+        {
+            AppendField(builder, declaration.ModuleName);
+            AppendField(builder, declaration.QualifiedName);
+            AppendField(builder, declaration.Signature);
+            var source = declaration.Parts[0].Origin;
+            AppendField(builder, source.Source.Path);
+            AppendInvariant(builder, source.Span.Start);
+            builder.Append(';');
+        }
+        else if (type.Parameter is { } parameter)
+        {
+            var owner = parameter.Owner.Origin;
+            AppendField(builder, owner.Source.Path);
+            AppendInvariant(builder, (int)parameter.Owner.SyntaxKind);
+            builder.Append(';');
+            AppendInvariant(builder, owner.Span.Start);
+            builder.Append(';');
+            AppendInvariant(builder, parameter.Ordinal);
+            builder.Append(';');
+        }
+
+        AppendInvariant(builder, type.Arguments.Length);
+        builder.Append(';');
+        foreach (var argument in type.Arguments)
+        {
+            AppendField(builder, ConstructedTypeOrderKey(argument, cache));
+        }
+        AppendInvariant(builder, type.ParameterModes.Length);
+        builder.Append(';');
+        foreach (var mode in type.ParameterModes)
+        {
+            AppendInvariant(builder, (int)mode);
+            builder.Append(';');
+        }
+        var effects = type.Effects.Select(effect => ConstructedTypeOrderKey(effect, cache))
+            .OrderBy(key => key, StringComparer.Ordinal).ToArray();
+        AppendInvariant(builder, effects.Length);
+        builder.Append(';');
+        foreach (var effect in effects) { AppendField(builder, effect); }
+
+        var result = builder.ToString();
+        cache.Add(type.Id, result);
+        return result;
+    }
+
+    private static void AppendField(StringBuilder builder, string value)
+    {
+        AppendInvariant(builder, value.Length);
+        builder.Append(':').Append(value);
+    }
+
+    private static void AppendInvariant(StringBuilder builder, int value) =>
+        builder.Append(value.ToString(CultureInfo.InvariantCulture));
+
+    private static ConstructedOwnerProjection ProjectionLimit(string reason) =>
+        new(OwnerProjectionStatus.LimitExceeded, [], reason);
 
     private ImmutableArray<ResolvedMemberCandidate> MergeNameGroup(
         ImmutableArray<ResolvedMemberCandidate> candidates)

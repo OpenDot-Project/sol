@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: source-analysis examples for the bounded on-demand generic member body view; no FIR admission is implied.
+// Status: source-analysis examples for bounded on-demand direct and inherited generic member body views; no FIR admission is implied.
 module source.spec.examples.semantics.generic_owner_body_rebinding
 
 // Generic owner body rebinding
@@ -122,23 +122,51 @@ func partialEcho(owner: PartialBox<Text>, value: Text): Text = owner.echo(value)
 
 // expect: partial.owner | Body: Bound when queried for the method in either validated part; owner parameter identity is the merged PartialBox ordinal | FIR: Rejected(SOL2400).
 
-// 9. The bounded query rejects a receiver that is not the direct owner instance.
+// 9. A multi-edge route supplies the canonical declaring-owner arguments.
 
 open class Base<T> {
+    func <U> pair(ownerValue: T, value: U): Pair<T, U> = Pair(ownerValue, value)
+}
+
+open class Middle<V>: Base<[]V> {}
+class Leaf: Middle<Text> {}
+
+func inheritedPair(owner: Leaf, ownerValue: []Text, value: int): Pair<[]Text, int> =
+    owner.pair<int>(ownerValue, value)
+
+// expect: inherited.multi-edge | For the selected Base<T>.pair method, GetGenericMemberBodyForReceiver(Base.pair, Leaf, [int]) returns Projection: Unique with canonical owner Base<[]Text> and the route [Leaf, Middle<Text>, Base<[]Text>]. Body: Bound uses owner T=[]Text and method U=int; `this` is Base<[]Text>, and the body result is Pair<[]Text,int>. Ordinary member call analysis does not request this query. | FIR: Rejected(SOL2400).
+
+// 10. A diamond collapses only when every route reaches the same constructed owner.
+
+interface Root<T> {
+    func <U> pair(left: T, right: U): Pair<T, U> = Pair(left, right)
     func <U> echo(value: U): U = value
 }
 
-class Derived: Base<Text> {}
+interface Left<T>: Root<T> {}
+interface Right<T>: Root<T> {}
+class Diamond: Left<Text>, Right<Text> {}
 
-func inheritedEcho(owner: Derived, value: Text): Text = owner.echo<Text>(value)
+func diamondPair(owner: Diamond, left: Text, right: int): Pair<Text, int> =
+    owner.pair<int>(left, right)
 
-// expect: inherited.route | Ordinary source lookup may select Base<Text>.echo; the direct-owner body-view API rejects Derived as a constructed Base owner. | FIR: Rejected(SOL2400).
+// expect: inherited.collapsible-diamond | GetGenericMemberBodyForReceiver(Root.pair, Diamond, [int]) returns Projection: Unique with canonical owner Root<Text> and retains both routes [Diamond, Left<Text>, Root<Text>] and [Diamond, Right<Text>, Root<Text>]. Body: Bound uses T=Text and U=int. | FIR: Rejected(SOL2400).
 
-// expect: api.closed-vectors | Body-view requests reject open owner/method arguments, foreign-workspace ResolvedType values, wrong owner symbols, wrong arity, nested owners, and incomplete vectors before publishing a body | FIR: unaffected.
+// 11. Conflicting constructed arguments reject the projection; no body is published.
+
+interface TextRoot: Root<Text> {}
+interface IntRoot: Root<int> {}
+class Conflicting: TextRoot, IntRoot {}
+
+func conflictingEcho(owner: Conflicting, value: int): int = owner.echo<int>(value)
+
+// expect: inherited.conflicting-projection | This is intentionally conflicting/incomplete source input: two routes reach the same Root declaration as Root<Text> and Root<int>. GetGenericMemberBodyForReceiver(Root.echo, Conflicting, [int]) returns Projection: Ambiguous with the distinct constructed candidates and Body: null. It is not a successful body view; traversal order cannot choose one owner. | FIR: no instance; ordinary member binding cannot treat this query as a unique source selection.
+
+// expect: api.closed-vectors | Direct body-view requests reject open owner/method arguments, foreign-workspace ResolvedType values, wrong owner symbols, wrong arity, nested owners, and incomplete vectors before publishing a body. The receiver query requires a direct generic owner method and returns no body for Missing, Ambiguous, or LimitExceeded projection statuses. | FIR: unaffected.
 
 // expect: cache.completed-only | Only complete Bound results without diagnostics or unverified nodes are cached by source method plus ordered owner/method type IDs; invalid/deferred/canceled work is not cached | FIR: unaffected.
 
-// 10. Source rebinding does not grant layout or code-generation permissions.
+// 12. Source rebinding does not grant layout or code-generation permissions.
 
 // A successful body view proves no object size/alignment, field order, receiver ABI, virtual slot,
 // allocation behavior, exception unwind, escape lifetime, runtime type descriptor, GC root map,

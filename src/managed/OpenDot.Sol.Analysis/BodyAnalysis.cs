@@ -158,12 +158,21 @@ internal sealed class SpecializedBodyAnalysis
 }
 
 /// <summary>
+/// Source-only projection of a member body from a source receiver to its canonical constructed
+/// declaring owner. A body is present only when the inheritance graph yields one unique owner.
+/// </summary>
+internal sealed record GenericMemberBodyProjectionAnalysis(
+    ConstructedOwnerProjection Projection,
+    SpecializedBodyAnalysis? Body);
+
+/// <summary>
 /// Optional body checking over an immutable source set. Deferred facts are explicit proof gaps;
 /// HasErrors=false alone never certifies a program. No FIR or executable output is produced.
 /// </summary>
 public sealed class BodyAnalysis
 {
     private readonly record struct GenericBodyKey(AstFunction Function, string OwnerTypeIds, string MethodTypeIds);
+    private readonly record struct GenericOwnerProjectionKey(int ReceiverTypeId, int OwnerSymbolId);
     private readonly ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
     private readonly ImmutableDictionary<AstCallable, BodySummary> _bodies;
     private readonly ImmutableDictionary<AstAnonymousFunction, AnonymousFunctionBodySummary> _anonymousFunctionBodies;
@@ -174,6 +183,7 @@ public sealed class BodyAnalysis
     private readonly ImmutableDictionary<LocalSymbol, ResolvedType> _localTypes;
     private readonly object _genericBodyGate = new();
     private readonly Dictionary<GenericBodyKey, SpecializedBodyAnalysis> _genericBodies = [];
+    private readonly Dictionary<GenericOwnerProjectionKey, ConstructedOwnerProjection> _genericOwnerProjections = [];
 
     private BodyAnalysis(BodyBindingBuilder builder)
     {
@@ -438,6 +448,76 @@ public sealed class BodyAnalysis
             return result;
         }
         finally { Monitor.Exit(_genericBodyGate); }
+    }
+
+    /// <summary>
+    /// Projects a source receiver through its constructed base graph to a generic method's direct
+    /// declaring owner, then rebinds the body for that unique owner. This does not perform ordinary
+    /// call selection or admit the result to FIR.
+    /// </summary>
+    internal GenericMemberBodyProjectionAnalysis GetGenericMemberBodyForReceiver(AstFunction function,
+        ResolvedType receiver, ImmutableArray<ResolvedType> methodTypeArguments,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        ArgumentNullException.ThrowIfNull(receiver);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_nodes.Contains(function))
+        { throw new ArgumentException("The function belongs to another source analysis.", nameof(function)); }
+
+        var owner = GenericMethodSourcePolicy.DirectOwner(function, Sources);
+        var ownerSymbol = owner is null ? null : Sources.Declarations.GetDeclaredSymbol(owner);
+        if (owner is null || ownerSymbol is null || owner.Arity <= 0
+            || ownerSymbol.Parts.IsEmpty
+            || !owner.Members.Any(member => ReferenceEquals(member, function)))
+        { throw new ArgumentException("A projected generic member body requires a directly declared generic owner method.", nameof(function)); }
+
+        var ownerFile = Sources.Declarations.Files.Single(file => file.Nodes.Contains(owner));
+        for (var parent = ownerFile.GetParent(owner); parent is not null; parent = ownerFile.GetParent(parent))
+        {
+            if (parent is AstTypeDeclaration)
+            { throw new ArgumentException("Nested generic owners are not supported for member body reanalysis.", nameof(function)); }
+        }
+
+        var ownerParameters = Sources.Types.GetTypeParameters(owner);
+        var methodParameters = Sources.Types.GetTypeParameters(function);
+        if (!ReferenceEquals(Sources.Declarations.GetDeclaredSymbol(ownerSymbol.Parts[0]), ownerSymbol)
+            || ownerParameters.Length != ownerSymbol.Arity || owner.Arity != ownerSymbol.Arity)
+        { throw new ArgumentException("A projected generic member body requires a canonical generic owner.", nameof(function)); }
+        if (methodTypeArguments.IsDefault || methodParameters.Length != methodTypeArguments.Length)
+        { throw new ArgumentException("A projected generic member body requires every ordered method type argument.", nameof(methodTypeArguments)); }
+        foreach (var argument in methodTypeArguments)
+        { ValidateClosedBodyArgument(argument, nameof(methodTypeArguments)); }
+
+        var projectionKey = new GenericOwnerProjectionKey(receiver.Id, ownerSymbol.Id);
+        while (!Monitor.TryEnter(_genericBodyGate, millisecondsTimeout: 25))
+        { cancellationToken.ThrowIfCancellationRequested(); }
+        ConstructedOwnerProjection projection;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_genericOwnerProjections.TryGetValue(projectionKey, out var cachedProjection))
+            {
+                projection = cachedProjection;
+            }
+            else
+            {
+                var resolver = new MemberLookupResolver(Sources.Types, Types, Sources.Declarations.Files,
+                    cancellationToken);
+                projection = resolver.ProjectOwner(receiver, ownerSymbol, function);
+                cancellationToken.ThrowIfCancellationRequested();
+                _genericOwnerProjections.Add(projectionKey, projection);
+            }
+        }
+        finally { Monitor.Exit(_genericBodyGate); }
+
+        if (projection.Status != OwnerProjectionStatus.Unique)
+        { return new(projection, null); }
+
+        var candidate = projection.Candidates.Single();
+        var body = GetGenericMemberBody(function, candidate.ConstructedOwner,
+            methodTypeArguments, cancellationToken);
+        return new(projection, body);
     }
 
     private void ValidateClosedBodyArgument(ResolvedType argument, string parameterName)

@@ -33,11 +33,11 @@ source binding as proof that the destination has a verified slot or that its lif
 assignment are safe. The examples mark those cases `SourceBound` or `not-qualified` when appropriate.
 
 Closed generic free-function instances rerun body analysis under their function arguments. For a
-generic owner member, the compiler now also has an internal on-demand source body view for one direct,
-closed, top-level generic owner and complete method argument vector. That query rebinds the original
-body, but ordinary member call analysis does not request it automatically and it does not admit the
-result to FIR. Inherited/nested owner routes and full call-path integration remain future work. The
-generic owner/member native surface continues to stop at `SOL2400`.
+generic owner member, internal on-demand source queries can rebind a direct closed owner body or
+project a source receiver through bounded constructed-base routes to one unique declaring owner and
+then rebind that body. Neither query is requested automatically by ordinary member call analysis,
+and neither admits its result to FIR. Nested-owner routes and full call-path integration remain future
+work. The generic owner/member native surface continues to stop at `SOL2400`.
 
 ## Status and diagnostic labels
 
@@ -54,9 +54,10 @@ The adjacent fixture distinguishes the source contract from the executable subse
 `Planned` describes normative behavior whose implementation remains future work. It is not a source
 diagnostic and does not mean the compiler currently accepts a call. Defaults, vararg array packing,
 spread lowering, closure environments, full `out var` flow proof, and call-path-integrated generic
-member body analysis are listed as remaining work. The bounded on-demand owner body view is a source
-analysis result only. A source-invalid call uses its argument or inference diagnostic; a source-valid
-call outside native admission uses `SOL2400`; an inconsistent FIR uses `SOL2402`.
+member body analysis are listed as remaining work. Direct and uniquely projected on-demand owner
+body views are source-analysis results only. A source-invalid call uses its argument or inference
+diagnostic; a source-valid call outside native admission uses `SOL2400`; an inconsistent FIR uses
+`SOL2402`.
 
 ## Terms and identities
 
@@ -450,7 +451,7 @@ may narrow the effective program further.
 | User vararg | Element or whole-array mapping | Rejected by current native gate |
 | Array spread | Source order and per-element mapping | Rejected by current native gate |
 | Trailing lambda | Final function-parameter mapping | Supported for a closed selected target and exact-ABI noncapturing lambda; captures/adapters remain rejected |
-| Generic member/owner call | Receiver substitution and member lookup; internal on-demand body rebind exists for direct closed owners only | Rejected by current native slice |
+| Generic member/owner call | Receiver substitution and member lookup; internal on-demand rebind supports direct closed owners and unique inherited declaring-owner projections | Rejected by current native slice |
 | Open generic argument | Deferred or rejected by source inference | Never a closed FIR instance |
 | Unsupported type argument | Source mapping may still be valid | Rejected before verified FIR |
 
@@ -507,10 +508,11 @@ the relevant compiler phase.
 ## Remaining work
 
 The normative source rules cover more than the current backend. Remaining work includes wiring the
-bounded closed owner body view into member call analysis, inherited/nested owner composition,
-broader default evaluation and effect analysis, vararg array construction, spread lowering, closure
-environments, full `out var` flow/lifetime proof, checked exception handling, and generic
-artifact/export rules.
+bounded owner body views into member call analysis, nested-owner composition, broader default
+evaluation and effect analysis, vararg array construction, spread lowering, closure environments,
+full `out var` flow/lifetime proof, checked exception handling, and generic artifact/export rules.
+Inherited projection through the bounded on-demand query is implemented as a source-analysis
+operation, but it does not select ordinary calls and does not enable inherited FIR/native emission.
 
 Each extension adds separate obligations. A default requires value/effect checks under the selected
 substitution. A spread requires array representation, conversion, evaluation order, and roots. A
