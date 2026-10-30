@@ -67,6 +67,8 @@ public sealed record BodyCallBinding(AstCall Call, AstCallable Target, ResolvedT
     public ImmutableArray<int> EmptyVarargParameters { get; init; } = [];
     internal ResolvedType? SourceReceiver { get; init; }
     internal LexicalBodyContext? LexicalContext { get; init; }
+    internal InterfaceImplementation? InterfaceImplementation { get; init; }
+    internal bool IsQualifiedInterfaceSuper { get; init; }
 }
 
 /// <summary>Selected source operator target and its candidate-local closed signature.</summary>
@@ -77,6 +79,7 @@ public sealed record BodyOperatorBinding(AstNode Site, string Operator, AstFunct
 /// <summary>Closed semantic facts for one generic function instance within one BodyAnalysis.</summary>
 internal sealed partial class SpecializedBodyAnalysis
 {
+    internal ImmutableDictionary<(AstNode Site, InterfaceOperationKind Kind), InterfaceOperationUse> InterfaceUses { get; }
     private ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
     private ImmutableDictionary<AstCallable, BodySummary> _bodies;
     private ImmutableDictionary<AstLambda, LambdaBodySummary> _lambdaBodies;
@@ -94,6 +97,7 @@ internal sealed partial class SpecializedBodyAnalysis
         ResolvedType? constructedOwner, BodySummary summary)
     {
         Sources = builder.Sources;
+        InterfaceUses = builder.InterfaceUses.ToImmutableDictionary();
         Declaration = function;
         OwnerTypeArguments = ownerTypeArguments;
         TypeArguments = typeArguments;
@@ -198,9 +202,20 @@ public sealed partial class BodyAnalysis
     private readonly Dictionary<GenericBodyKey, SpecializedBodyAnalysis> _genericBodies = [];
     private readonly Dictionary<GenericBodyKey, SpecializedBodyAnalysis> _genericLocalBodies = [];
     private readonly Dictionary<GenericOwnerProjectionKey, ConstructedOwnerProjection> _genericOwnerProjections = [];
+    internal ImmutableDictionary<int, ImmutableArray<InterfaceImplementation>> InterfaceImplementations { get; }
+    internal ImmutableDictionary<(AstNode Site, InterfaceOperationKind Kind), InterfaceOperationUse> InterfaceUses { get; }
+
+    internal ImmutableArray<InterfaceImplementation>? GetInterfaceImplementations(ResolvedType receiver)
+    {
+        ArgumentNullException.ThrowIfNull(receiver);
+        Types.ValidateOwnership(receiver);
+        return InterfaceImplementations.TryGetValue(receiver.Id, out var records) ? records : null;
+    }
 
     private BodyAnalysis(BodyBindingBuilder builder)
     {
+        InterfaceImplementations = builder.InterfaceImplementations.ToImmutableDictionary();
+        InterfaceUses = builder.InterfaceUses.ToImmutableDictionary();
         Sources = builder.Sources;
         Types = builder.Types;
         Calls = builder.Calls.Values.ToImmutableArray();
@@ -418,7 +433,7 @@ public sealed partial class BodyAnalysis
             {
                 var builder = new BodyBindingBuilder(Sources, Types, cancellationToken)
                 { ClosedMemberReturn = ResolveClosedMemberReturn, ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate,
-                    ClosedLexicalReturn = ResolveClosedLexicalReturn };
+                    ClosedLexicalReturn = ResolveClosedLexicalReturn, InterfaceSourceBody = GetBody };
                 result = builder.BuildGenericBody(function, typeArguments);
             }
             cancellationToken.ThrowIfCancellationRequested();
@@ -485,6 +500,7 @@ public sealed partial class BodyAnalysis
             builder.ClosedMemberReturn = ResolveClosedMemberReturn;
             builder.ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate;
             builder.ClosedLexicalReturn = ResolveClosedLexicalReturn;
+            builder.InterfaceSourceBody = GetBody;
             var result = builder.BuildGenericMemberBody(function, constructedOwner, methodTypeArguments);
             cancellationToken.ThrowIfCancellationRequested();
             if (result.Summary.Status == BodyBindingStatus.Bound

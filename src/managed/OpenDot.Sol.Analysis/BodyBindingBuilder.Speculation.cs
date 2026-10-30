@@ -22,6 +22,12 @@ internal sealed partial class BodyBindingBuilder
         var anonymousFunctionBodySnapshot = AnonymousFunctionBodies.ToArray();
         var lambdaBodySnapshot = LambdaBodies.ToArray();
         var localSnapshot = _localTypes.ToArray();
+        var interfaceWrites = _interfaceWrites.ToArray();
+        var interfaceUses = InterfaceUses.ToArray();
+        var interfaceIndexArguments = _interfaceIndexArguments.ToArray();
+        var interfaceImplementations = InterfaceImplementations.ToArray();
+        var delegateValues = _interfaceDelegateValues.ToArray();
+        var interfaceActive = _interfaceResolutionActive.ToArray();
         var activeSnapshot = _active.ToArray();
         var reportedSnapshot = _reported.ToArray();
         var deferredSnapshot = _deferred.ToArray();
@@ -43,6 +49,12 @@ internal sealed partial class BodyBindingBuilder
             Restore(AnonymousFunctionBodies, anonymousFunctionBodySnapshot);
             Restore(LambdaBodies, lambdaBodySnapshot);
             Restore(_localTypes, localSnapshot);
+            Restore(_interfaceWrites, interfaceWrites);
+            Restore(InterfaceUses, interfaceUses);
+            Restore(_interfaceIndexArguments, interfaceIndexArguments);
+            Restore(InterfaceImplementations, interfaceImplementations);
+            Restore(_interfaceDelegateValues, delegateValues);
+            Restore(_interfaceResolutionActive, interfaceActive);
             Restore(_active, activeSnapshot);
             Restore(_reported, reportedSnapshot);
             Restore(_deferred, deferredSnapshot);

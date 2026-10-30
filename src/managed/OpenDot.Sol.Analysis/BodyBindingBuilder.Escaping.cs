@@ -342,8 +342,12 @@ internal sealed partial class BodyBindingBuilder
         return -1;
     }
 
-    private AstNode? NearestCallableOwner(AstNode node) => Ancestors(node)
-        .FirstOrDefault(ancestor => ancestor is AstCallable or AstAnonymousFunction);
+    private AstNode? NearestCallableOwner(AstNode node)
+    {
+        var owner = Ancestors(node).FirstOrDefault(ancestor => ancestor is AstCallable or AstAnonymousFunction);
+        return owner is AstAccessor && Ancestors(owner).OfType<AstIndexer>().FirstOrDefault() is { } indexer
+            ? indexer : owner;
+    }
 
     private AstNode ParameterGroupNode(AstParameter parameter) => Files.Keys.FirstOrDefault(node =>
         ReferenceEquals(node.Origin.Element, parameter.GroupOrigin.Element))
@@ -474,7 +478,10 @@ internal sealed partial class BodyBindingBuilder
         {
             if (parent is AstLambda or AstAnonymousFunction) { return parent; }
             if (parent is AstCallable callable)
-            { return ReferenceEquals(callable, owner) ? null : callable; }
+            {
+                if (callable is AstAccessor && owner is AstIndexer && Ancestors(callable).Contains(owner)) { continue; }
+                return ReferenceEquals(callable, owner) ? null : callable;
+            }
         }
         return null;
     }

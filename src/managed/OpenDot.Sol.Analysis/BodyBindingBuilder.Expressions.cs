@@ -27,6 +27,8 @@ internal sealed partial class BodyBindingBuilder
             var value = expression switch
             {
                 AstAtom atom => Atom(atom, state, context, expected, read),
+                AstGenericApplication application when application.Target is AstAtom { Spelling: "super" }
+                    => QualifiedInterfaceSuper(application),
                 AstMember member => Member(member, state, context, read, expected),
                 AstCall call => SafeCall(call, state, context, expected),
                 AstOperation operation => Operation(operation, state, context, expected),
@@ -180,12 +182,18 @@ internal sealed partial class BodyBindingBuilder
     {
         var operands = expression.Children.OfType<AstExpression>().ToArray();
         var receiver = operands.Length == 0 ? new Value(null) : Expression(operands[0], state, context);
+        if (receiver.Type is { Kind: ResolvedTypeKind.Nominal or ResolvedTypeKind.Parameter } nominal)
+        { return InterfaceIndex(expression, nominal, state, context, read); }
         var indices = expression.Children.Where(n => n.SyntaxKind == NodeKind.ArgumentList).SelectMany(n => n.Children)
             .SelectMany(n => n is AstExpression e ? new[] { e } : n.Children.OfType<AstExpression>()).ToArray();
         if (indices.Length == 0) { indices = operands.Skip(1).ToArray(); }
         foreach (var index in indices) { Require(Expression(index, state, context, Types.GetPrimitive("int")), Types.GetPrimitive("int"), index); }
         if (receiver.Type?.Kind is ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray)
         {
+            if (expression.Children.Where(node => node.SyntaxKind == NodeKind.ArgumentList).SelectMany(node => node.Children)
+                .Any(node => node.Children.Any(child => child.SyntaxKind is NodeKind.Name or NodeKind.RefArgument
+                    or NodeKind.OutArgument or NodeKind.OutVariable or NodeKind.SpreadArgument)))
+            { Report("SOL2213", "Array indexing requires a positional value index.", expression); }
             if (indices.Length != 1) { Report("SOL2213", "Array indexing requires one int index.", expression); }
             return new(receiver.Type.Arguments[0], true, true);
         }

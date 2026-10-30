@@ -191,7 +191,7 @@ internal sealed partial class Parser
                 or OpenBracketToken or CloseBracketToken or IntegerLiteralToken or QuestionToken or BangToken
                 or ArrowToken or RefKeyword or OutKeyword)) { return false; }
             if (depth < 0) { return false; }
-            if (depth == 0) { return Peek(distance + 1).Kind is OpenParenToken or DotToken or OpenBraceToken; }
+            if (depth == 0) { return Peek(distance + 1).Kind is OpenParenToken or DotToken or OpenBraceToken or OpenBracketToken; }
         }
         Error("SOL1104", "The generic application lookahead budget was exceeded.");
         return false;

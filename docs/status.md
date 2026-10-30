@@ -71,10 +71,15 @@ records field-initializer/delegate effects and exceptional snapshots when the ty
 initialization part and no unsupported constructor/base/escape behavior. Explicit constructor
 delegation and other incomplete construction cases remain Deferred. Suppressed failure data is
 analysis metadata, not a runtime Throwable object or delivered Windows exception. Complete CFG
-correlations, full protected receiver checks, interface-default resolution, contextual lambda/array
+correlations, full protected receiver checks, complete construction proofs, contextual lambda/array
 evidence, and borrow-origin proof remain incomplete. These are source-analysis facts only; this API
 does not produce verified FIR or native output. See the [cleanup/construction guide](cleanup-construction.md)
 for the exact supported boundary.
+
+Interface method/property/indexer default selection and `by` forwarding now have source operation
+records, declaration-time conflict/missing-implementation diagnostics, compatible independent
+getter/setter merging, and direct `super<I>` binding. Native interface dispatch and forwarding
+lowering remain outside the supported FIR boundary; see [member resolution](member-resolution.md).
 
 The [Yellow Tea implementation inventory](yellow-tea/current-implementation.md) records the experimental
 concurrent mark/sweep collector, generated roots/barriers, handles, and span allocator. Broader allocator

@@ -72,8 +72,8 @@ module source.spec.member_resolution.accessor_candidates
 // If one partial type part declares the getter and another declares the setter, partial merge first
 // establishes one logical property identity. Duplicate/conflicting accessors are declaration
 // errors, not source-order selection. A getter from one unrelated interface path and setter from
-// another do not combine into a synthetic property unless the interface merge contract explicitly
-// permits it.
+// another can combine when their value types agree, as specified in InterfaceImplementations.sol.
+// Independent providers of the same accessor require explicit override.
 
 // Indexers
 // --------
@@ -178,5 +178,6 @@ module source.spec.member_resolution.accessor_candidates
 // -------------------------------
 //
 // BodyAnalysis now distinguishes property getter/setter existence, checks accessor visibility, and
-// adds only accessible getter effects on reads. Setter effects, complete compound assignment and
-// indexer operation binding, delegated FIR, and ref-return alias proof remain incomplete.
+// adds only getter effects on reads and setter effects on writes. Source interface operation
+// selection, compound effects and index argument mapping are implemented; complete non-interface
+// indexers, delegated FIR, construction proofs, and ref-return alias proof remain incomplete.

@@ -96,7 +96,8 @@ internal sealed class LexicalBuilder
                 if (callable is AstAccessor { Name: "set" or "init" })
                 {
                     var property = Ancestors(node).OfType<AstProperty>().FirstOrDefault();
-                    Add(scope, "value", LocalSymbolKind.AccessorValue, node.Origin, property?.Type, false, node.Origin.Span.Start);
+                    var valueType = property?.Type ?? Ancestors(node).OfType<AstIndexer>().FirstOrDefault()?.ValueType;
+                    Add(scope, "value", LocalSymbolKind.AccessorValue, node.Origin, valueType, false, node.Origin.Span.Start);
                 }
                 break;
             case AstTypeDeclaration type:
@@ -204,7 +205,8 @@ internal sealed class LexicalBuilder
         foreach (var parameter in type.PrimaryConstructor.Parameters.Where(p => !p.IsProperty))
         {
             Add(scope, parameter.Name, LocalSymbolKind.Parameter, parameter.NameOrigin, parameter.Type,
-                false, type.Origin.Span.Start);
+                parameter.PassingMode is AstPassingMode.Ref or AstPassingMode.Out,
+                type.Origin.Span.Start, parameter.PassingMode);
         }
     }
 

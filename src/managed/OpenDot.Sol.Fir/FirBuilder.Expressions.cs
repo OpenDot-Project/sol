@@ -170,6 +170,8 @@ internal sealed partial class FirBuilder
                 if (expression.SyntaxKind == NodeKind.IndexExpression)
                 {
                     var receiver = expression.Children.OfType<AstExpression>().FirstOrDefault();
+                    if (receiver is not null && BoundExpression(receiver)?.Type is { Kind: ResolvedTypeKind.Nominal or ResolvedTypeKind.Parameter })
+                    { Unsupported(expression, "Interface and nominal indexer dispatch is outside the verified native subset"); return Invalid(expression); }
                     var indices = expression.Children.Where(n => n.SyntaxKind == NodeKind.ArgumentList).SelectMany(n => n.Children)
                         .SelectMany(n => n is AstExpression e ? new[] { e } : n.Children.OfType<AstExpression>()).ToArray();
                     if (receiver is not null && indices is [var index])

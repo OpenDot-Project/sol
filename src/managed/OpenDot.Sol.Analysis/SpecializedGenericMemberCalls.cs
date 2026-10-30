@@ -32,6 +32,7 @@ internal sealed partial class SpecializedBodyAnalysis
     private SpecializedBodyAnalysis(SpecializedBodyAnalysis local)
     {
         Sources = local.Sources;
+        InterfaceUses = local.InterfaceUses;
         Declaration = local.Declaration;
         OwnerTypeArguments = local.OwnerTypeArguments;
         TypeArguments = local.TypeArguments;

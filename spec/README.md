@@ -2,6 +2,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Sol source specification
 
+[Interface implementations](InterfaceImplementations.sol) defines source default-body conflicts,
+accessor merging, forwarding targets, and direct qualified-super operation selection.
+Its [semantic examples](examples/semantics/InterfaceImplementations.sol) show direct selection,
+generic forwarding, named index arguments, and independent getter/setter providers.
+
 The `.sol` files in this directory explain the intended language through declarations, examples,
 and rule comments. They include semantics that the compiler has not implemented yet. A source
 example is a language contract, not a claim that the current compiler can build or execute it.

@@ -96,7 +96,7 @@ internal sealed class MemberLookupResolver
         _cancellation = cancellationToken;
     }
 
-    internal MemberLookupResult Resolve(ResolvedType receiver, string name, AstNode location)
+    internal MemberLookupResult Resolve(ResolvedType receiver, string name, AstNode location, bool retainContracts = false)
     {
         ArgumentNullException.ThrowIfNull(receiver);
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -174,8 +174,8 @@ internal sealed class MemberLookupResolver
         }
 
         if (collected.Count == 0) { return new(MemberLookupStatus.Missing, [], null); }
-        var merged = MergeNameGroup(collected.Values.ToImmutableArray());
-        merged = SuppressOverridden(merged);
+        var merged = retainContracts ? collected.Values.ToImmutableArray() : MergeNameGroup(collected.Values.ToImmutableArray());
+        if (!retainContracts) { merged = SuppressOverridden(merged); }
         merged = merged.OrderBy(candidate => candidate.InheritanceDepth)
             .ThenBy(candidate => candidate.Symbol.QualifiedName, StringComparer.Ordinal)
             .ThenBy(candidate => candidate.Symbol.Signature, StringComparer.Ordinal)
@@ -574,8 +574,10 @@ internal sealed class MemberLookupResolver
         return result;
     }
 
-    private ImmutableArray<ResolvedType> DirectBases(ResolvedType type)
+    internal ImmutableArray<ResolvedType> DirectBases(ResolvedType type)
     {
+        _cancellation.ThrowIfCancellationRequested();
+        _types.ValidateOwnership(type);
         if (type.Kind == ResolvedTypeKind.Nominal) { return _types.GetDirectBases(type, _cancellation); }
         if (type.Kind != ResolvedTypeKind.Parameter || type.Parameter is not { } identity) { return []; }
 

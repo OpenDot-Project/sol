@@ -84,9 +84,20 @@ internal sealed partial class BodyBindingBuilder
             return new(null);
         }
         var selected = best[0];
+        if (selected.Target.Constructed is { } delegatedConstruction)
+        { ValidateInterfaceDelegateConstruction(delegatedConstruction, call); }
         Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.TypeArguments,
             selected.Parameters, selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults)
         { EmptyVarargParameters = selected.Mapping.EmptyVarargs, SourceReceiver = selected.Target.AccessReceiver };
+        if (selected.Target.AccessReceiver is { } interfaceReceiver)
+        {
+            var implementation = ResolveInterfaceImplementations(interfaceReceiver, call).FirstOrDefault(record =>
+                record.Implementation is { Kind: InterfaceOperationKind.Method } operation
+                && operation.Member.Symbol == selected.Target.Symbol
+                && ReferenceEquals(operation.Member.DeclaringType, selected.Target.Receiver));
+            Calls[call] = Calls[call] with { InterfaceImplementation = implementation,
+                IsQualifiedInterfaceSuper = IsQualifiedSuperUse(call) };
+        }
         foreach (var parameter in selected.Parameters) { ValidateFunctionEffects(parameter, call); }
         if (selected.Result is not null) { ValidateFunctionEffects(selected.Result, call); }
         if (context.Callable is AstConstructor && targetExpression is AstMember { Receiver: AstAtom { Spelling: "this" } }

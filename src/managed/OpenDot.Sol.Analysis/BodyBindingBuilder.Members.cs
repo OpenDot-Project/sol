@@ -42,7 +42,8 @@ internal sealed partial class BodyBindingBuilder
             Defer(location);
             return [];
         }
-        return result.Candidates.Select(candidate => new MemberBinding(candidate.Symbol, candidate.DeclaringType));
+        return InterfaceMethodCandidates(receiver, name, location,
+            result.Candidates.Select(candidate => new MemberBinding(candidate.Symbol, candidate.DeclaringType)));
     }
 
     private bool Accessible(DeclarationSymbol symbol, AstNode location)
@@ -100,7 +101,7 @@ internal sealed partial class BodyBindingBuilder
         if (current is null || owner is null || !IsSameOrDerivedDeclaration(current, owner, location))
         { return false; }
         if (current.Declaration == owner.Declaration) { return true; }
-        if (location is AstMember { Receiver: AstAtom { Spelling: "super" } }) { return true; }
+        if (location is AstMember { Receiver: AstAtom { Spelling: "super" } } || IsQualifiedSuperUse(location)) { return true; }
         return receiver is not null && Converts(receiver, current);
     }
 
@@ -250,6 +251,9 @@ internal sealed partial class BodyBindingBuilder
             if (!member.IsSafe) { Report("SOL2243", "Nullable receiver requires a check, safe access, or assertion.", member); }
             type = type.Arguments[0];
         }
+        if (InterfacePropertyAccess(type, member.Name, member, state, context, read) is { } interfaceProperty)
+        { return member.IsSafe && interfaceProperty.Type is not null ? interfaceProperty with
+            { Type = Types.GetNullable(interfaceProperty.Type), Writable = false, Storage = false } : interfaceProperty; }
         if (type.Kind is ResolvedTypeKind.Array or ResolvedTypeKind.FixedArray && member.Name == "length")
         { return new(member.IsSafe ? Types.GetNullable(Types.GetPrimitive("int")) : Types.GetPrimitive("int")); }
         var found = ReceiverMembers(type, member.Name, member, receiver.IsType).ToArray();
