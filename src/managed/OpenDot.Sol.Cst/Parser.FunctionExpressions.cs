@@ -73,15 +73,15 @@ internal sealed partial class Parser
         return Node(NodeKind.AnonymousFunctionExpression, start, children);
     }
 
-    private SyntaxNode ParseArguments()
+    private SyntaxNode ParseArguments(SyntaxKind open = OpenParenToken, SyntaxKind close = CloseParenToken)
     {
         int start = Start;
         _suppressedNewlines++;
         try
         {
-            Expect(OpenParenToken);
+            Expect(open);
             var arguments = new List<SyntaxNode>();
-            while (!AtEnd && Kind != CloseParenToken)
+            while (!AtEnd && Kind != close)
             {
                 int before = _index;
                 int argumentStart = Start;
@@ -112,7 +112,7 @@ internal sealed partial class Parser
                 EnsureProgress(before);
                 if (!Take(CommaToken)) { break; }
             }
-            Expect(CloseParenToken);
+            Expect(close);
             return Node(NodeKind.ArgumentList, start, arguments);
         }
         finally { _suppressedNewlines--; }

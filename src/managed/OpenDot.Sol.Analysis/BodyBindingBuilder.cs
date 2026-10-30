@@ -223,6 +223,8 @@ internal sealed partial class BodyBindingBuilder
             return new(this, function, arguments, rejected);
         }
         var summary = CheckBody(function);
+        CompleteInterfaceImplementations();
+        summary = Bodies.GetValueOrDefault(function, summary);
         _cancellation.ThrowIfCancellationRequested();
         return new(this, function, arguments, summary);
     }
@@ -337,12 +339,15 @@ internal sealed partial class BodyBindingBuilder
         }
 
         var summary = CheckBody(function);
+        CompleteInterfaceImplementations();
+        summary = Bodies.GetValueOrDefault(function, summary);
         _cancellation.ThrowIfCancellationRequested();
         return new(this, function, constructedOwner.Arguments, methodArguments, constructedOwner, summary);
     }
 
     internal void Build()
     {
+        ValidateInterfaceImplementations();
         foreach (var declaration in Files.Keys.OfType<AstCallable>()) { CheckBody(declaration); }
         foreach (var property in Files.Keys.OfType<AstProperty>().Where(p => !Ancestors(p).Any(n => n is AstCallable or AstLambda)))
         {
@@ -364,6 +369,7 @@ internal sealed partial class BodyBindingBuilder
         ValidateOverrides();
         ValidateOperatorContracts();
         ValidateStorage();
+        CompleteInterfaceImplementations();
     }
 
     private BodySummary CheckBody(AstCallable callable)
@@ -379,6 +385,9 @@ internal sealed partial class BodyBindingBuilder
             _ => new AstBody(AstBodyKind.Missing, null),
         };
         ResolvedType? result = callable.ReturnType is not null ? Written(callable.ReturnType)
+            : callable is AstAccessor { Name: "get" } indexedAccessor
+                && Ancestors(indexedAccessor).OfType<AstIndexer>().FirstOrDefault()?.ValueType is { } indexedType
+                ? Written(indexedType)
             : callable is AstAccessor accessor && ParentProperty(accessor) is { } owner
                 ? accessor.Name == "get" && owner.Type is not null ? Written(owner.Type) : Empty
                 : body.Kind == AstBodyKind.Expression ? null : Empty;
@@ -393,6 +402,23 @@ internal sealed partial class BodyBindingBuilder
         var context = new Context(callable, result, Exits: exits);
         try
         {
+            if (callable is AstAccessor indexAccessor && Ancestors(indexAccessor).OfType<AstIndexer>().FirstOrDefault() is { } indexer)
+            {
+                foreach (var local in OwnLocals(indexer).Where(local => local.Kind == LocalSymbolKind.Parameter))
+                {
+                    if (local.WrittenType is not null)
+                    {
+                        var parameterType = Written(local.WrittenType);
+                        _localTypes[local] = local.PassingMode == AstPassingMode.Vararg ? Types.GetArray(parameterType) : parameterType;
+                    }
+                    if (local.PassingMode != AstPassingMode.Out) { state.Assigned.Add(local); }
+                }
+                if (indexAccessor.Name is "set" or "init" && indexer.ValueType is { } valueType)
+                {
+                    foreach (var local in OwnLocals(indexAccessor).Where(local => local.Kind == LocalSymbolKind.AccessorValue))
+                    { _localTypes[local] = Written(valueType); }
+                }
+            }
             foreach (var local in OwnLocals(callable).Where(l => l.Kind is LocalSymbolKind.Parameter or LocalSymbolKind.AccessorValue))
             {
                 var parameter = callable.Parameters.FirstOrDefault(p => ReferenceEquals(p.NameOrigin.Element, local.Origin.Element));

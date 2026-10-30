@@ -16,6 +16,10 @@ internal sealed record ArgumentMapping(ImmutableArray<CallArgumentBinding> Argum
 internal static class CallArgumentMapper
 {
     internal static ArgumentMapping Map(AstCall call, AstCallable function, ParameterDefaultSet defaultContract, CancellationToken cancellation)
+        => Map(call.Arguments, function, defaultContract, cancellation);
+
+    internal static ArgumentMapping Map(ImmutableArray<AstArgument> arguments, AstCallable function,
+        ParameterDefaultSet defaultContract, CancellationToken cancellation)
     {
         var parameters = function.Parameters;
         var mappings = ImmutableArray.CreateBuilder<CallArgumentBinding>();
@@ -32,14 +36,14 @@ internal static class CallArgumentMapper
         bool usesVararg = false;
         ArgumentMapping Fail(string message) => new(mappings.ToImmutable(), defaults.ToImmutable(), empty.ToImmutable(), usesVararg, message);
 
-        for (int index = 0; index < call.Arguments.Length; index++)
+        for (int index = 0; index < arguments.Length; index++)
         {
             cancellation.ThrowIfCancellationRequested();
-            var argument = call.Arguments[index];
+            var argument = arguments[index];
             int target;
             if (argument.IsTrailingLambda)
             {
-                if (index != call.Arguments.Length - 1 || parameters.IsEmpty) { return Fail("A trailing lambda requires a final parameter."); }
+                if (index != arguments.Length - 1 || parameters.IsEmpty) { return Fail("A trailing lambda requires a final parameter."); }
                 target = parameters.Length - 1;
                 if (parameters[target].PassingMode != AstPassingMode.Value) { return Fail("A trailing lambda cannot fill a vararg/ref/out parameter."); }
             }

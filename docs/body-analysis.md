@@ -53,10 +53,12 @@ Private and protected access, private setters/getters, explicit override, non-ov
 visibility reduction, incompatible returns, and widened checked effect budgets receive diagnostics.
 Inherited callable groups merge across substituted base paths; duplicate constructed paths collapse,
 and a more-derived same-signature declaration replaces the base recovery candidate. Inheritance
-lookup is bounded to 128 levels and 8192 constructed receiver identities. The merge is not yet a
-complete interface-default conflict protocol, and generated data members remain incomplete.
+lookup is bounded to 128 levels, 8192 path states, and 128 routes per constructed candidate.
+Interface methods/accessors now have declaration-time implementation selection, independent
+getter/setter merging, `by` target records, and direct qualified-super binding. Conflicts and missing
+implementations remain errors even without a call. Generated data members remain incomplete.
 Protected receiver restrictions, cross-binary distribution metadata for `internal`, complete
-property/indexer inheritance, and every accessor/delegation visibility case still need verification.
+non-interface property/indexer inheritance, and complete construction/delegation proofs remain open.
 See [receiver and member resolution](member-resolution.md).
 
 ## Expression and lambda checking

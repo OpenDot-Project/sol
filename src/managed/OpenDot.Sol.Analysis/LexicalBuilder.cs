@@ -96,7 +96,8 @@ internal sealed class LexicalBuilder
                 if (callable is AstAccessor { Name: "set" or "init" })
                 {
                     var property = Ancestors(node).OfType<AstProperty>().FirstOrDefault();
-                    Add(scope, "value", LocalSymbolKind.AccessorValue, node.Origin, property?.Type, false, node.Origin.Span.Start);
+                    var valueType = property?.Type ?? Ancestors(node).OfType<AstIndexer>().FirstOrDefault()?.ValueType;
+                    Add(scope, "value", LocalSymbolKind.AccessorValue, node.Origin, valueType, false, node.Origin.Span.Start);
                 }
                 break;
             case AstTypeDeclaration type:

@@ -192,7 +192,26 @@ internal sealed partial class BodyBindingBuilder
             if (assignedValue.Type?.IsRefLike == true && local.Kind != LocalSymbolKind.Variable) { CheckEscape(assignedValue, assignment, context); }
         }
         else if (assignedValue.Type?.IsRefLike == true) { Report("SOL2260", "Ref-like values cannot be stored in heap properties.", assignment); }
-        if (location.Symbol?.Parts[0] is AstProperty property)
+        if (assignment.Location is not null && _interfaceWrites.TryGetValue(assignment.Location, out var interfaceWrite))
+        {
+            if (interfaceWrite.Status != BodyBindingStatus.Bound)
+            {
+                if (interfaceWrite.Status == BodyBindingStatus.Invalid)
+                { Report("SOL2236", interfaceWrite.Reason ?? "The interface setter is unresolved.", assignment); }
+                Defer(assignment);
+            }
+            ValidateInterfaceAccess(interfaceWrite, assignment.Location, qualified: IsQualifiedSuperUse(assignment.Location));
+            if (context.Callable is AstConstructor && interfaceWrite.Implementation?.Member.Symbol.Parts[0] is AstProperty ownProperty
+                && (assignment.Location is AstAtom || assignment.Location is AstMember ownMember && IsOwnConstructorReceiver(ownMember.Receiver, context)))
+            { state.Fields.Add(ownProperty); }
+            var setterEffects = (interfaceWrite.Implementation ?? interfaceWrite.Contracts[0]).Effects;
+            if (_interfaceIndexArguments.TryGetValue(assignment.Location, out var indexArguments))
+            { ApplyInterfaceIndexEffects(indexArguments, state, setterEffects); }
+            else
+            { RecordPotentialCallEdges(state, setterEffects); state.Effects.UnionWith(setterEffects); }
+        }
+        if (location.Symbol?.Parts[0] is AstProperty property
+            && (assignment.Location is null || !_interfaceWrites.ContainsKey(assignment.Location)))
         {
             bool initializesOwnField = false;
             if (context.Callable is AstConstructor)
@@ -594,9 +613,11 @@ internal sealed partial class BodyBindingBuilder
     private void CheckOut(State state, Context context, AstNode location)
     {
         if (context.Callable is null) { return; }
-        foreach (var parameter in context.Callable.Parameters.Where(p => p.PassingMode == AstPassingMode.Out))
+        AstCallable parameterOwner = context.Callable is AstAccessor indexed
+            && Ancestors(indexed).OfType<AstIndexer>().FirstOrDefault() is { } indexer ? indexer : context.Callable;
+        foreach (var parameter in parameterOwner.Parameters.Where(p => p.PassingMode == AstPassingMode.Out))
         {
-            var local = OwnLocals(context.Callable).FirstOrDefault(l => ReferenceEquals(l.Origin.Element, parameter.NameOrigin.Element));
+            var local = OwnLocals(parameterOwner).FirstOrDefault(l => ReferenceEquals(l.Origin.Element, parameter.NameOrigin.Element));
             if (local is not null && !state.Assigned.Contains(local)) { Report("SOL2242", "Out parameter must be assigned on every normal exit: " + parameter.Name, location); }
         }
     }

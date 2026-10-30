@@ -40,7 +40,7 @@ public sealed partial class BodyAnalysis
             {
                 var builder = new BodyBindingBuilder(Sources, Types, cancellation)
                 { ClosedMemberReturn = ResolveClosedMemberReturn, ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate,
-                    ClosedLexicalReturn = ResolveClosedLexicalReturn };
+                    ClosedLexicalReturn = ResolveClosedLexicalReturn, InterfaceSourceBody = GetBody };
                 var body = builder.BuildGenericMemberBody(function, owner,
                     Sources.Types.GetTypeParameters(function), returnTemplateOnly: true);
                 cancellation.ThrowIfCancellationRequested();

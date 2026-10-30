@@ -10,6 +10,7 @@ type checker or executable backend. The normative source rules are in
 The additional contracts cover [nullable receiver flow](../spec/MemberResolution.NullableFlow.sol),
 [partial type identity](../spec/MemberResolution.PartialIdentity.sol),
 [path ownership](../spec/MemberResolution.PathOwnership.sol),
+[interface implementations](../spec/InterfaceImplementations.sol),
 [path-sensitive hiding](../spec/MemberResolution.PathSensitiveHiding.sol),
 [protected calls](../spec/MemberResolution.ProtectedCalls.sol), and
 [accessor candidate behavior](../spec/MemberResolution.AccessorCandidates.sol),
@@ -99,7 +100,41 @@ return type, accessibility, finality, and checked effects.
 Duplicate visits to a symbol at the same constructed owner are removed. Distinct interface
 declarations are kept even if their signatures and source text match. If two unrelated inherited
 methods are both applicable and neither is a valid override, ordinary overload ranking reports an
-ambiguity. The same applies to incompatible constructed base paths.
+ambiguity. Interface implementation contracts additionally undergo declaration-time operation
+selection as described below. The same applies to incompatible constructed base paths.
+
+### Interface implementations
+
+Source analysis resolves methods, property getters/setters, and indexer getters/setters separately.
+The internal immutable selection retains all contracts, the constructed declaring owner, the source
+body or delegate target, substituted signature/effects, and initialization origin. A shared diamond
+reaching the same declaration and constructed owner contributes one provider. A more-specific
+interface override replaces its ancestor's body, including when an alternate path reaches that
+ancestor. A bodyless override removes the inherited default.
+
+Independent bodies require an explicit override, including a concrete base-class body competing
+with an independent interface body. The compiler diagnoses this on the type declaration even when
+the member is never called. A concrete type must supply every required operation. Explicit
+implementations must satisfy every matched contract's result, visibility, passing mode, generic
+arity, checked effects, and `@escaping` requirements. Existing inherited default-expression origins
+remain authoritative.
+
+Compatible getters and setters can come from different interfaces. Their value types must agree;
+multiple independent providers of the same accessor still require an explicit override. Indexers
+use argument mapping and conversion ranking, with separate accessor effects and ref/out flow.
+Getter/setter availability does not grant addressability.
+
+`by` supplies operation-specific forwarders. Explicit overrides take precedence; competing delegate
+or independent default providers are conflicts. The selected target identity and delegate
+initialization effects are retained separately from invocation effects. Unproven construction
+behavior remains `Deferred`.
+
+`super<I>.method()`, `super<I>.property`, and `super<I>[index]` require an exact direct constructed
+base interface and a unique concrete body for the requested operation. An indirect ancestor,
+abstract operation, construction use, or bare qualified-super value is rejected. These calls retain
+the selected source body rather than reopening virtual dispatch. This source proof does not grant
+native interface dispatch, layout, forwarding code generation, or receiver ABI support; the FIR
+`SOL2400` boundary remains in force.
 
 The resolver treats a nearest non-callable declaration as owning its name on each route. A
 more-derived method group hides a base property of that name along paths through the method owner;
@@ -190,7 +225,8 @@ an explicit base route.
 Method candidates that are inaccessible cannot win or contribute generic evidence. A property can
 remain readable while its setter is inaccessible, or writable while its getter is inaccessible,
 subject to the source visibility contract. Simple write analysis adds setter effects only; read
-analysis adds getter effects. Compound operation lowering is not implemented by this analysis pass.
+analysis adds getter effects. Source compound assignments check the getter, operator, and setter;
+native accessor lowering remains outside this analysis pass.
 
 The current internal check treats one `SourceAnalysis` as one distribution for `internal` access.
 Separate binary metadata and package identity are not modeled here. The implementation therefore
@@ -336,8 +372,7 @@ This work expands source analysis only. It does not create FIR, prove every body
 or execute the bound target. The following remain open:
 
 - distribution-level `internal` metadata across separate source/binary analyses;
-- interface default conflict resolution and full explicit conflict declarations;
-- all generated data-class members and complete inherited property/indexer merge rules;
+- all generated data-class members and complete non-interface property/indexer merge rules;
 - candidate-local contextual typing for every lambda and array literal shape, including complex
   cross-argument dependencies beyond the bounded replay currently implemented;
 - nested function-type effect-set matching and ambiguous top-level effect assignments;
@@ -358,6 +393,10 @@ as a diagnostic rather than an implicit successful fallback.
 | `SOL2212` | The selected name has ambiguous value/member declarations. |
 | `SOL2214` | The declaration or accessor is inaccessible. |
 | `SOL2215` | The receiver has no member with this name. |
+| `SOL2236` | Competing interface implementations require an explicit override. |
+| `SOL2237` | A required interface operation has no implementation. |
+| `SOL2238` | Qualified super does not select a direct concrete interface operation. |
+| `SOL2239` | Interface accessor value types are incompatible. |
 | `SOL2243` | A nullable receiver requires flow proof, safe access, or assertion. |
 | `SOL2290` | A bounded member/type analysis operation exceeded its resource limit. |
 

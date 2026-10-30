@@ -93,6 +93,8 @@ internal sealed partial class BodyBindingBuilder
             return new(this, function, arguments, rejected);
         }
         var summary = CheckBody(function);
+        CompleteInterfaceImplementations();
+        summary = Bodies.GetValueOrDefault(function, summary);
         ValidateLexicalCaptureLifetime(function);
         if (Diagnostics.Count != 0)
         {
