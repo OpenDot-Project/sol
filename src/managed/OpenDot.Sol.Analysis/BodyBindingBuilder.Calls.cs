@@ -84,6 +84,8 @@ internal sealed partial class BodyBindingBuilder
             return new(null);
         }
         var selected = best[0];
+        if (selected.Target.Constructed is { } delegatedConstruction)
+        { ValidateInterfaceDelegateConstruction(delegatedConstruction, call); }
         Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.TypeArguments,
             selected.Parameters, selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults)
         { EmptyVarargParameters = selected.Mapping.EmptyVarargs, SourceReceiver = selected.Target.AccessReceiver };

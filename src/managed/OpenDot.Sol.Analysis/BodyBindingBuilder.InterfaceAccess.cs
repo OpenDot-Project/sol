@@ -57,6 +57,7 @@ internal sealed partial class BodyBindingBuilder
     private Value? InterfacePropertyAccess(ResolvedType receiver, string name, AstNode location,
         State state, Context context, bool read)
     {
+        if (_interfaceResolutionActive.Contains(receiver.Id)) { return null; }
         var records = ResolveInterfaceImplementations(receiver, location).Where(record =>
             record.Contracts.Any(operation => operation.Member.Symbol.Parts[0] is AstProperty
                 && operation.Member.Symbol.Name == name)).ToArray();

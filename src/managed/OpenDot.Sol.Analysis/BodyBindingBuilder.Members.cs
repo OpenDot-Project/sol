@@ -101,7 +101,7 @@ internal sealed partial class BodyBindingBuilder
         if (current is null || owner is null || !IsSameOrDerivedDeclaration(current, owner, location))
         { return false; }
         if (current.Declaration == owner.Declaration) { return true; }
-        if (location is AstMember { Receiver: AstAtom { Spelling: "super" } }) { return true; }
+        if (location is AstMember { Receiver: AstAtom { Spelling: "super" } } || IsQualifiedSuperUse(location)) { return true; }
         return receiver is not null && Converts(receiver, current);
     }
 

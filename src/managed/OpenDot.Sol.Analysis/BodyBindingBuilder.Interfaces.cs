@@ -149,7 +149,7 @@ internal sealed partial class BodyBindingBuilder
                         PrimaryProperty = parameter,
                         Body = null,
                         StorageSource = ParameterGroupNode(parameter),
-                        ValueType = Specialize(parameter.Type, owner),
+                        ValueType = InterfaceWritten(parameter.Type, owner),
                         Effects = [],
                         HasBody = true
                     };
@@ -173,13 +173,13 @@ internal sealed partial class BodyBindingBuilder
         if (declaration is AstFunction function)
         {
             var parameters = function.Parameters.Select(parameter => parameter.Type is null ? Types.GetBottom()
-                : Specialize(parameter.Type, member.DeclaringType)).ToImmutableArray();
+                : InterfaceWritten(parameter.Type, member.DeclaringType, function)).ToImmutableArray();
             string signature = "method:" + function.Name + "`" + function.TypeParameters.Count() + ":"
                 + string.Join(",", parameters.Select((type, index) => function.Parameters[index].PassingMode + ":" + InterfaceTypeKey(type, function)));
             yield return new(member, InterfaceOperationKind.Method, function,
-                function.ReturnType is not null ? Specialize(function.ReturnType, member.DeclaringType)
+                function.ReturnType is not null ? InterfaceWritten(function.ReturnType, member.DeclaringType, function)
                     : function.Body.Kind == AstBodyKind.Expression ? null : Empty, parameters,
-                function.ThrownTypes.Select(type => Specialize(type, member.DeclaringType)).ToImmutableArray(),
+                function.ThrownTypes.Select(type => InterfaceWritten(type, member.DeclaringType, function)).ToImmutableArray(),
                 signature, function.Body.Kind != AstBodyKind.Missing);
             yield break;
         }
@@ -191,9 +191,11 @@ internal sealed partial class BodyBindingBuilder
         };
         if (accessors is null) { yield break; }
         var valueSyntax = declaration is AstProperty p ? p.Type : ((AstIndexer)declaration).ValueType;
-        var value = valueSyntax is null ? null : Specialize(valueSyntax, member.DeclaringType);
+        var value = valueSyntax is null ? null : InterfaceWritten(valueSyntax, member.DeclaringType);
         var indices = declaration is AstIndexer ix ? ix.Parameters.Select(parameter => parameter.Type is null
-            ? Types.GetBottom() : Specialize(parameter.Type, member.DeclaringType)).ToImmutableArray() : [];
+            ? Types.GetBottom() : InterfaceWritten(parameter.Type, member.DeclaringType)).ToImmutableArray() : [];
+        var delegation = declaration is AstProperty { Delegate: { } delegateExpression } delegatedProperty
+            ? AnalyzeInterfaceInitialization(member.DeclaringType, delegatedProperty, delegateExpression, property: delegatedProperty) : null;
         foreach (var kind in new[] { InterfaceOperationKind.Get, InterfaceOperationKind.Set })
         {
             var accessor = accessors.FirstOrDefault(item => kind == InterfaceOperationKind.Get ? item.Name == "get" : item.Name == "set");
@@ -204,11 +206,14 @@ internal sealed partial class BodyBindingBuilder
             string signature = (declaration is AstIndexer ? "index:" : "property:" + declaration.Name + ":")
                 + kind + ":" + string.Join(",", indices.Select((type, index) =>
                     (declaration is AstIndexer ixDeclaration ? ixDeclaration.Parameters[index].PassingMode + ":" : "") + InterfaceTypeKey(type)));
-            yield return new(member, kind, accessor, value, indices,
-                accessor?.ThrownTypes.Select(type => Specialize(type, member.DeclaringType)).ToImmutableArray() ?? [],
+            var effects = delegation?.PropertyContract is { } delegateContract
+                ? kind == InterfaceOperationKind.Get ? delegateContract.GetEffects : delegateContract.SetEffects
+                : accessor?.ThrownTypes.Select(type => InterfaceWritten(type, member.DeclaringType)).ToImmutableArray() ?? [];
+            yield return new(member, kind, accessor, value, indices, effects,
                 signature, accessor?.Body.Kind != AstBodyKind.Missing && accessor is not null
                     || concrete && !declaration.Modifiers.Contains("abstract") && declaration is AstProperty
-                        && (implicitAccessor || accessors.All(item => item.Body.Kind == AstBodyKind.Missing)));
+                        && (implicitAccessor || accessors.All(item => item.Body.Kind == AstBodyKind.Missing)))
+                { InitializationEffects = delegation?.Effects ?? [], ProofStatus = delegation?.Status ?? BodyBindingStatus.Bound };
         }
     }
 
@@ -221,8 +226,13 @@ internal sealed partial class BodyBindingBuilder
 
     private ResolvedType? SpecializeInferredInterfaceReturn(AstFunction function, ResolvedType owner)
     {
-        var result = CheckBody(function).ReturnType;
-        return result is null ? null : Types.Substitute(result, Substitution(owner), _cancellation);
+        if (owner.Declaration?.Arity > 0 && !ReferenceEquals(ContainingType(function), owner)
+            && ClosedOwnerReturnTemplate?.Invoke(function, owner, _cancellation) is { } closedTemplate)
+        { return closedTemplate; }
+        var template = function.TypeParameters.Any() ? InterfaceSourceBody?.Invoke(function)?.ReturnType : null;
+        var result = template ?? Bodies.GetValueOrDefault(function)?.ReturnType
+            ?? (_active.Contains(function) ? InterfaceSourceBody?.Invoke(function)?.ReturnType : CheckBody(function).ReturnType);
+        return result is null ? null : Types.Substitute(result, InterfaceSubstitution(owner, function), _cancellation);
     }
 
     private bool ValidateInterfaceOperation(InterfaceOperation implementation, InterfaceOperation contract, AstNode location)
@@ -254,8 +264,13 @@ internal sealed partial class BodyBindingBuilder
         }
         if (AccessRank(implementation.Member.Symbol.Parts[0]) < AccessRank(contract.Member.Symbol.Parts[0]))
         { Report("SOL2233", "Interface implementation cannot reduce accessibility.", location); valid = false; }
-        if (implementation.Body is AstAccessor accessor && accessor.Modifiers.Any(modifier => modifier is "private" or "protected" or "internal")
-            && AccessRank(accessor) < AccessRank(contract.Member.Symbol.Parts[0]))
+        int contractAccess = contract.Body is AstAccessor contractAccessor
+            && contractAccessor.Modifiers.Any(modifier => modifier is "private" or "protected" or "internal" or "public")
+                ? AccessRank(contractAccessor) : AccessRank(contract.Member.Symbol.Parts[0]);
+        int implementationAccess = implementation.Body is AstAccessor accessor
+            && accessor.Modifiers.Any(modifier => modifier is "private" or "protected" or "internal" or "public")
+                ? AccessRank(accessor) : AccessRank(implementation.Member.Symbol.Parts[0]);
+        if (implementationAccess < contractAccess)
         { Report("SOL2233", "An interface implementation accessor cannot reduce accessibility.", location); valid = false; }
         if (implementation.Effects.Where(IsChecked).Any(effect => !contract.Effects.Any(budget =>
             Converts(effect, Types.Substitute(budget, substitutions, _cancellation)))))

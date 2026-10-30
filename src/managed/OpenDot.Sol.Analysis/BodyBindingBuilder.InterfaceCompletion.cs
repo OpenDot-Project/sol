@@ -15,7 +15,7 @@ internal sealed partial class BodyBindingBuilder
 
     private InterfaceOperation CompleteInterfaceOperation(InterfaceOperation operation)
     {
-        if (operation.ValueType is not null || operation.Body is not AstFunction { Body.Kind: AstBodyKind.Expression } function)
+        if (operation.Body is not AstFunction { ReturnType: null, Body.Kind: AstBodyKind.Expression } function)
         { return operation; }
         return operation with { ValueType = SpecializeInferredInterfaceReturn(function, operation.Owner) };
     }

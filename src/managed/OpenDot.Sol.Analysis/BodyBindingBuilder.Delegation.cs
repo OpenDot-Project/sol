@@ -85,7 +85,7 @@ internal sealed partial class BodyBindingBuilder
             .Where(p => p.Function is not null && p.Function.Modifiers.Contains("operator")
                 && p.Function.Parameters.Length == arguments.Length && !p.Function.TypeParameters.Any())
             .Where(p => p.Function!.Parameters.Select((parameter, index) => parameter.Type is not null
-                && Converts(arguments[index], Specialize(parameter.Type, p.Member.DeclaringType))).All(b => b)).ToArray();
+                && Converts(arguments[index], InterfaceWritten(parameter.Type, p.Member.DeclaringType))).All(b => b)).ToArray();
         if (candidates.Length != 1)
         {
             if (required || candidates.Length > 1) { Report("SOL2280", "Delegation protocol has no unique applicable operator: " + name, property); }
@@ -94,11 +94,12 @@ internal sealed partial class BodyBindingBuilder
         var selected = candidates[0];
         var function = selected.Function!;
         foreach (var parameter in function.Parameters.Where(p => p.Type is not null))
-        { ValidateFunctionEffects(Specialize(parameter.Type!, selected.Member.DeclaringType), property); }
-        var result = function.ReturnType is null ? CheckBody(function).ReturnType : Specialize(function.ReturnType, selected.Member.DeclaringType);
+            { ValidateFunctionEffects(InterfaceWritten(parameter.Type!, selected.Member.DeclaringType), property); }
+        var result = function.ReturnType is null ? SpecializeInferredInterfaceReturn(function, selected.Member.DeclaringType)
+            : InterfaceWritten(function.ReturnType, selected.Member.DeclaringType);
         if (result is null) { Defer(property); return null; }
         ValidateFunctionEffects(result, property);
-        return (result, function.ThrownTypes.Select(t => Specialize(t, selected.Member.DeclaringType)).ToImmutableArray());
+        return (result, function.ThrownTypes.Select(t => InterfaceWritten(t, selected.Member.DeclaringType)).ToImmutableArray());
     }
 
     private static void CopyFlowFacts(State source, State destination)

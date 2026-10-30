@@ -339,8 +339,11 @@ internal sealed partial class BodyBindingBuilder
         }
 
         var summary = CheckBody(function);
-        CompleteInterfaceImplementations();
-        summary = Bodies.GetValueOrDefault(function, summary);
+        if (!returnTemplateOnly)
+        {
+            CompleteInterfaceImplementations();
+            summary = Bodies.GetValueOrDefault(function, summary);
+        }
         _cancellation.ThrowIfCancellationRequested();
         return new(this, function, constructedOwner.Arguments, methodArguments, constructedOwner, summary);
     }

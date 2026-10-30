@@ -10,7 +10,8 @@ namespace OpenDot.Sol.Analysis;
 
 internal sealed partial class BodyBindingBuilder
 {
-    private sealed record DelegateInitialization(ResolvedType? Type, ImmutableArray<ResolvedType> Effects, BodyBindingStatus Status);
+    private sealed record DelegateInitialization(ResolvedType? Type, ImmutableArray<ResolvedType> Effects, BodyBindingStatus Status)
+    { internal DelegateContract? PropertyContract { get; init; } }
     private readonly Dictionary<(int Receiver, AstNode Entry), DelegateInitialization> _interfaceDelegateValues = [];
     private IEnumerable<InterfaceOperation> InterfaceForwarders(ResolvedType receiver,
         ImmutableArray<InterfaceOperation> contracts, AstNode location)
@@ -33,7 +34,7 @@ internal sealed partial class BodyBindingBuilder
                         ?.Children.OfType<AstExpression>().FirstOrDefault();
                     var syntax = entry.Children.OfType<AstType>().FirstOrDefault();
                     if (expression is null || syntax is null) { continue; }
-                    var delegatedInterface = Specialize(syntax, owner);
+                    var delegatedInterface = InterfaceWritten(syntax, owner);
                     if (delegatedInterface.Declaration?.Parts[0].SyntaxKind != NodeKind.InterfaceDeclaration)
                     { Report("SOL2280", "Interface delegation must target an interface.", entry); continue; }
                     var matched = contracts.Where(operation => IsInterfaceOperation(operation)
@@ -45,33 +46,13 @@ internal sealed partial class BodyBindingBuilder
                         && Converts(operation.Owner, owner))) { continue; }
                     if (!_interfaceDelegateValues.TryGetValue((owner.Id, entry), out var initialization))
                     {
-                        int errorsBefore = Diagnostics.Count;
-                        int gapsBefore = _deferred.Count;
-                        var state = new State();
-                        var locals = _localTypes.ToArray();
-                        foreach (var local in Sources.Lexical.Scopes.SelectMany(scope => scope.Symbols)
-                            .Where(local => local.Kind is LocalSymbolKind.Parameter or LocalSymbolKind.ConstructorProperty))
-                        {
-                            state.Assigned.Add(local);
-                            if (local.WrittenType is { } written)
-                            { _localTypes[local] = Specialize(written, owner); }
-                        }
-                        Value value;
-                        try { value = Expression(expression, state, new(null, delegatedInterface), delegatedInterface); }
-                        finally { Restore(_localTypes, locals); }
-                        initialization = new(value.Type, state.Effects.ToImmutableArray(), BodyBindingStatus.Bound);
+                        initialization = AnalyzeInterfaceInitialization(owner, entry, expression, delegatedInterface);
                         foreach (var effect in initialization.Effects.Where(IsChecked))
                         {
-                            if (!(part.PrimaryConstructor?.ThrownTypes ?? []).Any(type => Converts(effect, Specialize(type, owner))))
-                            { Report("SOL2250", "Interface delegate initialization has an undeclared checked effect.", entry); }
+                            if (!(part.PrimaryConstructor?.ThrownTypes ?? []).Any(type => Converts(effect, InterfaceWritten(type, owner))))
+                            { Report("SOL2250", "Interface delegate initialization has an undeclared checked effect.", entry);
+                                initialization = initialization with { Status = BodyBindingStatus.Invalid }; }
                         }
-                        initialization = initialization with
-                        {
-                            Status = Diagnostics.Count != errorsBefore ? BodyBindingStatus.Invalid
-                            : _deferred.Count != gapsBefore || expression is AstAtom { Spelling: "this" }
-                                || expression.Descendants().OfType<AstAtom>().Any(atom => atom.Spelling == "this")
-                                ? BodyBindingStatus.Deferred : BodyBindingStatus.Bound
-                        };
                         _interfaceDelegateValues.Add((owner.Id, entry), initialization);
                     }
                     if (initialization.Status != BodyBindingStatus.Bound) { Defer(location); }
