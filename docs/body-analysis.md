@@ -42,8 +42,10 @@ Call mapping reuses the named/default/vararg contract: source-order mapping, nam
 varargs, explicit ref/out modes, and final-parameter trailing lambdas. Generic inference uses known
 argument bounds, exact ref/out evidence, expected result types, invariant nested applications, and
 constructed base projections. The solver requires a unique most-specific bound and checks method
-and constructed-owner constraints after inference. It does not specialize and recheck an entire
-generic body for every monomorphized instance. See [generic inference](generic-inference.md).
+and constructed-owner constraints after inference. Selected closed generic member dependencies and
+direct local callable contexts have a bounded original-body reanalysis stage; this does not establish
+complete monomorphization or native admission. See [generic inference](generic-inference.md) and
+[automatic member body analysis](generic-fir-specialization/AutomaticMemberBodyAnalysis.md).
 Numeric literal applicability and intrinsic/user-conversion ranks participate in selection. User
 conversions are single-step.
 
@@ -130,10 +132,10 @@ loop. Other loops retain only facts established on every continuing path; the co
 and all loop-exit correlations remain future work.
 
 Finally is analyzed on normal completion, each return exit, and each exception escaping the local
-handler set. Its effects flow to the caller and to an enclosing exception sink. Cleanup exception
-suppression metadata and exact primary/secondary exception identity are not implemented yet. Defer
-remains a proof gap: its block is not yet modeled as an exact lexical-exit action, even though calls in
-the block are checked for effect compatibility. RuntimeException subtypes are unchecked; a static
+handler set. Its effects flow to the caller and to an enclosing exception sink. The bounded cleanup
+slice tracks reached defer registrations, LIFO lexical-exit actions and source suppression metadata;
+overflow stays deferred. This does not implement runtime Throwable identity or exception unwinding.
+See the [cleanup/construction guide](cleanup-construction.md). RuntimeException subtypes are unchecked; a static
 Exception/Throwable value remains checked. Out assignments performed in finally are applied only when
 that exit completes normally.
 
@@ -143,9 +145,10 @@ construction. Base/secondary-constructor chains and complete partial/object init
 are still unverified. Empty implicit construction can obtain its nominal type without fabricating
 a constructor AST node.
 
-Ref/out and ref-like closure captures are rejected. Known heap storage of ref-like fields is rejected.
+Captures of ref/out or ref-like storage require a proven nonescaping use; unsupported lifetime paths
+are rejected. Known heap storage of ref-like fields is rejected.
 Ref-like returns whose borrow origin is not established remain unverified; there is no complete borrow
-origin solver yet. Defer cleanup and more complex exceptional/loop paths still need full flow proof.
+origin solver yet. Cleanup path correlation and more complex exceptional/loop paths still need full flow proof.
 
 Property delegation can validate `operator getValue`, `setValue`, and `provideDelegate` contracts
 when the source set supplies `std.reflect.SolProperty<T>`. Getter/setter effects are separate from

@@ -143,13 +143,21 @@ public sealed class GenericInheritedMemberProjectionRebindingTests
         var root = Type(analysis, "Root");
         var method = Method(root, "identity");
         var call = Assert.Single(analysis.Calls, binding => ReferenceEquals(binding.Target, method));
-        var result = analysis.GetGenericMemberBodyForReceiver(method, call.Receiver!, call.TypeArguments,
+        Assert.Equal("app.Leaf", call.SourceReceiver!.Name);
+        Assert.Equal("app.Root", call.Receiver!.Name);
+        var automatic = analysis.GetGenericMemberCallProof(call.Call);
+        Assert.NotNull(automatic);
+        Assert.Equal(BodyBindingStatus.Bound, automatic.Status);
+        Assert.NotNull(automatic.Projection!.Body);
+        var result = analysis.GetGenericMemberBodyForReceiver(method, call.SourceReceiver, call.TypeArguments,
             TestContext.Current.CancellationToken);
         var compilation = FirCompilation.Create([AstTestSources.Parse(declarations, "app")],
             TestContext.Current.CancellationToken);
 
         Assert.Equal(BodyBindingStatus.Bound, result.Body!.Summary.Status);
         Assert.Equal("app.Root", result.Body.ConstructedOwner!.Name);
+        Assert.Equal(new[] { "app.Leaf", "app.Middle", "app.Root" },
+            Assert.Single(Assert.Single(result.Projection.Candidates).Paths).Select(type => type.Name));
         Assert.Null(compilation.Program);
         Assert.Contains(compilation.Diagnostics, diagnostic => diagnostic.Code == "SOL2400");
     }

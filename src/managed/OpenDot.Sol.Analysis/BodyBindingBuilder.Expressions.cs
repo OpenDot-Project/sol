@@ -116,7 +116,14 @@ internal sealed partial class BodyBindingBuilder
             }
             var type = read ? state.Narrowed.GetValueOrDefault(local) ?? LocalType(local) : LocalType(local);
             bool tracked = local.Kind is LocalSymbolKind.Parameter or LocalSymbolKind.Variable or LocalSymbolKind.AccessorValue;
-            if (read && tracked && state.Reachable && !state.Assigned.Contains(local)) { Report("SOL2240", "Variable may be read before assignment: " + local.Name, atom); }
+            if (read && tracked && state.Reachable && !state.Assigned.Contains(local))
+            {
+                bool contextualCapture = context.Callable is AstFunction function
+                    && !ReferenceEquals(_lexicalEntry?.Function, function)
+                    && Sources.Lexical.GetLocalFunctionCaptures(function).Any(capture => ReferenceEquals(capture.Local, local));
+                if (contextualCapture) { Defer(atom); }
+                else { Report("SOL2240", "Variable may be read before assignment: " + local.Name, atom); }
+            }
             return new(type, local.IsMutable, local.Kind != LocalSymbolKind.ConstructorProperty, local);
         }
         var symbols = lookup.Declarations.Candidates;

@@ -160,7 +160,8 @@ internal sealed partial class BodyBindingBuilder
     private readonly HashSet<(AstNode, string)> _reported = [];
     private readonly HashSet<AstNode> _deferred = [];
     private int _depth;
-    internal readonly Dictionary<AstNode, AstSnapshot> Files = new(ReferenceEqualityComparer.Instance);
+    internal readonly IReadOnlyDictionary<AstNode, AstSnapshot> Files;
+    internal readonly ImmutableHashSet<AstNode> OwnedNodes;
     internal readonly Dictionary<AstExpression, ExpressionBinding> Expressions = new(ReferenceEqualityComparer.Instance);
     internal readonly Dictionary<AstCallable, BodySummary> Bodies = new(ReferenceEqualityComparer.Instance);
     internal readonly Dictionary<AstAnonymousFunction, AnonymousFunctionBodySummary> AnonymousFunctionBodies =
@@ -172,6 +173,10 @@ internal sealed partial class BodyBindingBuilder
     internal readonly Dictionary<AstNode, BodyOperatorBinding> OperatorBindings = new(ReferenceEqualityComparer.Instance);
     internal SourceAnalysis Sources { get; }
     internal TypeSpecialization Types { get; }
+    internal Func<AstFunction, ResolvedType, ImmutableArray<ResolvedType>, CancellationToken, ResolvedType?>?
+        ClosedMemberReturn { get; set; }
+    internal Func<AstFunction, ResolvedType, CancellationToken, ResolvedType?>?
+        ClosedOwnerReturnTemplate { get; set; }
     internal IReadOnlyDictionary<LocalSymbol, ResolvedType> LocalTypes => _localTypes;
     internal MemberLookupResolver MemberResolver => _memberResolver;
     internal GenericInferenceSolver GenericInference => _genericInference;
@@ -186,12 +191,11 @@ internal sealed partial class BodyBindingBuilder
     internal BodyBindingBuilder(SourceAnalysis sources, TypeSpecialization types, CancellationToken cancellation)
     {
         Sources = sources; Types = types; _cancellation = cancellation;
-        _memberResolver = new(sources.Types, Types, sources.Declarations.Files, cancellation);
+        var index = BodySourceIndex.Get(sources);
+        Files = index.Files;
+        OwnedNodes = index.Nodes;
+        _memberResolver = new(sources.Types, Types, index, cancellation);
         _genericInference = new(Types, cancellation);
-        foreach (var file in sources.Declarations.Files)
-        {
-            foreach (var node in file.Nodes) { Files.Add(node, file); }
-        }
     }
 
     internal SpecializedBodyAnalysis BuildGenericBody(AstFunction function, ImmutableArray<ResolvedType> arguments)
@@ -228,7 +232,8 @@ internal sealed partial class BodyBindingBuilder
     /// vector. This is source-analysis evidence only; it does not admit the member to FIR.
     /// </summary>
     internal SpecializedBodyAnalysis BuildGenericMemberBody(AstFunction function,
-        ResolvedType constructedOwner, ImmutableArray<ResolvedType> methodArguments)
+        ResolvedType constructedOwner, ImmutableArray<ResolvedType> methodArguments,
+        bool returnTemplateOnly = false)
     {
         ArgumentNullException.ThrowIfNull(function);
         ArgumentNullException.ThrowIfNull(constructedOwner);
@@ -266,6 +271,8 @@ internal sealed partial class BodyBindingBuilder
         if (methodArguments.IsDefault
             || Sources.Types.GetTypeParameters(function).Length != methodArguments.Length)
         { throw new ArgumentException("A generic member body requires every ordered method argument.", nameof(methodArguments)); }
+        if (returnTemplateOnly && !methodArguments.SequenceEqual(Sources.Types.GetTypeParameters(function)))
+        { throw new ArgumentException("A return template retains only the method's own parameter identities.", nameof(methodArguments)); }
 
         var ownerParameters = Sources.Types.GetTypeParameters(ownerSymbol.Parts[0]);
         var methodParameters = Sources.Types.GetTypeParameters(function);
@@ -285,7 +292,7 @@ internal sealed partial class BodyBindingBuilder
         {
             var argument = methodArguments[index];
             Types.ValidateOwnership(argument);
-            if (ContainsTypeParameter(argument))
+            if (!returnTemplateOnly && ContainsTypeParameter(argument))
             { throw new ArgumentException("A generic member body requires closed method arguments.", nameof(methodArguments)); }
             if (!substitutions.TryAdd(methodParameters[index], argument))
             { throw new InvalidOperationException("Owner and method generic parameter identities overlap."); }
@@ -311,20 +318,20 @@ internal sealed partial class BodyBindingBuilder
         var ownerSubstitution = ownerParameters.Select((parameter, index) =>
             new KeyValuePair<ResolvedType, ResolvedType>(parameter, constructedOwner.Arguments[index]))
             .ToDictionary(pair => pair.Key, pair => pair.Value);
-        var methodConstraints = Types.CheckConstraintsWithSubstitution(function, methodArguments,
-            ownerSubstitution, _cancellation);
-        if (methodConstraints.Status == ConstraintStatus.Unsatisfied)
+        var methodConstraintStatus = returnTemplateOnly ? ConstraintStatus.Satisfied
+            : Types.CheckConstraintsWithSubstitution(function, methodArguments, ownerSubstitution, _cancellation).Status;
+        if (methodConstraintStatus == ConstraintStatus.Unsatisfied)
         { Report("SOL2221", "Generic method constraints are not satisfied for the closed member body.", function); }
-        else if (methodConstraints.Status == ConstraintStatus.Indeterminate)
+        else if (methodConstraintStatus == ConstraintStatus.Indeterminate)
         { Defer(function); }
 
         _bodySubstitution = substitutions;
         if (ownerConstraintStatus != ConstraintStatus.Satisfied
-            || methodConstraints.Status != ConstraintStatus.Satisfied)
+            || methodConstraintStatus != ConstraintStatus.Satisfied)
         {
-            var status = ownerConstraintStatus == ConstraintStatus.Indeterminate
-                || methodConstraints.Status == ConstraintStatus.Indeterminate
-                    ? BodyBindingStatus.Deferred : BodyBindingStatus.Invalid;
+            var status = ownerConstraintStatus == ConstraintStatus.Unsatisfied
+                || methodConstraintStatus == ConstraintStatus.Unsatisfied
+                    ? BodyBindingStatus.Invalid : BodyBindingStatus.Deferred;
             var rejected = new BodySummary(function, null, true, status, []);
             return new(this, function, constructedOwner.Arguments, methodArguments, constructedOwner, rejected);
         }
@@ -403,6 +410,7 @@ internal sealed partial class BodyBindingBuilder
                         && capture.Local.PassingMode != AstPassingMode.Out))
                 { state.Assigned.Add(capture.Local); }
             }
+            InitializeLexicalEntry(callable, state);
             foreach (var parameter in callable.Parameters.Where(p => p.DefaultValue is not null))
             {
                 if (parameter.DefaultValue is AstExpression expression)

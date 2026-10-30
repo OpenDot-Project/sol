@@ -67,7 +67,7 @@ internal sealed class MemberLookupResolver
     private readonly TypeAnalysis _analysis;
     private readonly TypeSpecialization _types;
     private readonly CancellationToken _cancellation;
-    private readonly HashSet<AstNode> _ownedNodes = new(ReferenceEqualityComparer.Instance);
+    private readonly IReadOnlySet<AstNode> _ownedNodes;
 
     internal MemberLookupResolver(TypeAnalysis analysis, TypeSpecialization types,
         IEnumerable<AstSnapshot> files, CancellationToken cancellationToken)
@@ -76,10 +76,24 @@ internal sealed class MemberLookupResolver
         _types = types ?? throw new ArgumentNullException(nameof(types));
         ArgumentNullException.ThrowIfNull(files);
         _cancellation = cancellationToken;
+        var owned = new HashSet<AstNode>(ReferenceEqualityComparer.Instance);
         foreach (var file in files)
         {
-            foreach (var node in file.Nodes) { _ownedNodes.Add(node); }
+            foreach (var node in file.Nodes) { owned.Add(node); }
         }
+        _ownedNodes = owned;
+    }
+
+    internal MemberLookupResolver(TypeAnalysis analysis, TypeSpecialization types,
+        BodySourceIndex sourceIndex, CancellationToken cancellationToken)
+    {
+        _analysis = analysis ?? throw new ArgumentNullException(nameof(analysis));
+        _types = types ?? throw new ArgumentNullException(nameof(types));
+        ArgumentNullException.ThrowIfNull(sourceIndex);
+        if (!ReferenceEquals(sourceIndex.Types, analysis))
+        { throw new ArgumentException("The source ownership index belongs to another type analysis.", nameof(sourceIndex)); }
+        _ownedNodes = sourceIndex.Nodes;
+        _cancellation = cancellationToken;
     }
 
     internal MemberLookupResult Resolve(ResolvedType receiver, string name, AstNode location)

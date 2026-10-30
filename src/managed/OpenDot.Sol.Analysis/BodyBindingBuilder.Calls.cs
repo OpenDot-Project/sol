@@ -30,6 +30,7 @@ internal sealed partial class BodyBindingBuilder
 
     private Value Call(AstCall call, State state, Context context, ResolvedType? expected)
     {
+        var priorBinding = Calls.GetValueOrDefault(call);
         var generic = call.Target as AstGenericApplication;
         var targetExpression = generic?.Target ?? call.Target;
         var explicitTypes = generic?.TypeArguments.Select(Written).ToImmutableArray() ?? default;
@@ -85,7 +86,7 @@ internal sealed partial class BodyBindingBuilder
         var selected = best[0];
         Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.TypeArguments,
             selected.Parameters, selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults)
-        { EmptyVarargParameters = selected.Mapping.EmptyVarargs };
+        { EmptyVarargParameters = selected.Mapping.EmptyVarargs, SourceReceiver = selected.Target.AccessReceiver };
         foreach (var parameter in selected.Parameters) { ValidateFunctionEffects(parameter, call); }
         if (selected.Result is not null) { ValidateFunctionEffects(selected.Result, call); }
         if (context.Callable is AstConstructor && targetExpression is AstMember { Receiver: AstAtom { Spelling: "this" } }
@@ -158,6 +159,10 @@ internal sealed partial class BodyBindingBuilder
         // refinements before recording exceptional edges as well as normal continuation.
         foreach (var local in state.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
         InvalidateMutableCleanupNarrowings(state);
+        var lexicalContext = CaptureLexicalContext(selected.Target.Callable, state);
+        if (lexicalContext is not null && priorBinding is not null)
+        { lexicalContext = MergeLexicalCallContexts(priorBinding, Calls[call], lexicalContext); }
+        Calls[call] = Calls[call] with { LexicalContext = lexicalContext };
         RecordPotentialCallEdges(state, selected.Effects);
         state.Effects.UnionWith(selected.Effects);
         state.Assigned.UnionWith(assignedAfterCall);
@@ -244,6 +249,16 @@ internal sealed partial class BodyBindingBuilder
         if (mapping.Error is not null || !defaults.IsComplete || callable.Parameters.Any(p => p.Type is null)) { return null; }
         var substitution = Substitution(target.Receiver);
         var parameters = Sources.Types.GetTypeParameters(callable);
+        // A recursive call names the same parameter declarations but starts a new instance.
+        // Keep captured caller parameters, while allowing the callee's own vectors to replace
+        // its method/owner parameters exactly once from the original signature graph.
+        var calleeParameters = parameters.ToHashSet();
+        if (target.Constructed?.Declaration is { } constructedOwner)
+        { calleeParameters.UnionWith(Sources.Types.GetTypeParameters(constructedOwner.Parts[0])); }
+        foreach (var pair in _bodySubstitution)
+        {
+            if (!calleeParameters.Contains(pair.Key)) { substitution.TryAdd(pair.Key, pair.Value); }
+        }
         if (target.Constructed is null && !explicitTypes.IsDefault)
         {
             if (parameters.Length != explicitTypes.Length) { return null; }
@@ -273,7 +288,7 @@ internal sealed partial class BodyBindingBuilder
             var relation = entry.IsArrayArgument || entry.IsSpread
                 || callable.Parameters[entry.ParameterIndex].PassingMode is AstPassingMode.Ref or AstPassingMode.Out
                 ? GenericInferenceRelation.Exact : GenericInferenceRelation.Input;
-            inference.Add(new(Written(callable.Parameters[entry.ParameterIndex].Type!), actual, relation,
+            inference.Add(new(Sources.Types.GetType(callable.Parameters[entry.ParameterIndex].Type!), actual, relation,
                 "argument " + entry.ArgumentIndex));
         }
         if (!inferParameters.IsEmpty)
@@ -282,7 +297,7 @@ internal sealed partial class BodyBindingBuilder
             {
                 if (call.Arguments[entry.ArgumentIndex].Value is not AstSequence
                     { SyntaxKind: NodeKind.ArrayExpression } array) { continue; }
-                var formal = Written(callable.Parameters[entry.ParameterIndex].Type!);
+                var formal = Sources.Types.GetType(callable.Parameters[entry.ParameterIndex].Type!);
                 bool exactArray = entry.IsArrayArgument || entry.IsSpread;
                 if (exactArray) { formal = Types.GetArray(formal); }
                 if (!AddArrayLiteralEvidence(inference, arrayLiteralNumericEvidence, formal, array, exactArray, state, context,
@@ -292,9 +307,12 @@ internal sealed partial class BodyBindingBuilder
         if (expected is not null && !inferParameters.IsEmpty)
         {
             var returnTemplate = callable.ReturnType is { } declaredReturn
-                ? Written(declaredReturn)
+                ? Sources.Types.GetType(declaredReturn)
                 : callable is AstFunction { Body.Kind: AstBodyKind.Expression } expressionFunction
-                    ? InferredFunctionReturnTemplate(expressionFunction, state)
+                    ? target.Receiver is { Kind: ResolvedTypeKind.Nominal, Declaration.Arity: > 0 } templateOwner
+                        && !ContainsTypeParameter(templateOwner) && ClosedOwnerReturnTemplate is not null
+                            ? ClosedOwnerReturnTemplate(expressionFunction, templateOwner, _cancellation)
+                            : InferredFunctionReturnTemplate(expressionFunction, state)
                     : null;
             if (returnTemplate is not null)
             {
@@ -330,7 +348,7 @@ internal sealed partial class BodyBindingBuilder
                     var lambda = argument.Value as AstLambda
                         ?? (argument.Value as AstLabelledExpression)?.Lambda;
                     if (lambda is null) { continue; }
-                    var formal = Types.Substitute(Written(callable.Parameters[entry.ParameterIndex].Type!),
+                    var formal = Types.Substitute(Sources.Types.GetType(callable.Parameters[entry.ParameterIndex].Type!),
                         substitution, _cancellation);
                     if (entry.IsSpread || entry.IsArrayArgument) { continue; }
                     if (formal.Kind != ResolvedTypeKind.Function || !LambdaShape(lambda, formal)) { return null; }
@@ -407,7 +425,7 @@ internal sealed partial class BodyBindingBuilder
         if (!ConstraintsSatisfied(callable, substitution, call)) { return null; }
         if (target.Constructed?.Declaration is { } constructedDefinition
             && !ConstraintsSatisfied(constructedDefinition.Parts[0], substitution, call)) { return null; }
-        var types = callable.Parameters.Select(p => Types.Substitute(Written(p.Type!), substitution, _cancellation)).ToImmutableArray();
+        var types = callable.Parameters.Select(p => Types.Substitute(Sources.Types.GetType(p.Type!), substitution, _cancellation)).ToImmutableArray();
         var ranks = ImmutableArray.CreateBuilder<int>();
         foreach (var entry in mapping.Arguments)
         {
@@ -457,11 +475,23 @@ internal sealed partial class BodyBindingBuilder
             if (rank < 0) { return null; }
             ranks.Add(rank);
         }
-        ResolvedType? result = target.Constructed is not null ? Types.Substitute(target.Constructed, substitution, _cancellation)
-            : callable.ReturnType is not null ? Types.Substitute(Written(callable.ReturnType), substitution, _cancellation)
-                : CheckBody(callable).ReturnType is { } inferred ? Types.Substitute(inferred, substitution, _cancellation) : null;
-        var effects = callable.ThrownTypes.Select(t => Types.Substitute(Written(t), substitution, _cancellation)).ToImmutableArray();
         var typeArguments = parameters.Select(parameter => substitution.GetValueOrDefault(parameter, parameter)).ToImmutableArray();
+        bool lexicalInference = callable is AstFunction { ReturnType: null }
+            && Ancestors(callable).Any(node => node is AstCallable or AstLambda);
+        ResolvedType? result = target.Constructed is not null ? Types.Substitute(target.Constructed, substitution, _cancellation)
+            : callable.ReturnType is not null ? Types.Substitute(Sources.Types.GetType(callable.ReturnType), substitution, _cancellation)
+                : lexicalInference ? InferLexicalReturn((AstFunction)callable, typeArguments, state, call)
+                : CheckBody(callable).ReturnType is { } inferred ? Types.Substitute(inferred, substitution, _cancellation) : null;
+        if (lexicalInference && result is not null) { result = Types.Substitute(result, substitution, _cancellation); }
+        var effects = callable.ThrownTypes.Select(t => Types.Substitute(Sources.Types.GetType(t), substitution, _cancellation)).ToImmutableArray();
+        if (callable is AstFunction { ReturnType: null } inferredMember
+            && target.Receiver is { Kind: ResolvedTypeKind.Nominal, Declaration.Arity: > 0 } memberOwner
+            && !ContainsTypeParameter(memberOwner) && typeArguments.All(type => !ContainsTypeParameter(type))
+            && ClosedMemberReturn is not null)
+        {
+            result = ClosedMemberReturn(inferredMember, memberOwner, typeArguments, _cancellation);
+            if (result is null) { Defer(call); }
+        }
         return new(target, mapping, typeArguments, types, result, effects, ranks.ToImmutable(), inferParameters.Length != 0);
     }
 

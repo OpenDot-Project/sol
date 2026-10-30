@@ -535,8 +535,8 @@ module source.spec.generic_fir_owners_and_members
 // same ordered method vector. Both apply owner and method substitutions simultaneously, check both
 // constraint sets, and recompute body calls, expression types, effects, nullability, and flow. Partial
 // declarations share their canonical owner identity. Only a complete Bound result with no diagnostics
-// or unverified nodes is cached; invalid, deferred, canceled, or incomplete work is not. Neither query
-// participates automatically in ordinary member call binding. They provide source-analysis evidence
+// or unverified nodes is cached; invalid, deferred, canceled, or incomplete work is not. The source
+// call pipeline requests bounded closed body proofs automatically. They provide source-analysis evidence
 // only and do not certify a native body.
 //
 // The current native FIR specialization slice accepts closed module-level generic free functions
@@ -558,8 +558,8 @@ module source.spec.generic_fir_owners_and_members
 // nested/companion owner method, generic property/indexer/operator, open owner body, virtual generic
 // dispatch slot, generic closure, generic exported symbol, or runtime reified type descriptor. The
 // direct source body-view query remains direct-owner-only. A separate internal query can project a
-// receiver to a unique inherited declaring owner, but ordinary call binding does not automatically
-// request either view and neither query admits the result to FIR.
+// receiver to a unique inherited declaring owner. The automatic selected-call phase requests these
+// views under GenericMemberBodyCalls.sol; neither query admits the result to FIR.
 // Unsupported owner/member native requests must receive an explicit diagnostic. They must not
 // create an empty body, replace a selected member with a free function, or fall back to a different
 // overload.
@@ -599,7 +599,7 @@ module source.spec.generic_fir_owners_and_members
 // cached result is returned and while waiting for the single-flight gate. Only a complete Bound view
 // with no diagnostics and no unverified source nodes is cached. Invalid, Deferred, canceled, or
 // partially analyzed results are never cached as successful results. The query is internal and is
-// not yet called automatically by ordinary source member binding.
+// used by closed source return inference and automatic selected-call body proofs.
 //
 // A successful body view is source-analysis evidence only. It does not admit a generic member call
 // to FIR and does not prove an owner layout, receiver ABI, method dispatch, property storage, stack
@@ -611,7 +611,7 @@ module source.spec.generic_fir_owners_and_members
 //
 // BodyAnalysis.GetGenericMemberBodyForReceiver accepts the selected AstFunction, a source receiver
 // ResolvedType, the complete ordered method type-argument vector, and a CancellationToken. It is an
-// internal on-demand query, separate from ordinary member call analysis. The function must be
+// internal query used by automatic selected-call body analysis. The function must be
 // declared directly on a canonical top-level generic class, struct, ref struct, or interface. The
 // receiver may be that owner or a constructed type whose generic base routes reach it.
 //
@@ -656,8 +656,8 @@ module source.spec.generic_fir_owners_and_members
 // interrupted traversal never publishes a cache entry. Missing, Ambiguous, and LimitExceeded are
 // complete bounded-query outcomes with no usable partial routes and may be reused.
 //
-// This query is an explicit analysis API and does not select a method for a source call, participate
-// in ordinary call analysis, or turn the body into FIR. Inherited FIR/native emission continues to
+// This query is an analysis API used after source selection by the automatic body-proof stage.
+// It does not turn the body into FIR. Inherited FIR/native emission continues to
 // fail with SOL2400. The result proves no class/value/ref-struct layout, receiver ABI, virtual or
 // interface dispatch, allocation, GC descriptor/root map/barrier, exception cleanup, AOT body, ORC
 // body, or artifact ABI. Those are independent obligations.
@@ -673,8 +673,8 @@ module source.spec.generic_fir_owners_and_members
 // 4. Select one source member; retain canonical declaration identity, substitutions, origins, modes,
 //    defaults, and effects.
 // 5. The current internal source queries rebind/recheck direct closed owner bodies and project a
-//    receiver to one unique inherited declaring owner on demand. Integrate complete source call paths
-//    and nested-owner projection only after their canonical identities and route proofs are complete.
+//    receiver to one unique inherited declaring owner. The bounded selected-call proof stage and
+//    closed return inference are implemented; nested-owner composition remains a separate obligation.
 // 6. Validate override/dispatch slots, initialization, field layout, ref-like lifetime and escape.
 // 7. Construct concrete FIR and independently verify every source binding and runtime invariant.
 // 8. Generate exact GC descriptors, stack maps and runtime type metadata for the concrete layout.
@@ -710,8 +710,8 @@ module source.spec.generic_fir_owners_and_members
 //   ambiguity;
 // - constructors, properties, indexers, operators, delegation, and virtual/interface calls retain
 //   exact source target identities and evaluation order;
-// - regular source member-call analysis requests a closed body view where applicable; neither
-//   internal query is integrated into ordinary calls, nested-owner routes remain unsupported, and
+// - regular source member-call analysis requests a bounded closed body proof where applicable;
+//   GenericMemberBodyCalls.sol defines the automatic phase, nested-owner routes remain unsupported, and
 //   inherited projection results remain source-only;
 // - per-instance body binding recomputes overloads, access, effects, flow, assignment, nullability,
 //   constraints, borrow and escape facts for every supported owner route;
