@@ -34,13 +34,37 @@ module source.spec.generic_member_body_calls
 // this same graph. A matching free-function signature alone cannot certify a generic member body.
 // Locally bound free-function snapshots are cached separately from dependency-checked copies;
 // transitive failures cannot mutate local facts or enter the successful checked-view cache.
-// Generic local functions needing an enclosing lexical instance retain an explicit proof gap.
+// Direct local functions retain an immutable lexical entry context: declaration-ordered enclosing
+// generic parameter/argument identities and identity-ordered ancestor locals with closed storage
+// types, assignment facts and stable immutable narrowing. The local method's own arguments remain
+// separate. Original AST rebinding applies both maps together; matching parameter spelling never
+// replaces a declaration identity. Mutable captured narrowing is not imported into the local body.
+// Out arguments lose assignment before invocation; normal-return assignment is applied afterward.
+// Independent declaration checking has no captured-variable entry assignment proof and stays
+// deferred where a call-site context is necessary. Closed call-site analysis diagnoses unassigned
+// captured reads. Borrowed/ref-like capture escape restrictions are rechecked for the closed types.
+//
+// A finally/defer source call can be visited on several abstract exits. Its lexical state is the
+// intersection of assigned locals and identical stable narrowings from all visits. Incompatible
+// targets, method vectors or enclosing vectors supply no complete proof. Traversal order cannot
+// make the final visited exit certify a preceding unassigned exit.
+//
+// Local return inference recomputes closed results before enclosing overload selection, shares the
+// member return inference active/attempt limits, and never assumes an active inferred return.
+// Lexical snapshots allow at most 128 enclosing arguments and 4096 ancestor locals; exhaustion
+// publishes no partial inventory. Local dependency instances consume the common graph limits.
+// These facts do not prove a runtime closure ABI, captured-write caller assignment, or local generic
+// FIR/native admission. Calls through function values keep their independent proof obligations.
 //
 // The body dependency graph is keyed by original method identity, canonical constructed declaring
 // owner identity, and ordered method type identities. Repeated source call sites can share the
 // same instance while retaining separate origins, argument mappings, and projection paths.
 // Free-function instances omit the receiver-owner component and keep their source declaration
 // identity plus ordered method arguments; stateless object methods retain their declaration owner.
+// Local instances additionally retain their enclosing vectors and local type/assignment/narrowing
+// inventory. A different lexical state cannot reuse a cached successful local body. Locally bound
+// snapshots stay immutable when invalid/deferred dependencies propagate through checked copies;
+// affected specialized lambda/anonymous-function summaries lose their complete flag.
 //
 // Local body statuses and dependency statuses compose monotonically. Invalid dominates Deferred,
 // which dominates Bound. An invalid reachable dependency invalidates its callers; a missing,

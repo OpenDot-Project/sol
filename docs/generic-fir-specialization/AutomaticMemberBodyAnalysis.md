@@ -56,8 +56,47 @@ second independent proof analysis.
 
 Locally bound free-function snapshots and dependency-checked snapshots use separate caches. The
 dependency pass works on a copy of immutable local facts, so an invalid transitive dependency neither
-mutates a reusable local snapshot nor enters the successful dependency-checked cache. Generic local
-functions that require an enclosing lexical instance retain an explicit gap.
+mutates a reusable local snapshot nor enters the successful dependency-checked cache. Direct local
+functions use a closed lexical context, described below. Calls through function values still require
+the separate callable/environment contracts.
+
+## Local callable contexts
+
+The [local callable example matrix](../../spec/examples/semantics/GenericLexicalBodyCalls.sol)
+separates closed source results, assignment failures, and the unchanged native boundary.
+
+A selected direct local call retains an immutable snapshot of its enclosing generic parameters in
+declaration order and its ancestor local inventory in local-identity order. Owner, enclosing method,
+intermediate local method, and selected local method parameters keep distinct identities, including
+when their source names match. The selected local method receives its own ordered argument vector.
+The body is rebound from its original AST with the enclosing and local substitutions applied together.
+
+Each ancestor local records its declared/inferred closed storage type, definite-assignment fact and
+any stable immutable narrowing. Mutable capture narrowings are dropped. Out arguments lose their
+assignment fact before the invocation snapshot; normal-return out assignments become available only
+after the call. An independently checked local declaration has no call-site assignment evidence for
+captured variables and retains an explicit gap instead of inventing an assignment or rejecting a
+valid later call. A closed local body checks its captured reads against the supplied entry state.
+An escaping local cannot use this source proof to bypass borrowed/ref-like capture restrictions.
+
+When cleanup visits the same source call on several abstract exits, assignment facts intersect and
+only identical narrowings survive. Incompatible selected targets, argument vectors or enclosing
+contexts remain deferred. The last visited path cannot certify the other paths. This is a bounded
+source-flow join, not a runtime closure representation or a complete interprocedural assignment solver.
+Writes performed by a captured local body do not establish new caller assignments through this API.
+
+Closed inferred local results are recomputed before enclosing call ranking. Annotated finite local
+recursion participates in the existing dependency graph; unannotated circular return inference cannot
+assume its result. Local return inference shares the 128-active-instance and 1,024-uncached-attempt
+budgets with member return inference. A lexical context carries at most 128 enclosing type arguments
+and 4,096 ancestor locals. Exceeding either limit publishes an unavailable context without a partial
+argument/local inventory, and no successful body is cached.
+
+The local cache key includes declaration identity, ordered local method arguments, enclosing parameter
+identities/arguments, and the ancestor local type/assignment/narrowing inventory. Only complete locally
+bound snapshots are cached. Dependency propagation works separately and cannot mutate this reusable
+snapshot. Specialized lambda and anonymous-function inventories retain their own completion flags;
+dependency-checked copies clear affected summaries while preserving unaffected sibling summaries.
 
 ## Instance graph
 

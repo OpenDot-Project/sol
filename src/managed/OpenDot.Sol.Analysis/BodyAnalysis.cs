@@ -66,6 +66,7 @@ public sealed record BodyCallBinding(AstCall Call, AstCallable Target, ResolvedT
 {
     public ImmutableArray<int> EmptyVarargParameters { get; init; } = [];
     internal ResolvedType? SourceReceiver { get; init; }
+    internal LexicalBodyContext? LexicalContext { get; init; }
 }
 
 /// <summary>Selected source operator target and its candidate-local closed signature.</summary>
@@ -78,6 +79,8 @@ internal sealed partial class SpecializedBodyAnalysis
 {
     private ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
     private ImmutableDictionary<AstCallable, BodySummary> _bodies;
+    private ImmutableDictionary<AstLambda, LambdaBodySummary> _lambdaBodies;
+    private ImmutableDictionary<AstAnonymousFunction, AnonymousFunctionBodySummary> _anonymousFunctionBodies;
     private readonly ImmutableDictionary<AstCall, BodyCallBinding> _calls;
     private readonly ImmutableDictionary<AstNode, BodyOperatorBinding> _operators;
     private readonly ImmutableHashSet<AstNode> _nodes;
@@ -98,6 +101,8 @@ internal sealed partial class SpecializedBodyAnalysis
         Summary = summary;
         _expressions = builder.Expressions.ToImmutableDictionary();
         _bodies = builder.Bodies.ToImmutableDictionary();
+        _lambdaBodies = builder.LambdaBodies.ToImmutableDictionary();
+        _anonymousFunctionBodies = builder.AnonymousFunctionBodies.ToImmutableDictionary();
         _calls = builder.Calls.ToImmutableDictionary();
         _operators = builder.OperatorBindings.ToImmutableDictionary();
         _nodes = builder.OwnedNodes;
@@ -109,6 +114,11 @@ internal sealed partial class SpecializedBodyAnalysis
             .ThenBy(binding => binding.Site.Origin.Span.Start).ToImmutableArray();
         Bodies = _bodies.Values.OrderBy(body => body.Declaration.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(body => body.Declaration.Origin.Span.Start).ToImmutableArray();
+        LambdaBodies = _lambdaBodies.Values.OrderBy(body => body.Lambda.Origin.Source.Path, StringComparer.Ordinal)
+            .ThenBy(body => body.Lambda.Origin.Span.Start).ToImmutableArray();
+        AnonymousFunctionBodies = _anonymousFunctionBodies.Values
+            .OrderBy(body => body.Function.Origin.Source.Path, StringComparer.Ordinal)
+            .ThenBy(body => body.Function.Origin.Span.Start).ToImmutableArray();
         UnverifiedNodes = builder.Unverified.OrderBy(node => node.Origin.Source.Path, StringComparer.Ordinal)
             .ThenBy(node => node.Origin.Span.Start).ToImmutableArray();
         Diagnostics = builder.Diagnostics.Distinct().OrderBy(diagnostic => diagnostic.Source.Path, StringComparer.Ordinal)
@@ -126,6 +136,8 @@ internal sealed partial class SpecializedBodyAnalysis
     internal ImmutableArray<BodyCallBinding> Calls { get; }
     internal ImmutableArray<BodyOperatorBinding> OperatorBindings { get; }
     internal ImmutableArray<BodySummary> Bodies { get; private set; }
+    internal ImmutableArray<LambdaBodySummary> LambdaBodies { get; private set; }
+    internal ImmutableArray<AnonymousFunctionBodySummary> AnonymousFunctionBodies { get; private set; }
     internal ImmutableArray<AstNode> UnverifiedNodes { get; private set; }
     internal ImmutableArray<Diagnostic> Diagnostics { get; private set; }
 
@@ -273,6 +285,7 @@ public sealed partial class BodyAnalysis
         var inferenceWorkspace = new BodyAnalysis(builder);
         builder.ClosedMemberReturn = inferenceWorkspace.ResolveClosedMemberReturn;
         builder.ClosedOwnerReturnTemplate = inferenceWorkspace.ResolveClosedOwnerReturnTemplate;
+        builder.ClosedLexicalReturn = inferenceWorkspace.ResolveClosedLexicalReturn;
         builder.Build();
         var result = new BodyAnalysis(builder);
         result.AnalyzeGenericMemberCalls(cancellationToken);
@@ -404,7 +417,8 @@ public sealed partial class BodyAnalysis
             else
             {
                 var builder = new BodyBindingBuilder(Sources, Types, cancellationToken)
-                { ClosedMemberReturn = ResolveClosedMemberReturn, ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate };
+                { ClosedMemberReturn = ResolveClosedMemberReturn, ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate,
+                    ClosedLexicalReturn = ResolveClosedLexicalReturn };
                 result = builder.BuildGenericBody(function, typeArguments);
             }
             cancellationToken.ThrowIfCancellationRequested();
@@ -470,6 +484,7 @@ public sealed partial class BodyAnalysis
             var builder = new BodyBindingBuilder(Sources, Types, cancellationToken);
             builder.ClosedMemberReturn = ResolveClosedMemberReturn;
             builder.ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate;
+            builder.ClosedLexicalReturn = ResolveClosedLexicalReturn;
             var result = builder.BuildGenericMemberBody(function, constructedOwner, methodTypeArguments);
             cancellationToken.ThrowIfCancellationRequested();
             if (result.Summary.Status == BodyBindingStatus.Bound

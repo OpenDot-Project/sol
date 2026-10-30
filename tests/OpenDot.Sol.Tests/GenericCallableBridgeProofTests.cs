@@ -73,17 +73,18 @@ public sealed class GenericCallableBridgeProofTests
     }
 
     [Fact]
-    public void LocalGenericMemberFunctionsRemainExplicitGapsInsteadOfThrowing()
+    public void LocalGenericMemberFunctionsObtainClosedLexicalBodyProofs()
     {
         var analysis = GenericMemberProofTestSource.Analyze("class Root<T> {\n"
             + "func run(value: T): T { func <U> local(item: U): U = item; local<T>(value) }\n}\n"
             + "func use(owner: Root<int>, value: int): int = owner.run(value)");
         var call = GenericMemberProofTestSource.ClosedCall(analysis, "run");
         var proof = analysis.GetGenericMemberCallProof(call.Call)!;
-        Assert.Equal(BodyBindingStatus.Deferred, proof.Status);
+        Assert.Equal(BodyBindingStatus.Bound, proof.Status);
         var local = Assert.Single(proof.Dependencies);
         Assert.Equal("local", local.Binding.Target.Name);
-        Assert.Contains("lexical", local.Reason!);
+        Assert.Equal(BodyBindingStatus.Bound, local.Status);
+        Assert.Equal("int", local.SpecializedBody!.Summary.ReturnType!.Name);
         Assert.False(analysis.HasErrors);
     }
 }

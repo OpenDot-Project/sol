@@ -19,7 +19,8 @@ public sealed partial class BodyAnalysis
     /// </summary>
     private sealed class MemberCallProofBuilder(BodyAnalysis analysis, CancellationToken cancellation)
     {
-        private readonly record struct InstanceKey(AstFunction Function, int OwnerId, string MethodIds);
+        private readonly record struct InstanceKey(AstFunction Function, int OwnerId, string MethodIds,
+            string LexicalIdentity = "");
         internal sealed record Request(BodyCallBinding Binding, GenericMemberBodyProjectionAnalysis? Projection,
             Instance? Target, BodyBindingStatus LocalStatus, string? Reason);
 
@@ -38,11 +39,12 @@ public sealed partial class BodyAnalysis
         internal readonly List<Diagnostic> Diagnostics = [];
 
         internal bool RequiresProof(BodyCallBinding binding) => binding.Target is AstFunction function
-            && (function.TypeParameters.Any()
+            && (binding.LexicalContext is not null || function.TypeParameters.Any()
                 || GenericMethodSourcePolicy.DirectOwner(function, analysis.Sources) is { Arity: > 0 });
 
         internal bool RequiresRootProof(BodyCallBinding binding) => binding.Target is AstFunction function
-            && GenericMethodSourcePolicy.DirectOwner(function, analysis.Sources) is { Arity: > 0 };
+            && (binding.LexicalContext is not null
+                || GenericMethodSourcePolicy.DirectOwner(function, analysis.Sources) is { Arity: > 0 });
 
         internal Request Collect(BodyCallBinding binding, int depth)
         {
@@ -55,6 +57,8 @@ public sealed partial class BodyAnalysis
         {
             cancellation.ThrowIfCancellationRequested();
             var function = (AstFunction)binding.Target;
+            if (binding.LexicalContext is { } lexical)
+            { return CollectLexicalFunction(binding, function, lexical, depth); }
             var directOwner = GenericMethodSourcePolicy.DirectOwner(function, analysis.Sources);
             if (directOwner is null || directOwner.Arity == 0)
             { return CollectFreeFunction(binding, function, directOwner, depth); }
@@ -115,6 +119,26 @@ public sealed partial class BodyAnalysis
             if (depth >= 128 || _instances.Count >= 1024)
             { return Deferred(binding, "Generic callable dependency budget exceeded."); }
             var body = analysis.GetGenericBodyLocal(function, binding.TypeArguments, cancellation);
+            return ForCall(binding, null, AddInstance(key, body, depth));
+        }
+
+        private Request CollectLexicalFunction(BodyCallBinding binding, AstFunction function,
+            LexicalBodyContext context, int depth)
+        {
+            if (context.UnavailableReason is { } unavailable) { return Deferred(binding, unavailable); }
+            if (binding.TypeArguments.IsDefault
+                || binding.TypeArguments.Any(type => type.IsError || ContainsTypeParameter(type))
+                || context.EnclosingArguments.Any(pair => pair.Argument.IsError || ContainsTypeParameter(pair.Argument))
+                || context.Locals.Any(local => local.Type is { } type && (type.IsError || ContainsTypeParameter(type))
+                    || local.Narrowed is { } narrowed && (narrowed.IsError || ContainsTypeParameter(narrowed))))
+            { return Deferred(binding, "Local callable requires a closed enclosing lexical context."); }
+            if (function.Body.Kind == AstBodyKind.Missing)
+            { return Deferred(binding, "The selected local callable has no source body."); }
+            var key = new InstanceKey(function, 0, TypeIds(binding.TypeArguments), context.Identity);
+            if (_instances.TryGetValue(key, out var existing)) { return ForCall(binding, null, existing); }
+            if (depth >= 128 || _instances.Count >= 1024)
+            { return Deferred(binding, "Local callable dependency budget exceeded."); }
+            var body = analysis.GetLexicalBody(function, binding.TypeArguments, context, cancellation);
             return ForCall(binding, null, AddInstance(key, body, depth));
         }
 

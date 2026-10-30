@@ -30,6 +30,7 @@ internal sealed partial class BodyBindingBuilder
 
     private Value Call(AstCall call, State state, Context context, ResolvedType? expected)
     {
+        var priorBinding = Calls.GetValueOrDefault(call);
         var generic = call.Target as AstGenericApplication;
         var targetExpression = generic?.Target ?? call.Target;
         var explicitTypes = generic?.TypeArguments.Select(Written).ToImmutableArray() ?? default;
@@ -158,6 +159,10 @@ internal sealed partial class BodyBindingBuilder
         // refinements before recording exceptional edges as well as normal continuation.
         foreach (var local in state.Narrowed.Keys.Where(l => l.IsMutable).ToArray()) { state.Narrowed.Remove(local); }
         InvalidateMutableCleanupNarrowings(state);
+        var lexicalContext = CaptureLexicalContext(selected.Target.Callable, state);
+        if (lexicalContext is not null && priorBinding is not null)
+        { lexicalContext = MergeLexicalCallContexts(priorBinding, Calls[call], lexicalContext); }
+        Calls[call] = Calls[call] with { LexicalContext = lexicalContext };
         RecordPotentialCallEdges(state, selected.Effects);
         state.Effects.UnionWith(selected.Effects);
         state.Assigned.UnionWith(assignedAfterCall);
@@ -470,11 +475,15 @@ internal sealed partial class BodyBindingBuilder
             if (rank < 0) { return null; }
             ranks.Add(rank);
         }
+        var typeArguments = parameters.Select(parameter => substitution.GetValueOrDefault(parameter, parameter)).ToImmutableArray();
+        bool lexicalInference = callable is AstFunction { ReturnType: null }
+            && Ancestors(callable).Any(node => node is AstCallable or AstLambda);
         ResolvedType? result = target.Constructed is not null ? Types.Substitute(target.Constructed, substitution, _cancellation)
             : callable.ReturnType is not null ? Types.Substitute(Sources.Types.GetType(callable.ReturnType), substitution, _cancellation)
+                : lexicalInference ? InferLexicalReturn((AstFunction)callable, typeArguments, state, call)
                 : CheckBody(callable).ReturnType is { } inferred ? Types.Substitute(inferred, substitution, _cancellation) : null;
+        if (lexicalInference && result is not null) { result = Types.Substitute(result, substitution, _cancellation); }
         var effects = callable.ThrownTypes.Select(t => Types.Substitute(Sources.Types.GetType(t), substitution, _cancellation)).ToImmutableArray();
-        var typeArguments = parameters.Select(parameter => substitution.GetValueOrDefault(parameter, parameter)).ToImmutableArray();
         if (callable is AstFunction { ReturnType: null } inferredMember
             && target.Receiver is { Kind: ResolvedTypeKind.Nominal, Declaration.Arity: > 0 } memberOwner
             && !ContainsTypeParameter(memberOwner) && typeArguments.All(type => !ContainsTypeParameter(type))

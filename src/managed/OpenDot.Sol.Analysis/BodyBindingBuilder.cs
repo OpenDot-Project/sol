@@ -410,6 +410,7 @@ internal sealed partial class BodyBindingBuilder
                         && capture.Local.PassingMode != AstPassingMode.Out))
                 { state.Assigned.Add(capture.Local); }
             }
+            InitializeLexicalEntry(callable, state);
             foreach (var parameter in callable.Parameters.Where(p => p.DefaultValue is not null))
             {
                 if (parameter.DefaultValue is AstExpression expression)

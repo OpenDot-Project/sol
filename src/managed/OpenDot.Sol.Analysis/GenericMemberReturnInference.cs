@@ -33,13 +33,14 @@ public sealed partial class BodyAnalysis
         {
             cancellation.ThrowIfCancellationRequested();
             if (_closedOwnerReturnTemplates.TryGetValue(key, out var prior)) { return prior; }
-            if (_memberReturnInferenceSteps >= 1024 || _activeMemberReturns.Count >= 128
+            if (_memberReturnInferenceSteps >= 1024 || _activeMemberReturns.Count + _activeLexicalReturns.Count >= 128
                 || !_activeMemberReturns.Add(key)) { return null; }
             _memberReturnInferenceSteps++;
             try
             {
                 var builder = new BodyBindingBuilder(Sources, Types, cancellation)
-                { ClosedMemberReturn = ResolveClosedMemberReturn, ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate };
+                { ClosedMemberReturn = ResolveClosedMemberReturn, ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate,
+                    ClosedLexicalReturn = ResolveClosedLexicalReturn };
                 var body = builder.BuildGenericMemberBody(function, owner,
                     Sources.Types.GetTypeParameters(function), returnTemplateOnly: true);
                 cancellation.ThrowIfCancellationRequested();
@@ -72,7 +73,7 @@ public sealed partial class BodyAnalysis
         {
             cancellation.ThrowIfCancellationRequested();
             if (_genericBodies.TryGetValue(key, out var prior)) { return prior.Summary.ReturnType; }
-            if (_memberReturnInferenceSteps >= 1024 || _activeMemberReturns.Count >= 128
+            if (_memberReturnInferenceSteps >= 1024 || _activeMemberReturns.Count + _activeLexicalReturns.Count >= 128
                 || !_activeMemberReturns.Add(key)) { return null; }
             _memberReturnInferenceSteps++;
             try

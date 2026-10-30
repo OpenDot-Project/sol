@@ -188,6 +188,14 @@ public sealed class LocalFunctionEscapeAnalysis
             value = parent;
             parent = file.GetParent(parent);
         }
+        // Explicit generic application is part of a direct call target. It is not a general
+        // transparent function-value wrapper: storing or passing that value stays conservative.
+        if (parent is AstGenericApplication application && ReferenceEquals(application.Target, value)
+            && file.GetParent(application) is AstCall genericCall && ReferenceEquals(genericCall.Target, application))
+        {
+            value = application;
+            parent = genericCall;
+        }
 
         var uses = ImmutableArray.CreateBuilder<LocalFunctionEscapeUse>(2);
         bool referenceIsInsideFunction = NearestFunction(value, file) is { } owner
@@ -198,7 +206,9 @@ public sealed class LocalFunctionEscapeAnalysis
         if (parent is AstCall call)
         {
             if (call.Target is { } target
-                && AnonymousFunctionEscapeAnalysis.IsTransparentValue(target, binding.Reference, file))
+                && (AnonymousFunctionEscapeAnalysis.IsTransparentValue(target, binding.Reference, file)
+                    || target is AstGenericApplication { Target: { } genericTarget }
+                        && AnonymousFunctionEscapeAnalysis.IsTransparentValue(genericTarget, binding.Reference, file)))
             { uses.Add(new(call, LocalFunctionEscapeUseKind.DirectInvocation)); }
             else if (call.Arguments.Select((argument, index) => (argument, index))
                 .FirstOrDefault(item => AnonymousFunctionEscapeAnalysis.IsTransparentValue(
