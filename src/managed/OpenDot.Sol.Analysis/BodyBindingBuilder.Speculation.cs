@@ -28,16 +28,36 @@ internal sealed partial class BodyBindingBuilder
         var interfaceImplementations = InterfaceImplementations.ToArray();
         var delegateValues = _interfaceDelegateValues.ToArray();
         var interfaceActive = _interfaceResolutionActive.ToArray();
+        var constructions = ConstructionProofs.ToArray();
+        var constructionAliases = _constructionReceiverValues.ToArray();
+        bool returnsConstruction = _constructionReturnsReceiver;
+        var constructionSession = _constructionSession;
+        var helpers = constructionSession?.Helpers.ToArray();
+        var activeHelpers = constructionSession?.ActiveHelpers.ToArray();
+        var activeDefaults = constructionSession?.ActiveDefaults.ToArray();
+        var activeCallbacks = constructionSession?.ActiveCallbacks.ToArray();
+        var callbackInstances = constructionSession?.CallbackInstances.ToArray();
+        var helperDependencies = constructionSession?.HelperDependencies.ToArray();
+        var helperTypeArguments = constructionSession?.HelperTypeArguments.ToArray();
+        var recursiveGroups = constructionSession?.RecursiveGroups.ToArray();
+        var constructorInstances = constructionSession?.ConstructorInstances.ToArray();
+        var constructionDependencies = constructionSession?.Dependencies.ToArray();
+        int constructionInstances = constructionSession?.Instances ?? 0;
+        int constructionEdges = constructionSession?.Edges ?? 0;
+        int constructionOrigins = constructionSession?.Origins.Count ?? 0;
+        bool recursiveHelpers = constructionSession?.RecursiveHelpers ?? false;
         var activeSnapshot = _active.ToArray();
         var reportedSnapshot = _reported.ToArray();
+        var constructionErrorSnapshot = _constructionOnlyErrors.ToArray();
         var deferredSnapshot = _deferred.ToArray();
         var diagnosticCount = Diagnostics.Count;
+        long errorGeneration = _errorGeneration;
         int depth = _depth;
         reportedDiagnostic = false;
         try
         {
             var result = action();
-            reportedDiagnostic = Diagnostics.Count != diagnosticCount;
+            reportedDiagnostic = _errorGeneration != errorGeneration;
             return result;
         }
         finally
@@ -55,10 +75,33 @@ internal sealed partial class BodyBindingBuilder
             Restore(InterfaceImplementations, interfaceImplementations);
             Restore(_interfaceDelegateValues, delegateValues);
             Restore(_interfaceResolutionActive, interfaceActive);
+            Restore(ConstructionProofs, constructions);
+            Restore(_constructionReceiverValues, constructionAliases);
+            _constructionReturnsReceiver = returnsConstruction;
+            if (constructionSession is not null)
+            {
+                Restore(constructionSession.Helpers, helpers!);
+                Restore(constructionSession.ActiveHelpers, activeHelpers!);
+                Restore(constructionSession.ActiveDefaults, activeDefaults!);
+                Restore(constructionSession.ActiveCallbacks, activeCallbacks!);
+                Restore(constructionSession.CallbackInstances, callbackInstances!);
+                Restore(constructionSession.HelperDependencies, helperDependencies!);
+                Restore(constructionSession.HelperTypeArguments, helperTypeArguments!);
+                Restore(constructionSession.RecursiveGroups, recursiveGroups!);
+                Restore(constructionSession.ConstructorInstances, constructorInstances!);
+                Restore(constructionSession.Dependencies, constructionDependencies!);
+                constructionSession.Instances = constructionInstances;
+                constructionSession.Edges = constructionEdges;
+                constructionSession.RecursiveHelpers = recursiveHelpers;
+                if (constructionSession.Origins.Count > constructionOrigins)
+                { constructionSession.Origins.RemoveRange(constructionOrigins, constructionSession.Origins.Count - constructionOrigins); }
+            }
             Restore(_active, activeSnapshot);
             Restore(_reported, reportedSnapshot);
+            Restore(_constructionOnlyErrors, constructionErrorSnapshot);
             Restore(_deferred, deferredSnapshot);
             if (Diagnostics.Count > diagnosticCount) { Diagnostics.RemoveRange(diagnosticCount, Diagnostics.Count - diagnosticCount); }
+            _errorGeneration = errorGeneration;
             _depth = depth;
             if (exceptionSink is not null && exceptionSink.Count > exceptionalEdgeCount)
             { exceptionSink.RemoveRange(exceptionalEdgeCount, exceptionSink.Count - exceptionalEdgeCount); }
@@ -79,8 +122,13 @@ internal sealed partial class BodyBindingBuilder
     }
 
     private Value AnalyzeLambdaCandidate(AstLambda lambda, State state, Context context,
-        ResolvedType expected, ImmutableArray<ResolvedType> inferenceParameters, out bool invalid) =>
-        Speculate(state, () => Lambda(lambda, state.Clone(), context, expected, inferenceParameters), out invalid);
+        ResolvedType expected, ImmutableArray<ResolvedType> inferenceParameters, out bool invalid)
+    {
+        var frame = _constructionFrame;
+        _constructionFrame = null;
+        try { return Speculate(state, () => Lambda(lambda, state.Clone(), context, expected, inferenceParameters), out invalid); }
+        finally { _constructionFrame = frame; }
+    }
 
     private Value AnalyzeExpressionCandidate(AstExpression expression, State state, Context context,
         out bool invalid) => Speculate(state, () => Expression(expression, state.Clone(), context), out invalid);

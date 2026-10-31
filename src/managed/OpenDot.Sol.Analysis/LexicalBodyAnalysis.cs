@@ -74,7 +74,8 @@ public sealed partial class BodyAnalysis
             if (_lexicalBodies.TryGetValue(key, out var cached)) { return cached; }
             var builder = new BodyBindingBuilder(Sources, Types, cancellation)
             { ClosedMemberReturn = ResolveClosedMemberReturn, ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate,
-                ClosedLexicalReturn = ResolveClosedLexicalReturn, InterfaceSourceBody = GetBody };
+                ClosedLexicalReturn = ResolveClosedLexicalReturn, InterfaceSourceBody = GetBody,
+                ConstructionSourceStatus = GetConstructionSourceStatus };
             var result = builder.BuildLexicalBody(function, arguments, context);
             cancellation.ThrowIfCancellationRequested();
             if (result.Summary.Status == BodyBindingStatus.Bound

@@ -69,9 +69,21 @@ internal sealed partial class BodyBindingBuilder
         }
     }
 
-    private InterfaceImplementation CompletedInterfaceRecord(InterfaceImplementation prior) =>
-        InterfaceImplementations.TryGetValue(prior.Receiver.Id, out var records)
+    private InterfaceImplementation CompletedInterfaceRecord(InterfaceImplementation prior)
+    {
+        var completed = InterfaceImplementations.TryGetValue(prior.Receiver.Id, out var records)
             ? records.FirstOrDefault(record => record.Signature == prior.Signature) ?? prior : prior;
+        if (completed.Implementation is { Body: AstAccessor accessor } operation
+            && operation.Member.Symbol.Parts[0] is AstIndexer)
+        {
+            var body = Bodies.GetValueOrDefault(accessor) ?? InterfaceSourceBody?.Invoke(accessor);
+            if (body?.Status == BodyBindingStatus.Invalid)
+            { return completed with { Status = BodyBindingStatus.Invalid, Reason = "The selected indexer source body is invalid." }; }
+            if (body?.Status == BodyBindingStatus.Deferred && completed.Status != BodyBindingStatus.Invalid)
+            { return completed with { Status = BodyBindingStatus.Deferred, Reason = "The selected indexer source body is incomplete." }; }
+        }
+        return completed;
+    }
 
     private void PropagateInterfaceFailure(AstNode site, BodyBindingStatus status)
     {

@@ -6,6 +6,12 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ## [Unreleased]
 
+### Added
+
+- Source proofs for implicit, primary, and secondary constructor chains, initialization order,
+  constructed storage, and receiver safety through source helpers, accessors, and known callbacks.
+  Missing evidence remains deferred; native construction and receiver ABI admission are unchanged.
+
 ## [0.1.0] - 2026-10-28
 
 First release with a restricted verified-FIR/native bootstrap. The complete language specification

@@ -30,6 +30,7 @@ internal sealed partial class BodyBindingBuilder
     {
         _cancellation.ThrowIfCancellationRequested();
         int diagnosticStart = Diagnostics.Count;
+        long errorGeneration = _errorGeneration;
         var reportedBefore = _reported.ToHashSet();
         var expectedFunction = expected?.Kind == ResolvedTypeKind.Function ? expected
             : expected is { IsNullable: true, Arguments.Length: 1 }
@@ -187,7 +188,8 @@ internal sealed partial class BodyBindingBuilder
         var bodyNodes = new HashSet<AstNode>(function.Descendants(), ReferenceEqualityComparer.Instance)
         { function };
         bool hasDeferredDescendant = _deferred.Any(bodyNodes.Contains);
-        bool hasNewError = Diagnostics.Skip(diagnosticStart).Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+        bool hasNewError = _errorGeneration != errorGeneration
+            || Diagnostics.Skip(diagnosticStart).Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
             || _reported.Any(reported => !reportedBefore.Contains(reported) && bodyNodes.Contains(reported.Item1));
         AnonymousFunctionBodies[function] = new(function, functionType, normalExits.Length, state.Reachable,
             outParameters.ToImmutable(), !hasDeferredDescendant && !hasNewError);

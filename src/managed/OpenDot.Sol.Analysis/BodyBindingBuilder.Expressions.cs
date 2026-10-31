@@ -19,9 +19,13 @@ internal sealed partial class BodyBindingBuilder
         {
             --_depth; Report("SOL2290", "Body analysis nesting limit exceeded.", expression); Defer(expression); return new(null);
         }
-        int errors = Diagnostics.Count;
+        long errors = _errorGeneration;
         var incomingEffects = state.Effects.ToArray();
         state.Effects.Clear();
+        var constructionFrame = _constructionFrame;
+        bool closure = constructionFrame is not null && expression is AstLambda or AstAnonymousFunction or AstLabelledExpression { Lambda: not null };
+        bool capturesConstruction = closure && CapturesConstructionReceiver(expression, state);
+        if (closure) { _constructionFrame = null; }
         try
         {
             var value = expression switch
@@ -42,7 +46,8 @@ internal sealed partial class BodyBindingBuilder
                 _ => Unsupported(expression),
             };
             if (value.Type is null) { Defer(expression); }
-            var status = Diagnostics.Count != errors ? BodyBindingStatus.Invalid
+            if (value.IsConstructionReceiver || capturesConstruction) { _constructionReceiverValues.Add(expression); }
+            var status = _errorGeneration != errors ? BodyBindingStatus.Invalid
                 : value.Type is null || _deferred.Contains(expression) ? BodyBindingStatus.Deferred : BodyBindingStatus.Bound;
             Expressions[expression] = new(expression, value.Type, status, value.Writable, value.Storage,
                 state.Effects.OrderBy(t => t.Id).ToImmutableArray())
@@ -60,7 +65,7 @@ internal sealed partial class BodyBindingBuilder
         {
             Report("SOL2290", error.Message, expression); Defer(expression); return new(null);
         }
-        finally { state.Effects.UnionWith(incomingEffects); --_depth; }
+        finally { if (closure) { _constructionFrame = constructionFrame; } state.Effects.UnionWith(incomingEffects); --_depth; }
     }
 
     private Value Unsupported(AstExpression expression) { Defer(expression); return new(null); }
@@ -97,13 +102,16 @@ internal sealed partial class BodyBindingBuilder
         }
         if (string.IsNullOrWhiteSpace(atom.Spelling)) { Defer(atom); return new(null); }
         if (atom.Spelling == "field" && context.Callable is AstAccessor accessor && ParentProperty(accessor) is { Type: not null } property)
-        { return new(Written(property.Type), accessor.Name is "set" or "init", true); }
+        {
+            if (read && _constructionFrame is not null) { ReadConstructionSlot(PropertySlot(property, ContainingType(property)!), atom, state); }
+            return new(Written(property.Type), accessor.Name is "set" or "init", true);
+        }
         if (atom.Spelling is "this" or "super")
         {
             var owner = ContainingType(atom);
             if (owner is null) { Report("SOL2210", "An instance receiver is unavailable here.", atom); return new(null); }
             if (atom.Spelling == "super") { owner = Types.GetDirectBases(owner, _cancellation).FirstOrDefault(t => t.Declaration?.Parts[0].SyntaxKind == NodeKind.ClassDeclaration); }
-            return new(owner);
+            return new(owner, IsConstructionReceiver: _constructionFrame?.OwnReceiver == true);
         }
         var lookup = Sources.Lexical.Lookup(atom, atom.Spelling);
         if (lookup.Locals is [var local])
@@ -117,6 +125,13 @@ internal sealed partial class BodyBindingBuilder
                 return LocalFunctionValue(atom, function, local, expected);
             }
             var type = read ? state.Narrowed.GetValueOrDefault(local) ?? LocalType(local) : LocalType(local);
+            if (read && local.Kind == LocalSymbolKind.ConstructorProperty
+                && _constructionFrame is { Helper: true, OwnReceiver: true } frame)
+            {
+                var slot = ConstructionSlots(frame.Owner).FirstOrDefault(slot =>
+                    slot.Kind == ConstructionSlotKind.PrimaryProperty && slot.Name == local.Name);
+                if (slot is not null) { ReadConstructionSlot(slot, atom, state); }
+            }
             bool tracked = local.Kind is LocalSymbolKind.Parameter or LocalSymbolKind.Variable or LocalSymbolKind.AccessorValue;
             if (read && tracked && state.Reachable && !state.Assigned.Contains(local))
             {
@@ -126,7 +141,8 @@ internal sealed partial class BodyBindingBuilder
                 if (contextualCapture) { Defer(atom); }
                 else { Report("SOL2240", "Variable may be read before assignment: " + local.Name, atom); }
             }
-            return new(type, local.IsMutable, local.Kind != LocalSymbolKind.ConstructorProperty, local);
+            return new(type, local.IsMutable, local.Kind != LocalSymbolKind.ConstructorProperty, local,
+                IsConstructionReceiver: _constructionFrame is not null && state.Construction.Aliases.Contains(local));
         }
         var symbols = lookup.Declarations.Candidates;
         if (symbols.Length == 1)

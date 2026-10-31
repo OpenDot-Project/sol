@@ -37,6 +37,7 @@ internal sealed partial class BodyBindingBuilder
                     {
                         if (type is not null) { _localTypes[local] = type; }
                         if (value is not null) { state.Assigned.Add(local); }
+                        ConstructionLocalAlias(local, property.Initializer, state);
                     }
                     if (property.Delegate is not null)
                     {
@@ -56,10 +57,13 @@ internal sealed partial class BodyBindingBuilder
                 case AstAssignment assignment:
                     Assignment(assignment, state, context); result = new(Empty); break;
                 case AstReturn ret:
+                    if (_constructionFrame is { Helper: false } && ConstructionAlias(ret.Value, state))
+                    { Report("SOL2273", "Construction cannot return its unpublished receiver.", ret); }
                     if (context.Cleanup) { Report("SOL2254", "Cleanup cannot transfer control outwards.", ret); }
                     if (context.Lambda is not null && (ret.Label is null || Ancestors(context.Lambda).OfType<AstLabelledExpression>().FirstOrDefault()?.Label != ret.Label))
                     { Report("SOL2225", "A lambda return must target its own explicit label.", ret); }
                     var returned = ret.Value is null ? new Value(Empty) : Expression(ret.Value, state, context, context.Result);
+                    _constructionReturnsReceiver |= ConstructionAlias(ret.Value, state);
                     if (context.LambdaReturnPaths is null || context.Result is not null)
                     { Require(returned, context.Result, ret, state); }
                     if (context.LambdaReturnPaths is { } lambdaReturnPaths)
@@ -184,6 +188,7 @@ internal sealed partial class BodyBindingBuilder
         else { Require(value, location.Type, assignment, state); }
         if (location.Local is { } local)
         {
+            ConstructionLocalAlias(local, assignment.Value, state);
             state.Assigned.Add(local); state.Narrowed.Remove(local);
             if (LocalType(local) is { IsNullable: true } nullable
                 && nullable.Arguments[0].Kind == ResolvedTypeKind.Function
@@ -192,6 +197,7 @@ internal sealed partial class BodyBindingBuilder
             if (assignedValue.Type?.IsRefLike == true && local.Kind != LocalSymbolKind.Variable) { CheckEscape(assignedValue, assignment, context); }
         }
         else if (assignedValue.Type?.IsRefLike == true) { Report("SOL2260", "Ref-like values cannot be stored in heap properties.", assignment); }
+        ApplyConstructionAssignment(assignment, location, state, context);
         if (assignment.Location is not null && _interfaceWrites.TryGetValue(assignment.Location, out var interfaceWrite))
         {
             if (interfaceWrite.Status != BodyBindingStatus.Bound)
@@ -205,6 +211,8 @@ internal sealed partial class BodyBindingBuilder
                 && (assignment.Location is AstAtom || assignment.Location is AstMember ownMember && IsOwnConstructorReceiver(ownMember.Receiver, context)))
             { state.Fields.Add(ownProperty); }
             var setterEffects = (interfaceWrite.Implementation ?? interfaceWrite.Contracts[0]).Effects;
+            if (assignment.Location.SyntaxKind == NodeKind.IndexExpression)
+            { ApplyConstructionIndexAccessor(interfaceWrite.Implementation ?? interfaceWrite.Contracts[0], assignment.Location, state); }
             if (_interfaceIndexArguments.TryGetValue(assignment.Location, out var indexArguments))
             { ApplyInterfaceIndexEffects(indexArguments, state, setterEffects); }
             else
@@ -573,6 +581,7 @@ internal sealed partial class BodyBindingBuilder
         var snapshot = incoming.Clone();
         snapshot.Assigned.IntersectWith(normal.Assigned);
         snapshot.Fields.IntersectWith(normal.Fields);
+        snapshot.Construction = ConstructionFacts.Join(incoming.Construction, normal.Construction);
         snapshot.Narrowed.Clear();
         snapshot.Effects.Clear();
         snapshot.ExceptionSink = null;
@@ -642,9 +651,13 @@ internal sealed partial class BodyBindingBuilder
         }
         foreach (var type in Files.Keys.OfType<AstTypeDeclaration>())
         {
-            if (type.Modifiers.Contains("data") || type.Bases.Any(b => b.Children.Any(c => c.SyntaxKind == NodeKind.Delegation))) { Defer(type); }
+            if (type.Modifiers.Contains("data")) { Defer(type); }
         }
-        foreach (var initializer in Files.Keys.OfType<AstInitializer>()) { Defer(initializer); }
+        foreach (var initializer in Files.Keys.OfType<AstInitializer>())
+        {
+            if (ContainingType(initializer)?.Declaration?.Parts[0].SyntaxKind is not (NodeKind.ClassDeclaration
+                or NodeKind.StructDeclaration or NodeKind.RefStructDeclaration)) { Defer(initializer); }
+        }
         foreach (var syntax in Files.Keys.OfType<AstType>())
         {
             var type = Written(syntax);

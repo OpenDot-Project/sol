@@ -47,12 +47,6 @@ internal sealed partial class BodyBindingBuilder
                     if (!_interfaceDelegateValues.TryGetValue((owner.Id, entry), out var initialization))
                     {
                         initialization = AnalyzeInterfaceInitialization(owner, entry, expression, delegatedInterface);
-                        foreach (var effect in initialization.Effects.Where(IsChecked))
-                        {
-                            if (!(part.PrimaryConstructor?.ThrownTypes ?? []).Any(type => Converts(effect, InterfaceWritten(type, owner))))
-                            { Report("SOL2250", "Interface delegate initialization has an undeclared checked effect.", entry);
-                                initialization = initialization with { Status = BodyBindingStatus.Invalid }; }
-                        }
                         _interfaceDelegateValues.Add((owner.Id, entry), initialization);
                     }
                     if (initialization.Status != BodyBindingStatus.Bound) { Defer(location); }

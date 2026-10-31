@@ -33,8 +33,8 @@ public sealed class LambdaReceiverInheritanceTests
     [Fact]
     public void GenericBasePropertyKeepsItsDeclarationIdentityForReceiverCapture()
     {
-        var session = AstTestSources.Session("module app\nopen class Base<T> { val value: T }\n"
-            + "class Child: Base<int> { func callback(): () -> int = { value } }");
+        var session = AstTestSources.Session("module app\nopen class Base<T> { val value: T; constructor(value: T) { this.value = value } }\n"
+            + "class Child: Base<int> { constructor(value: int): super(value) {}; func callback(): () -> int = { value } }");
         var sources = SourceAnalysis.Create(session, TestContext.Current.CancellationToken);
         Assert.False(sources.HasErrors, string.Join("\n", sources.Diagnostics.Select(d => d.Code + " " + d.Message)));
         var bodies = BodyAnalysis.Create(sources, TestContext.Current.CancellationToken);

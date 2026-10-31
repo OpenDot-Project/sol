@@ -24,7 +24,7 @@ internal sealed partial class BodyBindingBuilder
         var target = Written(arguments[0]);
         if (target.Declaration?.Parts[0].SyntaxKind != NodeKind.InterfaceDeclaration
             || !Types.GetDirectBases(owner, _cancellation).Any(type => ReferenceEquals(type, target))
-            || IsQualifiedSuperInitialization(application))
+            || IsQualifiedSuperInitialization(application) || _constructionFrame is not null)
         { Report("SOL2238", "Qualified super must name a direct constructed interface outside construction.", application); return new(null); }
         return new(target);
     }
@@ -105,7 +105,7 @@ internal sealed partial class BodyBindingBuilder
         }
         var operation = selected.Implementation ?? selected.Contracts[0];
         if (operation.Member.Symbol.Parts[0] is AstProperty property)
-        { ConstructorRead(property, location, state, context, read); }
+        { ConstructorRead(property, location, state, context, read, operation.Owner); }
         ValidateInterfaceAccess(selected, location, IsQualifiedSuperUse(location));
         if (getter?.Implementation?.ValueType is { } getType && setter?.Implementation?.ValueType is { } setType
             && !ReferenceEquals(getType, setType))

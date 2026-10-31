@@ -11,7 +11,8 @@ namespace OpenDot.Sol.Analysis;
 internal sealed partial class BodyBindingBuilder
 {
     private sealed record CleanupFacts(ImmutableHashSet<LocalSymbol> Assigned,
-        ImmutableDictionary<LocalSymbol, ResolvedType> Narrowed, ImmutableHashSet<AstProperty> Fields);
+        ImmutableDictionary<LocalSymbol, ResolvedType> Narrowed, ImmutableHashSet<AstProperty> Fields,
+        ConstructionFacts Construction);
 
     private Value Statements(IEnumerable<AstNode> statements, State state, Context context, bool resultContext)
     {
@@ -120,7 +121,7 @@ internal sealed partial class BodyBindingBuilder
     }
 
     private static CleanupFacts CaptureCleanupFacts(State state) => new(
-        state.Assigned.ToImmutableHashSet(), state.Narrowed.ToImmutableDictionary(), state.Fields.ToImmutableHashSet());
+        state.Assigned.ToImmutableHashSet(), state.Narrowed.ToImmutableDictionary(), state.Fields.ToImmutableHashSet(), state.Construction);
 
     private static void UpdateCleanupFacts(State state, CleanupFacts before, CleanupFacts after)
     {
@@ -149,6 +150,7 @@ internal sealed partial class BodyBindingBuilder
                 Assigned = assigned.ToImmutableHashSet(),
                 Narrowed = narrowed.ToImmutable(),
                 Fields = fields.ToImmutableHashSet(),
+                Construction = path.Construction.Update(before.Construction, after.Construction),
             };
         }
     }
@@ -229,6 +231,7 @@ internal sealed partial class BodyBindingBuilder
             run.Assigned.Clear(); run.Assigned.UnionWith(path.Assigned);
             run.Narrowed.Clear(); foreach (var pair in path.Narrowed) { run.Narrowed.Add(pair.Key, pair.Value); }
             run.Fields.Clear(); run.Fields.UnionWith(path.Fields);
+            run.Construction = path.Construction;
             var registrations = path.Registrations
                 .Where(registration => ReferenceEquals(registration.Scope, scope)).Reverse().ToArray();
             run = RunCleanupPath(run, registrations, 0, context, outerSink, activeException,
@@ -243,7 +246,8 @@ internal sealed partial class BodyBindingBuilder
             var empty = input.Clone();
             empty.CleanupPaths.Clear();
             empty.CleanupPaths.Add(new(ImmutableArray<State.CleanupRegistration>.Empty,
-                empty.Assigned.ToImmutableHashSet(), empty.Narrowed.ToImmutableDictionary(), empty.Fields.ToImmutableHashSet()));
+                empty.Assigned.ToImmutableHashSet(), empty.Narrowed.ToImmutableDictionary(), empty.Fields.ToImmutableHashSet())
+                { Construction = empty.Construction });
             return empty;
         }
         var joined = JoinCleanupOutcomes(outcomes, outerSink);
@@ -386,6 +390,7 @@ internal sealed partial class BodyBindingBuilder
         target.Effects.Clear(); target.Effects.UnionWith(source.Effects);
         target.SuppressedEffects.Clear(); target.SuppressedEffects.UnionWith(source.SuppressedEffects);
         target.Fields.Clear(); target.Fields.UnionWith(source.Fields);
+        target.Construction = source.Construction;
         target.CleanupPaths.Clear(); target.CleanupPaths.AddRange(source.CleanupPaths);
         target.OverflowedCleanups.Clear(); target.OverflowedCleanups.UnionWith(source.OverflowedCleanups);
         target.CleanupTrackingDeferred = source.CleanupTrackingDeferred;

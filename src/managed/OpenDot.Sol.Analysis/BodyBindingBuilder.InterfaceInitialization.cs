@@ -57,6 +57,8 @@ internal sealed partial class BodyBindingBuilder
                 ClosedLexicalReturn = ClosedLexicalReturn,
                 InterfaceSourceBody = callable => Bodies.GetValueOrDefault(callable) ?? InterfaceSourceBody?.Invoke(callable),
                 _interfaceInitializationActive = _interfaceInitializationActive,
+                _constructionSession = _constructionSession,
+                ConstructionSourceStatus = ConstructionSourceStatus,
                 _bodySubstitution = new(_bodySubstitution),
             };
             foreach (var pair in Substitution(owner)) { worker._bodySubstitution[pair.Key] = pair.Value; }
