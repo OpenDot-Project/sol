@@ -35,7 +35,8 @@ internal sealed partial class BodyBindingBuilder
         var values = arguments.Select(argument => argument.Mode == AstArgumentMode.OutVariable
             || argument.Value is AstLambda or AstLabelledExpression or AstSequence { SyntaxKind: NodeKind.ArrayExpression } ? new Value(null)
             : InterfaceIndexArgumentValue(argument, state, context)).ToArray();
-        var records = ResolveInterfaceImplementations(receiver, expression).Where(record =>
+        var allRecords = SourceIndexerOperations(receiver, expression);
+        var records = allRecords.Where(record =>
             record.Contracts[0].Member.Symbol.Parts[0] is AstIndexer
             && record.Contracts[0].Kind == (read ? InterfaceOperationKind.Get : InterfaceOperationKind.Set)).ToArray();
         var applicable = new List<(InterfaceImplementation Record, InterfaceOperation Operation, ArgumentMapping Mapping, int[] Ranks)>();
@@ -98,7 +99,7 @@ internal sealed partial class BodyBindingBuilder
             { Report("SOL2236", selected.Record.Reason ?? "The interface indexer is unresolved.", expression); }
             Defer(expression);
         }
-        var setters = ResolveInterfaceImplementations(receiver, expression).Where(record =>
+        var setters = allRecords.Where(record =>
             record.Contracts[0].Kind == InterfaceOperationKind.Set
             && record.Contracts[0].Member.Symbol.Parts[0] is AstIndexer)
             .Where(record => InterfaceAccessorKey(record.Contracts[0]) == InterfaceAccessorKey(selected.Operation)).ToArray();
@@ -111,9 +112,33 @@ internal sealed partial class BodyBindingBuilder
         {
             ApplyInterfaceIndexEffects(new(arguments.ToImmutable(), values, selected.Mapping, selected.Operation.ParameterTypes),
                 state, selected.Operation.Effects);
+            ApplyConstructionIndexAccessor(selected.Operation, expression, state);
         }
         return new(selected.Operation.ValueType, setters.Length == 1 && setters[0].Status == BodyBindingStatus.Bound, false,
             Symbol: selected.Operation.Member.Symbol, Receiver: selected.Operation.Member.DeclaringType);
+    }
+
+    private ImmutableArray<InterfaceImplementation> SourceIndexerOperations(ResolvedType receiver, AstNode site)
+    {
+        var records = _interfaceResolutionActive.Contains(receiver.Id) ? [] : ResolveInterfaceImplementations(receiver, site);
+        var covered = records.SelectMany(record => record.Contracts).Select(operation => operation.Member.Symbol).ToHashSet();
+        var lookup = _memberResolver.Resolve(receiver, "this", site);
+        if (lookup.Status == MemberLookupStatus.LimitExceeded) { Defer(site); return records; }
+        var own = lookup.Candidates.Where(member => member.Symbol.Parts[0] is AstIndexer
+            && member.DeclaringType.Declaration?.Parts[0].SyntaxKind != NodeKind.InterfaceDeclaration
+            && !covered.Contains(member.Symbol)).SelectMany(InterfaceOperations).Select(operation =>
+                new InterfaceImplementation(receiver, operation.Signature, [operation], operation,
+                    operation.HasBody ? BodyBindingStatus.Bound : BodyBindingStatus.Deferred, null));
+        return records.AddRange(own);
+    }
+
+    private void ApplyConstructionIndexAccessor(InterfaceOperation operation, AstNode site, State state)
+    {
+        if (_constructionFrame is null || site.Children.OfType<AstExpression>().FirstOrDefault() is not { } receiver
+            || !ConstructionReceiver(receiver, state)) { return; }
+        if (operation.Body is AstAccessor accessor)
+        { ApplyConstructionAccessor(accessor, operation.Owner, site, state); }
+        else { Defer(site); MarkConstructionUnknown(state); }
     }
 
     private static bool BetterInterfaceIndex(ArgumentMapping left, int[] leftRanks, ArgumentMapping right, int[] rightRanks)

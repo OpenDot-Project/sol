@@ -66,10 +66,11 @@ can overlap their caught type; finally is checked on reachable normal, return, a
 paths. Function-value effects and ref/out normal-return assignment are included in this slice. It is
 still conservative for built-in potentially throwing operations. The lexical cleanup slice now
 tracks reached `defer` registrations and applies bounded LIFO cleanup on normal and abrupt source
-edges; an overflowing path set stays Deferred. Supported zero-argument implicit construction
-records field-initializer/delegate effects and exceptional snapshots when the type has one
-initialization part and no unsupported constructor/base/escape behavior. Explicit constructor
-delegation and other incomplete construction cases remain Deferred. Suppressed failure data is
+edges; an overflowing path set stays Deferred. Implicit, primary, and secondary constructor source
+proofs resolve `this`/base chains and carry initialization, helper, callback, and delegation effects
+with constructed storage identities. Missing bodies, uncertain receiver aliases, and exhausted
+proof budgets remain Deferred. Native construction and lazy object/module initialization are
+separate boundaries. Suppressed failure data is
 analysis metadata, not a runtime Throwable object or delivered Windows exception. Complete CFG
 correlations, full protected receiver checks, complete construction proofs, contextual lambda/array
 evidence, and borrow-origin proof remain incomplete. These are source-analysis facts only; this API

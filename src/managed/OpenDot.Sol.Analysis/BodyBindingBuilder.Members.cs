@@ -154,7 +154,7 @@ internal sealed partial class BodyBindingBuilder
         }
         if (symbol.Parts[0] is AstProperty property)
         {
-            ConstructorRead(property, location, state, context, read);
+            ConstructorRead(property, location, state, context, read, receiver);
             ResolvedType? type = property.Type is null ? null : Specialize(property.Type, receiver);
             if (type is null && property.Initializer is { } initializer)
             {
@@ -181,12 +181,16 @@ internal sealed partial class BodyBindingBuilder
             { Report("SOL2214", "The getter is inaccessible here.", location); }
             if (read && getter is not null && getterAccessible)
             {
+                if (_constructionFrame is not null && receiver is not null && ConstructionReceiver((location as AstMember)?.Receiver, state))
+                { ApplyConstructionAccessor(getter, receiver, location, state); }
                 var getterEffects = getter.ThrownTypes.Select(t => Specialize(t, receiver)).ToArray();
                 RecordPotentialCallEdges(state, getterEffects);
                 state.Effects.UnionWith(getterEffects);
             }
             if (read && getterAccessible && delegateContract is not null)
             {
+                if (_constructionFrame is not null && ConstructionReceiver((location as AstMember)?.Receiver, state))
+                { ApplyConstructionProtocol(delegateContract.Getter, location, state); }
                 RecordPotentialCallEdges(state, delegateContract.GetEffects);
                 state.Effects.UnionWith(delegateContract.GetEffects);
             }
@@ -198,6 +202,9 @@ internal sealed partial class BodyBindingBuilder
             bool writable = property.IsMutable && hasSetter && setterAccessible;
             if (context.Callable is AstConstructor && ContainingType(context.Callable)?.Declaration == ContainingType(property)?.Declaration
                 && !state.Fields.Contains(property) && (location is not AstMember || location is AstMember { Receiver: AstAtom { Spelling: "this" } })) { writable = true; }
+            if (_constructionFrame is { Helper: false } && ConstructionReceiver((location as AstMember)?.Receiver, state)
+                && receiver is not null && ConstructionSlots(receiver).Any(slot => slot.Declaration == property))
+            { writable = state.Construction.Slots.GetValueOrDefault(PropertySlot(property, receiver)) == ConstructionAssignment.Unassigned || property.IsMutable; }
             if (!setterAccessible) { writable = false; }
             // A property never masquerades as addressable ref/out storage.
             return new(type, writable, false, Symbol: symbol, Receiver: receiver);
@@ -259,10 +266,15 @@ internal sealed partial class BodyBindingBuilder
         var found = ReceiverMembers(type, member.Name, member, receiver.IsType).ToArray();
         if (found.Length == 0)
         {
-            var primary = type.Declaration?.Parts.OfType<AstTypeDeclaration>().SelectMany(t => t.PrimaryConstructor?.Parameters ?? [])
-                .FirstOrDefault(p => p.IsProperty && p.Name == member.Name);
+            var primaryOwner = type;
+            var primary = FindConstructionPrimaryProperty(type, member.Name, member, out primaryOwner);
             if (primary?.Type is not null)
             {
+                type = primaryOwner;
+                if (_constructionFrame is not null && read && ConstructionReceiver(member.Receiver, state))
+                { ReadConstructionSlot(new(type.Declaration!.Parts.OfType<AstTypeDeclaration>().Select(part => part.PrimaryConstructor)
+                    .First(constructor => constructor?.Parameters.Contains(primary) == true)!, type, primary.Name,
+                    ConstructionSlotKind.PrimaryProperty, primary.IsMutable), member, state); }
                 var primaryType = Specialize(primary.Type, type);
                 bool accessible = true;
                 if (HasGroupModifier(primary, "private") && ContainingType(member)?.Declaration != type.Declaration)

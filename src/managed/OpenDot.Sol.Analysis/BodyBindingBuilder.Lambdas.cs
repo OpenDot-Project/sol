@@ -28,6 +28,7 @@ internal sealed partial class BodyBindingBuilder
         ImmutableArray<ResolvedType> inferenceParameters = default)
     {
         int diagnosticStart = Diagnostics.Count;
+        long errorGeneration = _errorGeneration;
         var reportedBefore = _reported.ToHashSet();
         var expectedFunction = ExpectedLambdaFunction(expected);
         if (expectedFunction is not null) { ValidateFunctionEffects(expectedFunction, lambda); }
@@ -138,7 +139,8 @@ internal sealed partial class BodyBindingBuilder
 
         var bodyNodes = new HashSet<AstNode>(lambda.Descendants(), ReferenceEqualityComparer.Instance) { lambda };
         bool hasDeferredDescendant = _deferred.Any(bodyNodes.Contains);
-        bool hasNewError = Diagnostics.Skip(diagnosticStart).Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+        bool hasNewError = _errorGeneration != errorGeneration
+            || Diagnostics.Skip(diagnosticStart).Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
             || _reported.Any(reported => !reportedBefore.Contains(reported) && bodyNodes.Contains(reported.Item1));
         LambdaBodies[lambda] = new(lambda, functionType, normalExits.Length, state.Reachable,
             outParameters.ToImmutable(), !hasDeferredDescendant && !hasNewError);

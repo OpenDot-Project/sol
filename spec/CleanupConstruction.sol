@@ -286,12 +286,14 @@ import std.core
 // 2. evaluate selected missing defaults in declaration order;
 // 3. establish the allocation and root state without publishing the new object;
 // 4. invoke the selected explicit base constructor;
-// 5. evaluate instance field initializers and init blocks in declaration order;
-// 6. execute the selected constructor body;
-// 7. verify every required field and backing slot is valid;
-// 8. publish the complete instance to the caller or another permitted owner.
+// 5. assign primary val/var property parameters to their storage;
+// 6. initialize interface by targets in base-header declaration order;
+// 7. evaluate instance field/property initializers and init blocks in declaration order;
+// 8. execute the selected constructor body;
+// 9. verify every required field and backing slot is valid;
+// 10. publish the complete instance to the caller or another permitted owner.
 //
-// A construction exception at steps 1-6 exits without publishing the partial instance. Effects
+// A construction exception at steps 1-8 exits without publishing the partial instance. Effects
 // and side effects already completed are not rolled back. Any resource acquired before failure
 // must be protected by a valid lexical cleanup whose lifetime includes the failing edge. The
 // partially initialized storage remains private to the runtime construction frame until its
@@ -304,9 +306,10 @@ import std.core
 // operation and is legal only for the compiler-proven zero-initializable type set. A constructor
 // does not change `default<T>()` into a constructor call.
 //
-// A primary constructor's property parameters are assigned at the point prescribed by the
-// resolved constructor plan. The plan MUST distinguish constructor-only parameters from `val`
-// and `var` property parameters. A secondary `this(...)` constructor delegates to one selected
+// Primary parameters can be read as local argument values when evaluating base arguments.
+// Their property storage is not assigned until the base constructor completes. The plan MUST
+// distinguish constructor-only parameters from `val` and `var` property parameters.
+// A secondary `this(...)` constructor delegates to one selected
 // constructor in the same type and invokes the primary initialization chain exactly once. The
 // secondary body runs only after delegation completes. A base-class constructor call is explicit
 // and occurs before derived instance initializers. Base effects are inherited by the derived
@@ -318,7 +321,8 @@ import std.core
 // constructor directly. It cannot defer the base call until after an initializer or body
 // statement. A class with no explicit base-call syntax follows the declared implicit-base rule
 // only if a valid accessible parameterless base constructor exists; this fallback cannot select
-// an arbitrary overload. A ref struct follows its declared value-type construction rule and does
+// an overload with optional parameters. Explicit super(...) uses ordinary argument/default
+// mapping. A ref struct follows its declared value-type construction rule and does
 // not synthesize a reference-class base chain. Unsupported chaining forms receive diagnostics
 // and do not fall back to source order or overload declaration order.
 
@@ -730,3 +734,7 @@ import std.core
 // set of exception names but not the ordered exceptional prefix is not equivalent. A source
 // analyzer that reports a broad effect budget without recording operation origins may help a
 // caller conservatively, but it cannot claim the complete effect proof required by verified FIR.
+// Construction source diagnostics: SOL2274 rejects an invalid chain target; SOL2275 rejects
+// same-instance delegation cycles; SOL2276 rejects multiple partial initialization parts;
+// SOL2277 rejects invalid constructor/helper dependencies. Missing source evidence remains
+// Deferred. Native construction lowering and receiver ABI remain outside this source proof.

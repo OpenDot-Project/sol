@@ -15,7 +15,7 @@ internal sealed partial class BodyBindingBuilder
         System.Threading.CancellationToken, ResolvedType?>? ClosedLexicalReturn { get; set; }
 
     private ResolvedType? InferLexicalReturn(AstFunction function,
-        ImmutableArray<ResolvedType> arguments, State state, AstCall call)
+        ImmutableArray<ResolvedType> arguments, State state, AstNode call)
     {
         var context = CaptureLexicalContext(function, state);
         if (context is null || ClosedLexicalReturn is null) { return null; }
@@ -24,7 +24,7 @@ internal sealed partial class BodyBindingBuilder
             || context.EnclosingArguments.Any(pair => ContainsTypeParameter(pair.Argument))
             || context.Locals.Any(local => local.Type is { } type && ContainsTypeParameter(type)))
         {
-            return CheckBody(function).ReturnType;
+            return CheckInferenceBody(function).ReturnType;
         }
         var result = ClosedLexicalReturn(function, arguments, context, _cancellation);
         if (result is null) { Defer(call); }
@@ -94,6 +94,7 @@ internal sealed partial class BodyBindingBuilder
         }
         var summary = CheckBody(function);
         CompleteInterfaceImplementations();
+        CompleteConstructionProofs();
         summary = Bodies.GetValueOrDefault(function, summary);
         ValidateLexicalCaptureLifetime(function);
         if (Diagnostics.Count != 0)

@@ -40,13 +40,17 @@ registrations per lexical scope, and 256 exceptional unwind alternatives. These 
 resource limits, not language limits. Crossing a limit marks affected cleanup nodes Deferred; it
 does not silently omit an action or certify the body.
 
-Implicit zero-argument construction is analyzed only for the represented no-explicit-constructor
-case with no unsupported base chain or init block, a single initialization part, no unproven
-constructing-instance reference, and no `provideDelegate` escape. Within that boundary, stored
-property initializers and supported delegates are evaluated in declaration order, their checked
-effects and exceptional snapshots reach the construction site, and required stored fields are
-checked on normal completion. Unsupported cases remain Deferred. This work does not provide verified
-FIR, native cleanup lowering, Windows exception delivery, or an executable Sol program.
+The development analyzer shares source proofs for implicit, primary, and secondary constructors.
+It resolves `this` and concrete-base chains, substitutes constructed owners, and carries required
+storage facts through initializers, `init` blocks, helper calls, and represented cleanup edges.
+Private or effectively final source helpers and known lambda callbacks are analyzed against the
+current construction state. Property delegate initialization is distinct from invocation effects.
+An unavailable body, uncertain receiver alias, or unfinished recursive proof remains Deferred.
+These source proofs do not establish native construction lowering, receiver ABI, or publication.
+
+Construction proof limits are 128 dependency levels, 1,024 instances, 8,192 edges, 65,536 nodes per
+body, and 128 recursive-summary iterations. Exceeding a budget leaves an incomplete proof. The
+existing cleanup limits also apply; no truncated prefix is accepted as a complete construction.
 
 ## Contract vocabulary
 
@@ -319,10 +323,16 @@ For a reference class, the initialization sequence is:
 2. Evaluate selected missing defaults in declaration order.
 3. Allocate storage and establish a private construction root.
 4. Call the selected explicit base constructor.
-5. Evaluate instance field initializers and `init` blocks in declaration order.
-6. Execute the selected constructor body.
-7. Verify required fields and backing slots.
-8. Publish the completed object.
+5. Assign primary `val/var` property parameters to their storage.
+6. Initialize interface `by` targets in base-header declaration order.
+7. Evaluate instance field/property initializers and `init` blocks in declaration order.
+8. Execute the selected constructor body.
+9. Verify required fields and backing slots.
+10. Publish the completed object.
+
+Base arguments can use primary parameters as local values. The corresponding property storage
+is assigned only after the base constructor completes. A `this(...)` chain runs this initialization
+sequence once, before the delegating constructor body.
 
 No user-visible reference to the new object may escape before the last step. A throw during an
 initializer or body leaves earlier effects visible but does not publish a partly initialized
@@ -339,7 +349,8 @@ source order to select among ambiguous base constructors. Missing or invalid cha
 diagnostics.
 
 An implicit parameterless-base call is valid only when the base contract provides one accessible
-parameterless constructor. It does not choose an arbitrary overload. Struct and ref struct
+constructor with exactly zero formal parameters. An overload whose parameters all have defaults
+does not qualify. Explicit `super(...)` uses ordinary argument and default mapping. Struct and ref struct
 construction obey their value-layout rules and do not synthesize a class base chain. Constructor
 overloads differing only in their `throws` lists are not distinct overloads.
 
@@ -576,9 +587,11 @@ the order and which later operations are skipped when an earlier step fails.
 | 3 | Evaluate omitted default 1 | Preserve completed arguments; stop later defaults and constructor |
 | 4 | Establish private allocation/root state | Do not publish the reference |
 | 5 | Invoke selected base constructor | Do not run derived initializers or body |
-| 6 | Run field initializer or `init` block | Keep prior valid fields private; skip later initialization/body |
-| 7 | Run constructor body | Keep the object private if the body throws |
-| 8 | Verify required fields and publish | Publish only if every required invariant succeeds |
+| 6 | Assign primary property parameters | Storage becomes valid after the base completes |
+| 7 | Initialize header interface `by` targets | Skip later targets and members after failure |
+| 8 | Run field initializer or `init` block | Keep prior valid fields private; skip later initialization/body |
+| 9 | Run constructor body | Keep the object private if the body throws |
+| 10 | Verify required fields and publish | Publish only if every required invariant succeeds |
 
 Operations 1–3 occur before the new object's constructor body. A nested object constructed in an
 argument can be fully published before the outer allocation begins. If that argument later

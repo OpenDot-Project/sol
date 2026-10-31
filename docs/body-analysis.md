@@ -58,7 +58,7 @@ Interface methods/accessors now have declaration-time implementation selection, 
 getter/setter merging, `by` target records, and direct qualified-super binding. Conflicts and missing
 implementations remain errors even without a call. Generated data members remain incomplete.
 Protected receiver restrictions, cross-binary distribution metadata for `internal`, complete
-non-interface property/indexer inheritance, and complete construction/delegation proofs remain open.
+complete property/indexer inheritance, and construction paths without sufficient source evidence remain open.
 See [receiver and member resolution](member-resolution.md).
 
 ## Expression and lambda checking
@@ -141,11 +141,13 @@ See the [cleanup/construction guide](cleanup-construction.md). RuntimeException 
 Exception/Throwable value remains checked. Out assignments performed in finally are applied only when
 that exit completes normally.
 
-Constructor checks cover stored-property assignment, read-before-initialization, repeated writes to
-stored vals, direct receiver publication through arguments, and direct virtual dispatch during
-construction. Base/secondary-constructor chains and complete partial/object initialization proofs
-are still unverified. Empty implicit construction can obtain its nominal type without fabricating
-a constructor AST node.
+Constructor source proofs cover implicit, primary, and secondary chains, constructed-owner
+substitution, required storage, initialization order, and normal/exceptional helper transfers.
+Private or effectively final source helpers, accessors, and known lambda callbacks retain the
+construction context. Recursive dependency groups use bounded summary iteration. Unavailable
+bodies and uncertain aliases remain Deferred. Partial types have one initialization part;
+object/companion/module lazy initialization and native construction remain outside this proof.
+Implicit construction obtains its nominal type without fabricating a constructor AST node.
 
 Captures of ref/out or ref-like storage require a proven nonescaping use; unsupported lifetime paths
 are rejected. Known heap storage of ref-like fields is rejected.
@@ -169,6 +171,10 @@ generation are not implemented by these source checks.
 | `SOL2250`–`SOL2255` | Checked effects, Throwable validity, catch reachability, and cleanup transfer. |
 | `SOL2260`–`SOL2262` | Ref-like storage, borrow escape, and captures. |
 | `SOL2270`–`SOL2273` | Constructor initialization and publication. |
+| `SOL2274` | Invalid constructor chain or target. |
+| `SOL2275` | Same-instance constructor delegation cycle. |
+| `SOL2276` | Multiple partial initialization parts. |
+| `SOL2277` | Invalid construction dependency. |
 | `SOL2280`–`SOL2282` | Delegation protocol selection and declaration combinations. |
 | `SOL2290` | Bounded analysis/specialization resource failure. |
 

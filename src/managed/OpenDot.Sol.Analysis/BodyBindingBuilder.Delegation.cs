@@ -12,7 +12,10 @@ internal sealed partial class BodyBindingBuilder
 {
     private sealed record DelegateContract(ResolvedType ValueType, ImmutableArray<ResolvedType> GetEffects,
         ImmutableArray<ResolvedType> SetEffects, ImmutableArray<ResolvedType> InitEffects,
-        ImmutableArray<ResolvedType> ProvideEffects, bool HasProvider);
+        ImmutableArray<ResolvedType> ProvideEffects, bool HasProvider,
+        ProtocolSelection Getter, ProtocolSelection? Setter, ProtocolSelection? Provider);
+    private readonly record struct ProtocolSelection(ResolvedType Type, ImmutableArray<ResolvedType> Effects,
+        AstFunction Function, ResolvedType Owner);
     private readonly Dictionary<AstProperty, DelegateContract?> _delegates = [];
     private readonly HashSet<AstProperty> _activeDelegates = [];
 
@@ -25,7 +28,8 @@ internal sealed partial class BodyBindingBuilder
             {
                 var replay = initializationState.Clone(); replay.Effects.Clear();
                 _ = Expression(property.Delegate, replay, initializationContext ?? new(null, null));
-                if (cached.HasProvider) { RecordPotentialCallEdges(replay, cached.ProvideEffects); }
+                if (cached.Provider is { } cachedProvider)
+                { ApplyConstructionProtocol(cachedProvider, property, replay); RecordPotentialCallEdges(replay, cached.ProvideEffects); }
                 CopyFlowFacts(replay, initializationState);
             }
             return cached;
@@ -57,6 +61,7 @@ internal sealed partial class BodyBindingBuilder
             if (provider is { } provide)
             {
                 actual = provide.Type;
+                ApplyConstructionProtocol(provide, property, state);
                 RecordPotentialCallEdges(state, provide.Effects);
                 state.Effects.UnionWith(provide.Effects);
             }
@@ -69,7 +74,7 @@ internal sealed partial class BodyBindingBuilder
             { Report("SOL2282", "Delegation cannot be combined with an initializer, custom accessor, or ref property.", property); }
             var contract = new DelegateContract(propertyType, getter.Value.Effects,
                 setter?.Effects ?? [], state.Effects.ToImmutableArray(),
-                provider?.Effects ?? [], provider is not null);
+                provider?.Effects ?? [], provider is not null, getter.Value, setter, provider);
             _delegates[property] = contract;
             if (initializationState is not null) { CopyFlowFacts(state, initializationState); }
             return contract;
@@ -77,7 +82,7 @@ internal sealed partial class BodyBindingBuilder
         finally { _activeDelegates.Remove(property); }
     }
 
-    private (ResolvedType Type, ImmutableArray<ResolvedType> Effects)? Protocol(ResolvedType receiver, string name,
+    private ProtocolSelection? Protocol(ResolvedType receiver, string name,
         ResolvedType[] arguments, AstProperty property, bool required)
     {
         var candidates = FindMembers(receiver, name, property).Where(m => Accessible(m.Symbol, property))
@@ -99,7 +104,8 @@ internal sealed partial class BodyBindingBuilder
             : InterfaceWritten(function.ReturnType, selected.Member.DeclaringType);
         if (result is null) { Defer(property); return null; }
         ValidateFunctionEffects(result, property);
-        return (result, function.ThrownTypes.Select(t => InterfaceWritten(t, selected.Member.DeclaringType)).ToImmutableArray());
+        return new(result, function.ThrownTypes.Select(t => InterfaceWritten(t, selected.Member.DeclaringType)).ToImmutableArray(),
+            function, selected.Member.DeclaringType);
     }
 
     private static void CopyFlowFacts(State source, State destination)
@@ -107,6 +113,7 @@ internal sealed partial class BodyBindingBuilder
         destination.Assigned.Clear(); destination.Assigned.UnionWith(source.Assigned);
         destination.Narrowed.Clear(); foreach (var pair in source.Narrowed) { destination.Narrowed.Add(pair.Key, pair.Value); }
         destination.Fields.Clear(); destination.Fields.UnionWith(source.Fields);
+        destination.Construction = source.Construction;
         destination.Reachable = source.Reachable;
     }
 }

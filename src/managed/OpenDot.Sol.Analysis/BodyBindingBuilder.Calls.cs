@@ -30,6 +30,7 @@ internal sealed partial class BodyBindingBuilder
 
     private Value Call(AstCall call, State state, Context context, ResolvedType? expected)
     {
+        long callErrors = _errorGeneration;
         var priorBinding = Calls.GetValueOrDefault(call);
         var generic = call.Target as AstGenericApplication;
         var targetExpression = generic?.Target ?? call.Target;
@@ -50,25 +51,16 @@ internal sealed partial class BodyBindingBuilder
             foreach (var argument in call.Arguments.Where(a => a.Value is AstExpression)) { Expression((AstExpression)argument.Value, state, context); }
             Defer(call); return new(null);
         }
-        var values = new Value?[call.Arguments.Length];
-        for (int index = 0; index < values.Length; index++)
-        {
-            var argument = call.Arguments[index];
-            if (argument.Mode == AstArgumentMode.OutVariable || argument.Value is AstLambda or AstLabelledExpression
-                || argument.Value is AstSequence { SyntaxKind: NodeKind.ArrayExpression }) { continue; }
-            if (argument.Value is AstAtom { SyntaxKind: NodeKind.LiteralExpression } literal
-                && literal.Origin.Element.Tokens.FirstOrDefault()?.Kind is SyntaxKind.IntegerLiteralToken or SyntaxKind.FloatLiteralToken)
-            { values[index] = new(Types.GetPrimitive(literal.Origin.Element.Tokens.First().Kind == SyntaxKind.IntegerLiteralToken ? "int" : "double"), Literal: literal.Spelling); continue; }
-            values[index] = argument.Value is AstExpression expression
-                ? Expression(expression, state, context, read: argument.Mode != AstArgumentMode.Out) : new(null);
-            if (argument.Mode == AstArgumentMode.Ref && values[index]?.Local is { } local)
-            { values[index] = values[index]! with { Type = LocalType(local) }; }
-        }
+        bool orderedConstructionArguments = _constructionFrame is not null || targets.Any(target => target.Constructed is not null);
+        var values = call.Arguments.IsEmpty ? [] : orderedConstructionArguments
+            ? Speculate(state, () => CallArgumentValues(call, state.Clone(), context), out _)
+            : CallArgumentValues(call, state, context);
         var candidates = targets.Select(t => ApplicableCall(call, t, explicitTypes, values, expected, state, context))
             .OfType<Applicable>().ToArray();
         var best = candidates.Where(c => !candidates.Any(other => !ReferenceEquals(c, other) && Better(other, c))).ToArray();
         if (best.Length != 1)
         {
+            if (orderedConstructionArguments) { _ = CallArgumentValues(call, state, context); }
             if (best.Length == 0 && ReportEscapingClosureArguments(call, targets)) { return new(null); }
             bool dependsOnOpenParameter = context.Callable is { } owner && owner.TypeParameters.Any()
                 && (values.OfType<Value>().Any(value => value.Type is { } type && DependsOnCallableParameter(type, owner))
@@ -84,12 +76,10 @@ internal sealed partial class BodyBindingBuilder
             return new(null);
         }
         var selected = best[0];
-        if (selected.Target.Constructed is { } delegatedConstruction)
-        { ValidateInterfaceDelegateConstruction(delegatedConstruction, call); }
         Calls[call] = new(call, selected.Target.Callable, selected.Target.Receiver, selected.TypeArguments,
             selected.Parameters, selected.Result, selected.Mapping.Arguments, selected.Mapping.Defaults)
         { EmptyVarargParameters = selected.Mapping.EmptyVarargs, SourceReceiver = selected.Target.AccessReceiver };
-        if (selected.Target.AccessReceiver is { } interfaceReceiver)
+        if (selected.Target.AccessReceiver is { } interfaceReceiver && !_interfaceResolutionActive.Contains(interfaceReceiver.Id))
         {
             var implementation = ResolveInterfaceImplementations(interfaceReceiver, call).FirstOrDefault(record =>
                 record.Implementation is { Kind: InterfaceOperationKind.Method } operation
@@ -100,7 +90,7 @@ internal sealed partial class BodyBindingBuilder
         }
         foreach (var parameter in selected.Parameters) { ValidateFunctionEffects(parameter, call); }
         if (selected.Result is not null) { ValidateFunctionEffects(selected.Result, call); }
-        if (context.Callable is AstConstructor && targetExpression is AstMember { Receiver: AstAtom { Spelling: "this" } }
+        if (_constructionFrame is null && context.Callable is AstConstructor && targetExpression is AstMember { Receiver: AstAtom { Spelling: "this" } }
             && (selected.Target.Callable.Modifiers.Contains("open") || selected.Target.Callable.Modifiers.Contains("override")))
         { Report("SOL2272", "A constructor cannot perform virtual dispatch on its uninitialized receiver.", call); }
         if (selected.Target.Symbol is { } symbol)
@@ -115,13 +105,15 @@ internal sealed partial class BodyBindingBuilder
                 { Report("SOL2214", "Protected access requires a receiver of the current derived type.", call); }
             }
         }
-        if (selected.Target.Callable.Modifiers.Contains("private") && selected.Target.Constructed is { } constructed
-            && ContainingType(call)?.Declaration != constructed.Declaration) { Report("SOL2214", "The constructor is private.", call); }
+        if (selected.Target.Callable is AstConstructor constructor && selected.Target.Constructed is { } constructed
+            && !ConstructionConstructorAccessible(constructor, constructed, call, delegation: false))
+        { Report("SOL2214", "The selected constructor is inaccessible.", call); }
         var assignedAfterCall = new HashSet<LocalSymbol>();
         var writableArguments = new HashSet<LocalSymbol>();
         var outArguments = new HashSet<LocalSymbol>();
-        foreach (var mapping in selected.Mapping.Arguments)
+        foreach (var mapping in selected.Mapping.Arguments.OrderBy(mapping => mapping.ArgumentIndex))
         {
+            if (orderedConstructionArguments && !state.Reachable) { break; }
             var argument = call.Arguments[mapping.ArgumentIndex];
             var type = selected.Parameters[mapping.ParameterIndex];
             var mode = selected.Target.Callable.Parameters[mapping.ParameterIndex].PassingMode;
@@ -140,7 +132,7 @@ internal sealed partial class BodyBindingBuilder
                 continue;
             }
             var value = values[mapping.ArgumentIndex];
-            if (value is null || value.Literal is not null)
+            if (orderedConstructionArguments || value is null || value.Literal is not null)
             { value = Expression(argument.Value as AstExpression, state, context, type, mode != AstPassingMode.Out); }
             if (mode is AstPassingMode.Ref or AstPassingMode.Out)
             {
@@ -158,7 +150,7 @@ internal sealed partial class BodyBindingBuilder
             }
             else
             {
-                if (context.Callable is AstConstructor && argument.Value is AstAtom { Spelling: "this" })
+                if (_constructionFrame is null && context.Callable is AstConstructor && argument.Value is AstAtom { Spelling: "this" })
                 { Report("SOL2273", "An uninitialized receiver cannot escape through a call argument.", argument.Value); }
                 Require(value, type, argument.Value, state);
                 if (value.Type?.IsRefLike == true && selected.Target.Constructed is not null) { Defer(call); }
@@ -174,10 +166,13 @@ internal sealed partial class BodyBindingBuilder
         if (lexicalContext is not null && priorBinding is not null)
         { lexicalContext = MergeLexicalCallContexts(priorBinding, Calls[call], lexicalContext); }
         Calls[call] = Calls[call] with { LexicalContext = lexicalContext };
-        RecordPotentialCallEdges(state, selected.Effects);
+        if (!state.Reachable) { return new(Types.GetBottom()); }
+        bool constructionCall = ApplyConstructionCall(call, selected, values, state, context, _errorGeneration != callErrors);
+        if (!constructionCall) { RecordPotentialCallEdges(state, selected.Effects); }
         state.Effects.UnionWith(selected.Effects);
-        state.Assigned.UnionWith(assignedAfterCall);
+        if (state.Reachable) { state.Assigned.UnionWith(assignedAfterCall); }
         var result = selected.Result;
+        if (!state.Reachable) { result = Types.GetBottom(); }
         if (targetExpression is AstMember { IsSafe: true } && result is not null) { result = Types.GetNullable(result); }
         return new(result);
     }
@@ -236,11 +231,6 @@ internal sealed partial class BodyBindingBuilder
                 var constructors = symbol.Parts.OfType<AstTypeDeclaration>().Select(t => t.PrimaryConstructor).OfType<AstConstructor>()
                     .Concat(symbol.Members.SelectMany(s => s.Parts).OfType<AstConstructor>()).ToArray();
                 foreach (var constructor in constructors) { result.Add(new(constructor, null, type, type)); }
-                if (constructors.Length == 0 && call.Arguments.IsEmpty)
-                {
-                    // Implicit construction needs field initialization and publication verification.
-                    Defer(call);
-                }
             }
         }
         foreach (var member in members)
@@ -253,10 +243,14 @@ internal sealed partial class BodyBindingBuilder
 
     private Applicable? ApplicableCall(AstCall call, Target target, ImmutableArray<ResolvedType> explicitTypes,
         Value?[] values, ResolvedType? expected, State state, Context context)
+        => ApplicableCall(call, call.Arguments, target, explicitTypes, values, expected, state, context);
+
+    private Applicable? ApplicableCall(AstNode call, ImmutableArray<AstArgument> arguments, Target target,
+        ImmutableArray<ResolvedType> explicitTypes, Value?[] values, ResolvedType? expected, State state, Context context)
     {
         var callable = target.Callable;
         var defaults = Sources.Defaults.GetDefaults(callable);
-        var mapping = CallArgumentMapper.Map(call, callable, defaults, _cancellation);
+        var mapping = CallArgumentMapper.Map(arguments, callable, defaults, _cancellation);
         if (mapping.Error is not null || !defaults.IsComplete || callable.Parameters.Any(p => p.Type is null)) { return null; }
         var substitution = Substitution(target.Receiver);
         var parameters = Sources.Types.GetTypeParameters(callable);
@@ -306,7 +300,7 @@ internal sealed partial class BodyBindingBuilder
         {
             foreach (var entry in mapping.Arguments)
             {
-                if (call.Arguments[entry.ArgumentIndex].Value is not AstSequence
+                if (arguments[entry.ArgumentIndex].Value is not AstSequence
                     { SyntaxKind: NodeKind.ArrayExpression } array) { continue; }
                 var formal = Sources.Types.GetType(callable.Parameters[entry.ParameterIndex].Type!);
                 bool exactArray = entry.IsArrayArgument || entry.IsSpread;
@@ -355,7 +349,7 @@ internal sealed partial class BodyBindingBuilder
                 var before = substitution.ToArray();
                 foreach (var entry in mapping.Arguments)
                 {
-                    var argument = call.Arguments[entry.ArgumentIndex];
+                    var argument = arguments[entry.ArgumentIndex];
                     var lambda = argument.Value as AstLambda
                         ?? (argument.Value as AstLabelledExpression)?.Lambda;
                     if (lambda is null) { continue; }
@@ -440,7 +434,7 @@ internal sealed partial class BodyBindingBuilder
         var ranks = ImmutableArray.CreateBuilder<int>();
         foreach (var entry in mapping.Arguments)
         {
-            var argument = call.Arguments[entry.ArgumentIndex];
+            var argument = arguments[entry.ArgumentIndex];
             var type = types[entry.ParameterIndex];
             var mode = callable.Parameters[entry.ParameterIndex].PassingMode;
             if (entry.IsSpread || entry.IsArrayArgument) { type = Types.GetArray(type); }
@@ -492,7 +486,8 @@ internal sealed partial class BodyBindingBuilder
         ResolvedType? result = target.Constructed is not null ? Types.Substitute(target.Constructed, substitution, _cancellation)
             : callable.ReturnType is not null ? Types.Substitute(Sources.Types.GetType(callable.ReturnType), substitution, _cancellation)
                 : lexicalInference ? InferLexicalReturn((AstFunction)callable, typeArguments, state, call)
-                : CheckBody(callable).ReturnType is { } inferred ? Types.Substitute(inferred, substitution, _cancellation) : null;
+                : callable is AstFunction { Body.Kind: AstBodyKind.Block } ? Empty
+                : CheckInferenceBody(callable).ReturnType is { } inferred ? Types.Substitute(inferred, substitution, _cancellation) : null;
         if (lexicalInference && result is not null) { result = Types.Substitute(result, substitution, _cancellation); }
         var effects = callable.ThrownTypes.Select(t => Types.Substitute(Sources.Types.GetType(t), substitution, _cancellation)).ToImmutableArray();
         if (callable is AstFunction { ReturnType: null } inferredMember
@@ -538,7 +533,7 @@ internal sealed partial class BodyBindingBuilder
 
     private ResolvedType? InferredFunctionReturnTemplate(AstFunction function, State state)
     {
-        var summary = Speculate(state, () => CheckBody(function), out bool reportedDiagnostic);
+        var summary = Speculate(state, () => CheckInferenceBody(function), out bool reportedDiagnostic);
         if (reportedDiagnostic || summary.Status != BodyBindingStatus.Bound) { return null; }
         return summary.ReturnType;
     }
@@ -601,7 +596,7 @@ internal sealed partial class BodyBindingBuilder
     }
 
     private bool ConstraintsSatisfied(AstDeclaration definition,
-        IReadOnlyDictionary<ResolvedType, ResolvedType> substitution, AstCall call)
+        IReadOnlyDictionary<ResolvedType, ResolvedType> substitution, AstNode call)
     {
         var parameters = Sources.Types.GetTypeParameters(definition);
         if (parameters.IsEmpty) { return true; }
@@ -640,6 +635,7 @@ internal sealed partial class BodyBindingBuilder
         var outArguments = new HashSet<LocalSymbol>();
         for (int index = 0; index < call.Arguments.Length; index++)
         {
+            if (!state.Reachable) { break; }
             var argument = call.Arguments[index];
             var mode = function.ParameterModes[index];
             var expectedMode = mode == AstPassingMode.Ref ? AstArgumentMode.Ref : mode == AstPassingMode.Out ? AstArgumentMode.Out : AstArgumentMode.Value;
@@ -685,6 +681,7 @@ internal sealed partial class BodyBindingBuilder
                 }
             }
         }
+        if (!state.Reachable) { return new(Types.GetBottom()); }
         foreach (var local in outArguments) { state.Assigned.Remove(local); }
         foreach (var local in writableArguments) { state.Narrowed.Remove(local); }
         // Function values may be closures even while native closure lowering is unavailable.
@@ -693,8 +690,11 @@ internal sealed partial class BodyBindingBuilder
         InvalidateMutableCleanupNarrowings(state);
         RecordPotentialCallEdges(state, function.Effects);
         state.Effects.UnionWith(function.Effects);
-        state.Assigned.UnionWith(assignedAfterCall);
-        return new(function.Arguments[^1]);
+        if (_constructionFrame is not null && !ApplyConstructionCallback(call, function, state)
+            && (ConstructionAlias(call.Target, state) || call.Arguments.Any(argument => ConstructionAlias(argument.Value, state))))
+        { Defer(call); MarkConstructionUnknown(state); }
+        if (state.Reachable) { state.Assigned.UnionWith(assignedAfterCall); }
+        return new(state.Reachable ? function.Arguments[^1] : Types.GetBottom());
     }
 
     private void ValidateFunctionEffects(ResolvedType root, AstNode location)

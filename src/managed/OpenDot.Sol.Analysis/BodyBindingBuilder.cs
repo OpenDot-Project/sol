@@ -13,13 +13,14 @@ namespace OpenDot.Sol.Analysis;
 
 internal sealed partial class BodyBindingBuilder
 {
-    internal sealed class State
+    internal sealed partial class State
     {
         internal sealed record ExceptionEdge(ResolvedType Type, State State, AstNode? Origin = null, bool FromCleanup = false);
         internal sealed record CleanupRegistration(object Scope, AstNode Node, AstBlock Body);
         internal sealed record CleanupPath(ImmutableArray<CleanupRegistration> Registrations,
             ImmutableHashSet<LocalSymbol> Assigned, ImmutableDictionary<LocalSymbol, ResolvedType> Narrowed,
-            ImmutableHashSet<AstProperty> Fields);
+            ImmutableHashSet<AstProperty> Fields)
+        { internal ConstructionFacts Construction { get; init; } = ConstructionFacts.Empty; }
         internal const int MaxCleanupPaths = 64;
         internal const int MaxCleanupRegistrationsPerScope = 128;
         internal const int MaxCleanupExceptionalAlternatives = 256;
@@ -45,6 +46,7 @@ internal sealed partial class BodyBindingBuilder
                 ExceptionSink = ExceptionSink,
                 CleanupTrackingDeferred = CleanupTrackingDeferred,
                 CleanupFactsInitialized = CleanupFactsInitialized,
+                Construction = Construction,
             };
             copy.Assigned.UnionWith(Assigned);
             foreach (var pair in Narrowed) { copy.Narrowed.Add(pair.Key, pair.Value); }
@@ -77,6 +79,7 @@ internal sealed partial class BodyBindingBuilder
                     Assigned = Assigned.ToImmutableHashSet(),
                     Narrowed = Narrowed.ToImmutableDictionary(),
                     Fields = Fields.ToImmutableHashSet(),
+                    Construction = Construction,
                 };
             }
             CleanupFactsInitialized = true;
@@ -86,6 +89,8 @@ internal sealed partial class BodyBindingBuilder
         {
             Assigned.Clear(); Narrowed.Clear(); Fields.Clear(); CleanupPaths.Clear(); OverflowedCleanups.Clear();
             var live = new[] { left, right }.Where(s => s.Reachable).ToArray();
+            Construction = live.Length == 0 ? ConstructionFacts.Empty : live.Length == 1
+                ? live[0].Construction : ConstructionFacts.Join(live[0].Construction, live[1].Construction);
             Reachable = live.Length != 0;
             CleanupTrackingDeferred = live.Any(s => s.CleanupTrackingDeferred);
             CleanupFactsInitialized = live.Length != 0 && live.All(s => s.CleanupFactsInitialized);
@@ -136,6 +141,7 @@ internal sealed partial class BodyBindingBuilder
                 Assigned = left.Assigned.Intersect(right.Assigned),
                 Narrowed = narrowed,
                 Fields = left.Fields.Intersect(right.Fields),
+                Construction = ConstructionFacts.Join(left.Construction, right.Construction),
             };
         }
     }
@@ -143,7 +149,7 @@ internal sealed partial class BodyBindingBuilder
     private sealed record Value(ResolvedType? Type, bool Writable = false, bool Storage = false,
         LocalSymbol? Local = null, DeclarationSymbol? Symbol = null, ResolvedType? Receiver = null,
         string? Literal = null, bool IsType = false,
-        ImmutableArray<ResolvedType> FunctionValueTypeArguments = default);
+        ImmutableArray<ResolvedType> FunctionValueTypeArguments = default, bool IsConstructionReceiver = false);
     private sealed record LambdaReturnPath(AstReturn Return, bool Reachable, ResolvedType? Type);
     private sealed record Context(AstCallable? Callable, ResolvedType? Result, AstLambda? Lambda = null,
         ResolvedType? LambdaType = null, int LoopDepth = 0, bool Cleanup = false,
@@ -158,6 +164,8 @@ internal sealed partial class BodyBindingBuilder
     private Dictionary<ResolvedType, ResolvedType> _bodySubstitution = [];
     private readonly HashSet<AstCallable> _active = [];
     private readonly HashSet<(AstNode, string)> _reported = [];
+    private readonly HashSet<(AstNode, string)> _constructionOnlyErrors = [];
+    private bool _replayingConstruction;
     private readonly HashSet<AstNode> _deferred = [];
     private int _depth;
     internal readonly IReadOnlyDictionary<AstNode, AstSnapshot> Files;
@@ -224,6 +232,7 @@ internal sealed partial class BodyBindingBuilder
         }
         var summary = CheckBody(function);
         CompleteInterfaceImplementations();
+        CompleteConstructionProofs();
         summary = Bodies.GetValueOrDefault(function, summary);
         _cancellation.ThrowIfCancellationRequested();
         return new(this, function, arguments, summary);
@@ -342,6 +351,7 @@ internal sealed partial class BodyBindingBuilder
         if (!returnTemplateOnly)
         {
             CompleteInterfaceImplementations();
+            CompleteConstructionProofs();
             summary = Bodies.GetValueOrDefault(function, summary);
         }
         _cancellation.ThrowIfCancellationRequested();
@@ -351,9 +361,12 @@ internal sealed partial class BodyBindingBuilder
     internal void Build()
     {
         ValidateInterfaceImplementations();
+        ValidateConstructionDeclarations();
         foreach (var declaration in Files.Keys.OfType<AstCallable>()) { CheckBody(declaration); }
         foreach (var property in Files.Keys.OfType<AstProperty>().Where(p => !Ancestors(p).Any(n => n is AstCallable or AstLambda)))
         {
+            if (ContainingType(property)?.Declaration?.Parts[0].SyntaxKind is NodeKind.ClassDeclaration
+                or NodeKind.StructDeclaration or NodeKind.RefStructDeclaration) { continue; }
             var state = new State();
             var expected = property.Type is null ? null : Written(property.Type);
             if (property.Initializer is { } initializer)
@@ -374,6 +387,7 @@ internal sealed partial class BodyBindingBuilder
         ValidateStorage();
         ValidateQualifiedSuperInitialization();
         CompleteInterfaceImplementations();
+        CompleteConstructionProofs();
     }
 
     private BodySummary CheckBody(AstCallable callable)
@@ -400,7 +414,8 @@ internal sealed partial class BodyBindingBuilder
             Report("SOL2200", "Recursive return inference requires a return annotation.", callable);
             return new(callable, result, true, BodyBindingStatus.Invalid, []);
         }
-        int errors = Diagnostics.Count, gaps = _deferred.Count;
+        long errors = _errorGeneration;
+        int gaps = _deferred.Count;
         var state = new State();
         var exits = new List<State>();
         var context = new Context(callable, result, Exits: exits);
@@ -477,7 +492,7 @@ internal sealed partial class BodyBindingBuilder
                 if (!budget.Any(t => Converts(effect, t))) { Report("SOL2250", "Checked exception is not declared: " + effect.Name, callable); }
             }
             foreach (var effect in budget) { CheckThrowable(effect, callable); }
-            var status = Diagnostics.Count != errors ? BodyBindingStatus.Invalid
+            var status = _errorGeneration != errors ? BodyBindingStatus.Invalid
                 : _deferred.Count != gaps || result is null ? BodyBindingStatus.Deferred : BodyBindingStatus.Bound;
             var summary = new BodySummary(callable, result, state.Reachable, status, escaping);
             Bodies.Add(callable, summary);
@@ -517,9 +532,16 @@ internal sealed partial class BodyBindingBuilder
     private bool Converts(ResolvedType source, ResolvedType target) => Types.ClassifyConversion(source, target, _cancellation) != IntrinsicConversion.None;
     private void Report(string code, string message, AstNode node)
     {
+        ++_errorGeneration;
+        if (_constructionFrame is not null || _replayingConstruction)
+        {
+            if (!_reported.Contains((node, code))) { _constructionOnlyErrors.Add((node, code)); }
+        }
+        else { _constructionOnlyErrors.Remove((node, code)); }
         if (_reported.Add((node, code)) && Diagnostics.Count < Sources.Declarations.Options.DiagnosticLimit)
         { Diagnostics.Add(new(code, message, node.Origin.Source, node.Origin.Span)); }
     }
+    private long _errorGeneration;
     private void Defer(AstNode node) { _deferred.Add(node); }
     private bool IsChecked(ResolvedType type) => Core("RuntimeException") is not { } runtime || !Converts(type, runtime);
     private void CheckThrowable(ResolvedType type, AstNode node)

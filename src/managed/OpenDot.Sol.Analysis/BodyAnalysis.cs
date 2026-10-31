@@ -79,6 +79,7 @@ public sealed record BodyOperatorBinding(AstNode Site, string Operator, AstFunct
 /// <summary>Closed semantic facts for one generic function instance within one BodyAnalysis.</summary>
 internal sealed partial class SpecializedBodyAnalysis
 {
+    internal ImmutableDictionary<(AstNode Site, int Owner, AstConstructor? Constructor), ConstructionProof> ConstructionProofs { get; }
     internal ImmutableDictionary<(AstNode Site, InterfaceOperationKind Kind), InterfaceOperationUse> InterfaceUses { get; }
     private ImmutableDictionary<AstExpression, ExpressionBinding> _expressions;
     private ImmutableDictionary<AstCallable, BodySummary> _bodies;
@@ -97,6 +98,7 @@ internal sealed partial class SpecializedBodyAnalysis
         ResolvedType? constructedOwner, BodySummary summary)
     {
         Sources = builder.Sources;
+        ConstructionProofs = builder.ConstructionProofs.ToImmutableDictionary();
         InterfaceUses = builder.InterfaceUses.ToImmutableDictionary();
         Declaration = function;
         OwnerTypeArguments = ownerTypeArguments;
@@ -203,6 +205,7 @@ public sealed partial class BodyAnalysis
     private readonly Dictionary<GenericBodyKey, SpecializedBodyAnalysis> _genericLocalBodies = [];
     private readonly Dictionary<GenericOwnerProjectionKey, ConstructedOwnerProjection> _genericOwnerProjections = [];
     internal ImmutableDictionary<int, ImmutableArray<InterfaceImplementation>> InterfaceImplementations { get; }
+    internal ImmutableDictionary<(AstNode Site, int Owner, AstConstructor? Constructor), ConstructionProof> ConstructionProofs { get; }
     internal ImmutableDictionary<(AstNode Site, InterfaceOperationKind Kind), InterfaceOperationUse> InterfaceUses { get; }
 
     internal ImmutableArray<InterfaceImplementation>? GetInterfaceImplementations(ResolvedType receiver)
@@ -215,6 +218,7 @@ public sealed partial class BodyAnalysis
     private BodyAnalysis(BodyBindingBuilder builder)
     {
         InterfaceImplementations = builder.InterfaceImplementations.ToImmutableDictionary();
+        ConstructionProofs = builder.ConstructionProofs.ToImmutableDictionary();
         InterfaceUses = builder.InterfaceUses.ToImmutableDictionary();
         Sources = builder.Sources;
         Types = builder.Types;
@@ -433,7 +437,8 @@ public sealed partial class BodyAnalysis
             {
                 var builder = new BodyBindingBuilder(Sources, Types, cancellationToken)
                 { ClosedMemberReturn = ResolveClosedMemberReturn, ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate,
-                    ClosedLexicalReturn = ResolveClosedLexicalReturn, InterfaceSourceBody = GetBody };
+                    ClosedLexicalReturn = ResolveClosedLexicalReturn, InterfaceSourceBody = GetBody,
+                    ConstructionSourceStatus = GetConstructionSourceStatus };
                 result = builder.BuildGenericBody(function, typeArguments);
             }
             cancellationToken.ThrowIfCancellationRequested();
@@ -501,6 +506,7 @@ public sealed partial class BodyAnalysis
             builder.ClosedOwnerReturnTemplate = ResolveClosedOwnerReturnTemplate;
             builder.ClosedLexicalReturn = ResolveClosedLexicalReturn;
             builder.InterfaceSourceBody = GetBody;
+            builder.ConstructionSourceStatus = GetConstructionSourceStatus;
             var result = builder.BuildGenericMemberBody(function, constructedOwner, methodTypeArguments);
             cancellationToken.ThrowIfCancellationRequested();
             if (result.Summary.Status == BodyBindingStatus.Bound
