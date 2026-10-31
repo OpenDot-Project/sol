@@ -1,16 +1,16 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcPacing.h"
-#include <array>
+#include <tuple>
 #include <cstdio>
 
 using namespace OpenDot::Sol::Runtime::Heap;
 
 namespace
 {
-constexpr std::uint64_t MiB = 1024 * 1024;
+constexpr std::uint64_t MiB = 1024ULL * 1024;
 
-bool PhysicalPressure()
+bool PhysicalPressure() noexcept
 {
     for (const auto limit : {16ULL * MiB, 64ULL * MiB, 128ULL * MiB, UINT64_MAX})
     {
@@ -41,7 +41,7 @@ bool PhysicalPressure()
     return !PacingPolicy::UnderPressure({0, 0, UINT64_MAX, UINT64_MAX, 0});
 }
 
-bool RegisteredPressure()
+bool RegisteredPressure() noexcept
 {
     PressureSnapshot snapshot{16 * MiB - 1, 16 * MiB, 0, 0, 64 * MiB};
     if (PacingPolicy::UnderPressure(snapshot) || PacingPolicy::ShouldWait(snapshot))
@@ -72,16 +72,13 @@ bool RegisteredPressure()
     return !PacingPolicy::ShouldWait(snapshot);
 }
 
-bool ThresholdGrowth()
+bool ThresholdGrowth() noexcept
 {
-    if (PacingPolicy::NextThreshold(0, 0) != 16 * MiB
-        || PacingPolicy::NextThreshold(16 * MiB, 0) != 32 * MiB
-        || PacingPolicy::NextThreshold(64 * MiB, 64 * MiB) != 56 * MiB
-        || PacingPolicy::NextThreshold(UINT64_MAX, 0) != UINT64_MAX
-        || PacingPolicy::NextThreshold(UINT64_MAX - 1, UINT64_MAX) != UINT64_MAX - UINT64_MAX / 8)
-    {
-        return false;
-    }
+    static_assert(PacingPolicy::NextThreshold(0, 0) == 16 * MiB);
+    static_assert(PacingPolicy::NextThreshold(16 * MiB, 0) == 32 * MiB);
+    static_assert(PacingPolicy::NextThreshold(64 * MiB, 64 * MiB) == 56 * MiB);
+    static_assert(PacingPolicy::NextThreshold(UINT64_MAX, 0) == UINT64_MAX);
+    static_assert(PacingPolicy::NextThreshold(UINT64_MAX - 1, UINT64_MAX) == UINT64_MAX - UINT64_MAX / 8);
     for (const auto limit : {0ULL, 16ULL * MiB, 64ULL * MiB, 1024ULL * MiB})
     {
         std::uint64_t previous = 0;
@@ -99,7 +96,7 @@ bool ThresholdGrowth()
     return true;
 }
 
-bool DebtEpochs()
+bool DebtEpochs() noexcept
 {
     AllocationDebt debt;
     debt.Charge(1, 4095);
@@ -134,7 +131,7 @@ bool DebtEpochs()
     return debt.Bytes() == 25 && !debt.ShouldAssist(3, false);
 }
 
-bool DebtRepayment()
+bool DebtRepayment() noexcept
 {
     AllocationDebt debt;
     debt.Charge(1, 8192);
@@ -162,30 +159,28 @@ bool DebtRepayment()
     return debt.Pay({0, 0, UINT64_MAX}) == 8192 && debt.Bytes() == 0;
 }
 
-bool BudgetUnits()
-{
-    const auto normal = PacingPolicy::AssistBudget(false);
-    const auto pressure = PacingPolicy::AssistBudget(true);
-    return normal.ReferenceSlots == 16 && normal.Objects == 8
-           && pressure.ReferenceSlots == 64 && pressure.Objects == 32
-           && normal.ReferenceSlots < pressure.ReferenceSlots && normal.Objects < pressure.Objects;
-}
+constexpr auto NormalBudget = PacingPolicy::AssistBudget(false);
+constexpr auto PressureBudget = PacingPolicy::AssistBudget(true);
+static_assert(NormalBudget.ReferenceSlots == 16 && NormalBudget.Objects == 8);
+static_assert(PressureBudget.ReferenceSlots == 64 && PressureBudget.Objects == 32);
+static_assert(
+    NormalBudget.ReferenceSlots < PressureBudget.ReferenceSlots && NormalBudget.Objects < PressureBudget.Objects);
 }
 
-int RunPacingTests()
+int RunPacingTests() noexcept
 {
-    const auto tests = {PhysicalPressure, RegisteredPressure, ThresholdGrowth, DebtEpochs, DebtRepayment, BudgetUnits};
+    const auto tests = {PhysicalPressure, RegisteredPressure, ThresholdGrowth, DebtEpochs, DebtRepayment};
     unsigned index = 0;
     for (auto test : tests)
     {
-        if (!test())
+        if (!test || !test())
         {
-            std::fprintf(stderr, "Pacing fixture failed: %u\n", index);
+            std::ignore = std::fprintf(stderr, "Pacing fixture failed: %u\n", index);
             return 231;
         }
         ++index;
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr, "Pacing: physical headroom, pending commitments, saturation, epoch debt, bounded work passed.\n");
     return 0;
 }

@@ -6,6 +6,7 @@
     <EnableCppCoreCheck>true</EnableCppCoreCheck>
     <RunCodeAnalysis>true</RunCodeAnalysis>
     <CodeAnalysisRuleSet>CppCoreCheckRules.ruleset</CodeAnalysisRuleSet>
+    <CodeAnalysisTreatWarningsAsErrors>true</CodeAnalysisTreatWarningsAsErrors>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>

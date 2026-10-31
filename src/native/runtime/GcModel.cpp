@@ -1,15 +1,21 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include <array>
+#include <tuple>
+#include "CheckedAccess.h"
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <string>
 #include <unordered_set>
 
+using OpenDot::Sol::Runtime::Detail::Integer;
+
 namespace
 {
 // Two mutators move a reference from right to left, then erase the old edge.
 // The marker visits one field per step; roots remain stable through the modeled cycle.
+// NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
 struct State final
 {
     std::array<std::array<int, 2>, 8> Edges{{{2, 3}, {4, 5}, {6, -1}, {7, -1}, {-1, -1}, {5, -1}, {-1, -1}, {-1, -1}}};
@@ -20,7 +26,7 @@ struct State final
     bool Sealed = false;
 };
 
-void Shade(State &state, int object)
+void Shade(State &state, int object) noexcept
 {
     if (object < 0)
     {
@@ -45,7 +51,7 @@ bool ReachableIsMarked(const State &state)
             {
                 continue;
             }
-            for (int edge : state.Edges[owner])
+            for (const int edge : state.Edges.at(owner))
             {
                 if (edge >= 0)
                 {
@@ -62,21 +68,21 @@ std::string Key(const State &state)
     std::string key;
     for (auto edges : state.Edges)
     {
-        for (int edge : edges)
+        for (const int edge : edges)
         {
-            key.push_back(static_cast<char>(edge + 1));
+            key.push_back(std::bit_cast<char>(Integer<unsigned char>(edge + 1)));
         }
     }
     for (auto step : state.Mutators)
     {
-        key.push_back(static_cast<char>(step));
+        key.push_back(std::bit_cast<char>(Integer<unsigned char>(step)));
     }
     for (auto step : state.Cursor)
     {
-        key.push_back(static_cast<char>(step));
+        key.push_back(std::bit_cast<char>(Integer<unsigned char>(step)));
     }
-    key.push_back(static_cast<char>(state.Marked));
-    key.push_back(static_cast<char>(state.Gray));
+    key.push_back(std::bit_cast<char>(Integer<unsigned char>(state.Marked)));
+    key.push_back(std::bit_cast<char>(Integer<unsigned char>(state.Gray)));
     key.push_back(state.Sealed ? '1' : '0');
     return key;
 }
@@ -93,23 +99,23 @@ bool Explore(const State &state, bool barrier, std::unordered_set<std::string> &
     }
     for (unsigned mutator = 0; mutator < 2; ++mutator)
     {
-        if (state.Mutators[mutator] >= 2)
+        if (state.Mutators.at(mutator) >= 2)
         {
             continue;
         }
         State next = state;
-        if (next.Mutators[mutator]++ == 0)
+        if (next.Mutators.at(mutator)++ == 0)
         {
-            const auto value = next.Edges[mutator][1];
+            const auto value = next.Edges.at(mutator).at(1);
             if (barrier && !next.Sealed)
             {
                 Shade(next, value);
             }
-            next.Edges[mutator][0] = value;
+            next.Edges.at(mutator).at(0) = value;
         }
         else
         {
-            next.Edges[mutator][1] = -1;
+            next.Edges.at(mutator).at(1) = -1;
         }
         if (!Explore(next, barrier, seen))
         {
@@ -130,9 +136,9 @@ bool Explore(const State &state, bool barrier, std::unordered_set<std::string> &
             {
                 ++object;
             }
-            const auto index = next.Cursor[object]++;
-            Shade(next, next.Edges[object][index]);
-            if (next.Cursor[object] == 2)
+            const auto index = next.Cursor.at(object)++;
+            Shade(next, next.Edges.at(object).at(index));
+            if (next.Cursor.at(object) == 2)
             {
                 next.Gray &= ~(1U << object);
             }
@@ -159,7 +165,7 @@ int RunGcModelTests()
     {
         return 82;
     }
-    std::fprintf(stderr, "Barrier model: %llu reachable states; missing-barrier counterexample detected\n",
-                 static_cast<unsigned long long>(count));
+    std::ignore = std::fprintf(stderr, "Barrier model: %zu reachable states; missing-barrier counterexample detected\n",
+                               count);
     return 0;
 }

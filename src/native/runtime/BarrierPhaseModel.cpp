@@ -1,19 +1,25 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#include <array>
+#include <tuple>
+#include "CheckedAccess.h"
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <string>
 #include <unordered_set>
 
+using OpenDot::Sol::Runtime::Detail::Integer;
+
 namespace
 {
 enum class Phase : std::uint8_t { Idle, Start, Mark, Terminate, Sweep };
 
+// NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
 struct State final
 {
     Phase Current = Phase::Idle;
     Phase Loaded = Phase::Idle;
+    // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
     unsigned Mutator = 0;
     unsigned Collector = 0;
     bool Running = true;
@@ -26,7 +32,8 @@ struct State final
 std::string Key(const State &state)
 {
     return {static_cast<char>(state.Current), static_cast<char>(state.Loaded),
-            static_cast<char>(state.Mutator), static_cast<char>(state.Collector),
+            std::bit_cast<char>(Integer<unsigned char>(state.Mutator)),
+            std::bit_cast<char>(Integer<unsigned char>(state.Collector)),
             state.Running ? 'r' : '-', state.InBarrier ? 'b' : '-',
             state.Visible ? 'v' : '-', state.Marked ? 'm' : '-', state.Sealed ? 's' : '-'};
 }
@@ -147,7 +154,8 @@ int RunBarrierPhaseModel()
     {
         return 228;
     }
-    std::fprintf(stderr, "Barrier phase model: %zu states; stale idle phase across park counterexample detected.\n",
-                 correct.size());
+    std::ignore = std::fprintf(
+        stderr, "Barrier phase model: %zu states; stale idle phase across park counterexample detected.\n",
+        correct.size());
     return 0;
 }

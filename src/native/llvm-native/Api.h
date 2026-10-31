@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #pragma once
+// NOLINTNEXTLINE(CppUnusedIncludeDirective): Direct contract for the fixed-width C ABI types.
 #include <cstdint>
 #ifdef SOL_LLVM_NATIVE_BUILD
 #define SOL_LLVM_API __declspec(dllexport)

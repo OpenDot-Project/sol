@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #pragma once
 #include <cstdint>
+#include <algorithm>
 
 namespace OpenDot::Sol::Runtime::Heap
 {
@@ -31,13 +32,30 @@ struct PressureSnapshot final
 class PacingPolicy final
 {
 public:
-    static constexpr std::uint64_t MinimumHeap = 16ULL * 1024 * 1024;
-    static constexpr std::uint64_t ReserveBytes = 8ULL * 1024 * 1024;
-    static constexpr std::uint64_t MaximumDebt = 1024 * 1024;
+    static constexpr std::uint64_t MinimumHeap = 16ULL * 1024ULL * 1024;
+    static constexpr std::uint64_t ReserveBytes = 8ULL * 1024ULL * 1024;
+    static constexpr std::uint64_t MaximumDebt = 1024ULL * 1024;
     static bool UnderPressure(const PressureSnapshot &snapshot) noexcept;
     static bool ShouldWait(const PressureSnapshot &snapshot) noexcept;
-    static std::uint64_t NextThreshold(std::uint64_t live, std::uint64_t limit) noexcept;
-    static TraceBudget AssistBudget(bool pressure) noexcept;
+
+    static constexpr std::uint64_t NextThreshold(std::uint64_t live, std::uint64_t limit) noexcept
+    {
+        const auto extra = live / 2;
+        auto target = live > UINT64_MAX - extra ? UINT64_MAX : live + extra;
+        target = target > UINT64_MAX - ReserveBytes ? UINT64_MAX : target + ReserveBytes;
+        target = (std::max)(MinimumHeap, target);
+        if (limit)
+        {
+            // Reserve physical headroom for marking; this may request collection before all slots fill.
+            target = (std::min)(target, (std::max)(MinimumHeap, limit - limit / 8));
+        }
+        return target;
+    }
+
+    static constexpr TraceBudget AssistBudget(bool pressure) noexcept
+    {
+        return pressure ? TraceBudget{64, 32} : TraceBudget{16, 8};
+    }
 };
 
 class AllocationDebt final

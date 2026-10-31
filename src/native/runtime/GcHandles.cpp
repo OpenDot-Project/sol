@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
+#include <bit>
 
 using namespace OpenDot::Sol::Runtime;
 using namespace OpenDot::Sol::Runtime::Heap;
@@ -71,7 +72,7 @@ RuntimeHandle *sol_gc_create_handle(Header *value, bool weak)
 bool sol_gc_resolve_handle(RuntimeHandle *handle, Header **root)
 {
     RequireManaged();
-    if (!root || reinterpret_cast<std::uintptr_t>(root) % alignof(Header *) != 0)
+    if (!root || std::bit_cast<std::uintptr_t>(root) % alignof(Header *) != 0)
     {
         sol_rt_fail(7);
     }

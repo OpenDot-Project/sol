@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "MarkWork.h"
+#include "CheckedAccess.h"
 #include <algorithm>
 #include <bit>
 
@@ -26,7 +27,7 @@ void MarkRegion::Initialize(Header *base, std::uint32_t slots, std::uint32_t str
     _stride = stride;
 }
 
-void MarkRegion::SetBase(Header *base)
+void MarkRegion::SetBase(Header *base) noexcept
 {
     if (!_words || _base || !base)
     {
@@ -35,7 +36,7 @@ void MarkRegion::SetBase(Header *base)
     _base = base;
 }
 
-void MarkRegion::CheckSlot(std::uint32_t slot) const
+void MarkRegion::CheckSlot(std::uint32_t slot) const noexcept
 {
     if (!_words || slot >= _slots)
     {
@@ -43,10 +44,10 @@ void MarkRegion::CheckSlot(std::uint32_t slot) const
     }
 }
 
-MarkRegion::Word &MarkRegion::ForWrite(std::uint32_t slot, std::uint64_t epoch)
+MarkRegion::Word &MarkRegion::ForWrite(std::uint32_t slot, std::uint64_t epoch) noexcept
 {
     CheckSlot(slot);
-    auto &word = _words[slot / 64];
+    auto &word = Detail::CheckedAt(std::span{_words.get(), (_slots + 63) / 64}, slot / 64);
     if (word.Epoch != epoch)
     {
         word.Epoch = epoch;
@@ -56,7 +57,7 @@ MarkRegion::Word &MarkRegion::ForWrite(std::uint32_t slot, std::uint64_t epoch)
     return word;
 }
 
-void MarkRegion::Black(std::uint32_t slot, std::uint64_t epoch)
+void MarkRegion::Black(std::uint32_t slot, std::uint64_t epoch) noexcept
 {
     auto &word = ForWrite(slot, epoch);
     const auto bit = std::uint64_t{1} << (slot % 64);
@@ -67,7 +68,7 @@ void MarkRegion::Black(std::uint32_t slot, std::uint64_t epoch)
     word.Marked |= bit;
 }
 
-bool MarkRegion::Shade(std::uint32_t slot, std::uint64_t epoch)
+bool MarkRegion::Shade(std::uint32_t slot, std::uint64_t epoch) noexcept
 {
     auto &word = ForWrite(slot, epoch);
     const auto bit = std::uint64_t{1} << (slot % 64);
@@ -89,10 +90,10 @@ bool MarkRegion::Shade(std::uint32_t slot, std::uint64_t epoch)
     return true;
 }
 
-bool MarkRegion::Marked(std::uint32_t slot, std::uint64_t epoch) const
+bool MarkRegion::Marked(std::uint32_t slot, std::uint64_t epoch) const noexcept
 {
     CheckSlot(slot);
-    const auto &word = _words[slot / 64];
+    const auto &word = Detail::CheckedAt(std::span{_words.get(), (_slots + 63) / 64}, slot / 64);
     return word.Epoch == epoch && (word.Marked & (std::uint64_t{1} << (slot % 64))) != 0;
 }
 
@@ -101,27 +102,27 @@ bool MarkRegion::HasGray(std::uint64_t epoch) const noexcept
     return _grayEpoch == epoch && _grayWords != 0;
 }
 
-std::uint32_t MarkRegion::FirstGray(std::uint64_t epoch) const
+std::uint32_t MarkRegion::FirstGray(std::uint64_t epoch) const noexcept
 {
     if (!HasGray(epoch))
     {
         sol_rt_fail(7);
     }
-    const auto index = static_cast<std::uint32_t>(std::countr_zero(_grayWords));
-    const auto &word = _words[index];
+    const auto index = Detail::Integer<std::uint32_t>(std::countr_zero(_grayWords));
+    const auto &word = Detail::CheckedAt(std::span{_words.get(), (_slots + 63) / 64}, index);
     if (word.Epoch != epoch || !word.Gray)
     {
         sol_rt_fail(7);
     }
-    const auto slot = index * 64 + static_cast<std::uint32_t>(std::countr_zero(word.Gray));
+    const auto slot = index * 64 + Detail::Integer<std::uint32_t>(std::countr_zero(word.Gray));
     CheckSlot(slot);
     return slot;
 }
 
-void MarkRegion::Complete(std::uint32_t slot, std::uint64_t epoch)
+void MarkRegion::Complete(std::uint32_t slot, std::uint64_t epoch) noexcept
 {
     CheckSlot(slot);
-    auto &word = _words[slot / 64];
+    auto &word = Detail::CheckedAt(std::span{_words.get(), (_slots + 63) / 64}, slot / 64);
     const auto bit = std::uint64_t{1} << (slot % 64);
     if (_grayEpoch != epoch || word.Epoch != epoch || !(word.Gray & bit))
     {
@@ -134,21 +135,26 @@ void MarkRegion::Complete(std::uint32_t slot, std::uint64_t epoch)
     }
 }
 
-Header *MarkRegion::Address(std::uint32_t slot) const
+Header *MarkRegion::Address(std::uint32_t slot) const noexcept
 {
     CheckSlot(slot);
     if (!_base)
     {
         sol_rt_fail(7);
     }
-    return reinterpret_cast<Header *>(reinterpret_cast<char *>(_base) + static_cast<std::uint64_t>(slot) * _stride);
+    if (!_stride)
+    {
+        return _base;
+    }
+    const std::span bytes(Detail::StorageCast<std::byte>(_base), Detail::Integer<std::uint64_t>(_slots) * _stride);
+    return Detail::StorageSlot<Header>(bytes, Detail::Integer<std::uint64_t>(slot) * _stride);
 }
 
 void MarkRegion::Cancel() noexcept
 {
     for (std::uint32_t index = 0; index < (_slots + 63) / 64; ++index)
     {
-        _words[index].Gray = 0;
+        Detail::CheckedAt(std::span{_words.get(), (_slots + 63) / 64}, index).Gray = 0;
     }
     _grayWords = 0;
 }
@@ -173,7 +179,7 @@ bool MarkRegion::Claimed() const noexcept
     return _claimed;
 }
 
-void ReadyWork::Publish(MarkRegion &region)
+void ReadyWork::Publish(MarkRegion &region) noexcept
 {
     if (region._queued || region._claimed)
     {
@@ -200,7 +206,7 @@ void ReadyWork::Publish(MarkRegion &region)
     _peak = (std::max)(_peak, _queued);
 }
 
-MarkRegion *ReadyWork::Claim()
+MarkRegion *ReadyWork::Claim() noexcept
 {
     auto *region = _head;
     if (!region)
@@ -220,7 +226,7 @@ MarkRegion *ReadyWork::Claim()
     return region;
 }
 
-void ReadyWork::Finish(MarkRegion &region, std::uint64_t epoch)
+void ReadyWork::Finish(MarkRegion &region, std::uint64_t epoch) noexcept
 {
     if (!region._claimed || region._queued)
     {
@@ -238,11 +244,11 @@ void ReadyWork::CancelAll() noexcept
 {
     while (_head)
     {
-        auto *region = _head;
-        _head = region->_next;
-        region->_queued = false;
-        region->_next = nullptr;
-        region->Cancel();
+        auto &region = *_head;
+        _head = region._next;
+        region._queued = false;
+        region._next = nullptr;
+        region.Cancel();
     }
     _tail = nullptr;
     _queued = 0;
@@ -278,7 +284,7 @@ std::uint64_t ReadyWork::Peak() const noexcept
     return _peak;
 }
 
-void ReadyWork::ResetCounters()
+void ReadyWork::ResetCounters() noexcept
 {
     if (!Empty())
     {

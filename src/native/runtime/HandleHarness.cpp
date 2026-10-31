@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
+#include <tuple>
+#include <bit>
 #include <atomic>
+#include <array>
 #include <cstdio>
 #include <limits>
 #include <thread>
@@ -19,7 +22,7 @@ std::uint64_t Identity(Header *object)
     return state.Index.at(object)->Identity;
 }
 
-int ClosedHistory()
+int ClosedHistory() noexcept(false)
 {
     sol_gc_attach();
     for (unsigned index = 0; index < 50000; ++index)
@@ -61,21 +64,21 @@ int AddressReuse()
     sol_gc_attach();
     auto *old = sol_gc_alloc(&sol_rt_object_type, sizeof(Header));
     const auto originalIdentity = Identity(old);
-    const auto originalAddress = reinterpret_cast<std::uintptr_t>(old);
+    const auto originalAddress = std::bit_cast<std::uintptr_t>(old);
     auto *weak = sol_gc_create_handle(old, true);
     sol_gc_collect();
     auto *replacement = sol_gc_alloc(&sol_rt_object_type, sizeof(Header));
-    if (reinterpret_cast<std::uintptr_t>(replacement) != originalAddress
+    if (std::bit_cast<std::uintptr_t>(replacement) != originalAddress
         || Identity(replacement) <= originalIdentity)
     {
         return 122;
     }
-    Header *slots[2]{};
-    RootFrame frame{nullptr, slots, 2, 0};
+    std::array<Header *, 2> slots{};
+    RootFrame frame{nullptr, slots.data(), 2, 0};
     sol_gc_push_frame(&frame);
     auto *newWeak = sol_gc_create_handle(replacement, true);
-    if (!sol_gc_resolve_handle(weak, &slots[0]) || slots[0]
-        || !sol_gc_resolve_handle(newWeak, &slots[1]) || slots[1] != replacement)
+    if (!sol_gc_resolve_handle(weak, &slots.at(0)) || slots.at(0)
+        || !sol_gc_resolve_handle(newWeak, &slots.at(1)) || slots.at(1) != replacement)
     {
         return 123;
     }
@@ -85,16 +88,16 @@ int AddressReuse()
         return 124;
     }
     const auto lastIdentity = Identity(replacement);
-    sol_gc_store_ref(&slots[1], nullptr);
+    sol_gc_store_ref(&slots.at(1), nullptr);
     sol_gc_collect();
-    if (!sol_gc_resolve_handle(newWeak, &slots[1]) || slots[1]
+    if (!sol_gc_resolve_handle(newWeak, &slots.at(1)) || slots.at(1)
         || sol_gc_handle_stats().RejectedWeakTargets != 2)
     {
         return 125;
     }
     // A cleared weak record does not repeatedly probe a dead address.
     const auto lookups = sol_gc_handle_stats().WeakLookups;
-    if (!sol_gc_resolve_handle(weak, &slots[0]) || sol_gc_handle_stats().WeakLookups != lookups)
+    if (!sol_gc_resolve_handle(weak, &slots.at(0)) || sol_gc_handle_stats().WeakLookups != lookups)
     {
         return 126;
     }
@@ -112,7 +115,7 @@ int AddressReuse()
     return 0;
 }
 
-int LiteralsAndInvalidHandles()
+int LiteralsAndInvalidHandles() noexcept(false)
 {
     sol_gc_attach();
     static Header literal{&sol_rt_object_type, 1, 0};
@@ -161,7 +164,7 @@ int ConcurrentClose()
     RootFrame frame{nullptr, &root, 1, 0};
     sol_gc_push_frame(&frame);
     std::atomic<bool> start = false;
-    std::thread closer([&] {
+    std::thread closer([&]() noexcept(false) {
         while (!start.load(std::memory_order_acquire))
         {
             std::this_thread::yield();
@@ -176,7 +179,7 @@ int ConcurrentClose()
     for (unsigned index = 0; index < handles.size(); ++index)
     {
         // Closing may win, leaving the old root untouched, or resolution may publish a live object.
-        if (sol_gc_resolve_handle(handles[index], &root) && (!root || root->Type != &sol_rt_object_type))
+        if (sol_gc_resolve_handle(handles.at(index), &root) && (!root || root->Type != &sol_rt_object_type))
         {
             std::terminate();
         }
@@ -200,7 +203,7 @@ int ConcurrentClose()
 }
 }
 
-int RunHandleTests()
+int RunHandleTests() noexcept(false)
 {
     IdentitySequence sequence((std::numeric_limits<std::uint64_t>::max)() - 1);
     std::uint64_t identity = 0;
@@ -211,12 +214,12 @@ int RunHandleTests()
     }
     for (auto test : {ClosedHistory, AddressReuse, LiteralsAndInvalidHandles, ConcurrentClose})
     {
-        if (const int result = test())
+        if (const int result = test ? test() : 7)
         {
             return result;
         }
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr,
         "Handle inventory: closed-history work, address reuse, literals, concurrent close, identity exhaustion passed.\n");
     return 0;

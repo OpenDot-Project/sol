@@ -26,25 +26,6 @@ bool PacingPolicy::ShouldWait(const PressureSnapshot &snapshot) noexcept
            && snapshot.RegisteredBytes - snapshot.Threshold >= ReserveBytes;
 }
 
-std::uint64_t PacingPolicy::NextThreshold(std::uint64_t live, std::uint64_t limit) noexcept
-{
-    const auto extra = live / 2;
-    auto target = live > UINT64_MAX - extra ? UINT64_MAX : live + extra;
-    target = target > UINT64_MAX - ReserveBytes ? UINT64_MAX : target + ReserveBytes;
-    target = (std::max)(MinimumHeap, target);
-    if (limit)
-    {
-        // Reserve physical headroom for marking; this may request collection before all slots fill.
-        target = (std::min)(target, (std::max)(MinimumHeap, limit - limit / 8));
-    }
-    return target;
-}
-
-TraceBudget PacingPolicy::AssistBudget(bool pressure) noexcept
-{
-    return pressure ? TraceBudget{64, 32} : TraceBudget{16, 8};
-}
-
 void AllocationDebt::Charge(std::uint64_t epoch, std::uint64_t bytes) noexcept
 {
     if (_epoch != epoch)

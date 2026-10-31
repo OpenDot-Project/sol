@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "Session.h"
+#include "Api.h"
+#include "Support.h"
+#include "../Checked.h"
 // Upstream LLVM SDK templates trigger these MSVC diagnostics; first-party code keeps /W4 /WX.
 #pragma warning(push)
 #pragma warning(disable: 4244 4702)
@@ -17,15 +20,18 @@ extern "C" bool SolLlvmExecute(const unsigned char *bitcode, std::uint64_t size,
     using namespace OpenDot::Sol::LlvmNative;
     try
     {
-        if (!bitcode || size < 4 || size > 64 * 1024 * 1024 || !symbols || symbolCount > 256 || !exitCode || argc < 1 ||
+        if (!bitcode || size < 4 || size > 64ULL * 1024 * 1024 || !symbols || symbolCount > 256 || !exitCode || argc < 1
+            ||
             !argv)
         {
             throw std::invalid_argument("Invalid bounded ORC bitcode request.");
         }
         Initialize();
         auto context = std::make_unique<llvm::LLVMContext>();
+        const void *bitcodeData = bitcode;
         auto buffer = llvm::MemoryBuffer::getMemBufferCopy(
-            llvm::StringRef(reinterpret_cast<const char *>(bitcode), static_cast<std::size_t>(size)), "sol-program.bc");
+            llvm::StringRef(static_cast<const char *>(bitcodeData), OpenDot::Sol::CheckedInteger<std::size_t>(size)),
+            "sol-program.bc");
         auto parsed = llvm::parseBitcodeFile(buffer->getMemBufferRef(), *context);
         if (!parsed)
         {
@@ -75,17 +81,17 @@ extern "C" bool SolLlvmExecute(const unsigned char *bitcode, std::uint64_t size,
         }
         auto entry = address->toPtr<int(int, wchar_t **)>();
         *exitCode = entry(argc, argv);
-        Error.clear();
+        ClearError();
         return true;
     }
     catch (const std::exception &error)
     {
-        Error = error.what();
+        SetError(error);
         return false;
     }
     catch (...)
     {
-        Error = "Unknown native ORC failure.";
+        SetError("Unknown native ORC failure.");
         return false;
     }
 }

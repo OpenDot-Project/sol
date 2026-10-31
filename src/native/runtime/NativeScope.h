@@ -9,7 +9,7 @@ namespace OpenDot::Sol::Runtime
 class NativeScope final
 {
 public:
-    explicit NativeScope(bool active) : _active(active)
+    explicit NativeScope(bool active) noexcept : _active(active)
     {
         if (_active)
         {
@@ -27,6 +27,8 @@ public:
 
     NativeScope(const NativeScope &) = delete;
     NativeScope &operator=(const NativeScope &) = delete;
+    NativeScope(NativeScope &&) = delete;
+    NativeScope &operator=(NativeScope &&) = delete;
 
 private:
     bool _active;
@@ -36,7 +38,7 @@ private:
 class TemporaryRoot final
 {
 public:
-    explicit TemporaryRoot(Header *value) : _value(value), _frame{nullptr, &_value, 1, 0}
+    explicit TemporaryRoot(Header *value) noexcept : _value(value), _frame{nullptr, &_value, 1, 0}
     {
         sol_gc_push_frame(&_frame);
     }
@@ -48,6 +50,8 @@ public:
 
     TemporaryRoot(const TemporaryRoot &) = delete;
     TemporaryRoot &operator=(const TemporaryRoot &) = delete;
+    TemporaryRoot(TemporaryRoot &&) = delete;
+    TemporaryRoot &operator=(TemporaryRoot &&) = delete;
 
 private:
     Header *_value;

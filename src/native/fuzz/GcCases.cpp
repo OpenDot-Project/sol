@@ -22,7 +22,7 @@ const TypeDescriptor NodeType{sizeof(Node), 16, 0xF022, 0, 0, &sol_rt_object_typ
 
 void GcCase(const Input &input, Roots &roots)
 {
-    const auto mode = input[5];
+    const auto mode = input.at(5);
     const unsigned count = mode == 15
                                ? 64
                                : mode == 16
@@ -35,7 +35,7 @@ void GcCase(const Input &input, Roots &roots)
     std::vector<RuntimeHandle *> weak;
     for (unsigned i = 0; i < count; ++i)
     {
-        auto *node = reinterpret_cast<Node *>(sol_gc_alloc(&NodeType, sizeof(Node)));
+        auto *node = Detail::StorageCast<Node>(sol_gc_alloc(&NodeType, sizeof(Node)));
         node->Cookie = 0xF0220000ULL + i;
         roots.Set(i, &node->Object);
         nodes.push_back(node);
@@ -46,27 +46,27 @@ void GcCase(const Input &input, Roots &roots)
         int left = -1, right = -1;
         if (mode <= 1)
         {
-            left = i + 1 < count ? static_cast<int>(i + 1) : -1;
+            left = i + 1 < count ? OpenDot::Sol::CheckedInteger<int>(i + 1) : -1;
         }
         else if (mode <= 3)
         {
-            left = static_cast<int>((i + 1) % count);
+            left = OpenDot::Sol::CheckedInteger<int>((i + 1) % count);
         }
         else if (mode <= 5)
         {
-            left = 2 * i + 1 < count ? static_cast<int>(2 * i + 1) : -1;
-            right = 2 * i + 2 < count ? static_cast<int>(2 * i + 2) : -1;
+            left = 2 * i + 1 < count ? OpenDot::Sol::CheckedInteger<int>(2 * i + 1) : -1;
+            right = 2 * i + 2 < count ? OpenDot::Sol::CheckedInteger<int>(2 * i + 2) : -1;
         }
         else if (mode == 8)
         {
-            left = static_cast<int>(i);
+            left = OpenDot::Sol::CheckedInteger<int>(i);
         }
         else if (mode == 9)
         {
         }
         else if (mode == 14)
         {
-            left = static_cast<int>(i % 2 == 0 ? (i + 2) % count : i);
+            left = OpenDot::Sol::CheckedInteger<int>(i % 2 == 0 ? (i + 2) % count : i);
         }
         else if (mode == 17)
         {
@@ -75,17 +75,19 @@ void GcCase(const Input &input, Roots &roots)
         }
         else if (mode == 18)
         {
-            left = static_cast<int>((i + count / 2) % count);
-            right = static_cast<int>((i + 1) % count);
+            left = OpenDot::Sol::CheckedInteger<int>((i + count / 2) % count);
+            right = OpenDot::Sol::CheckedInteger<int>((i + 1) % count);
         }
         else
         {
-            left = Choice(input, i + 1) % 4 == 0 ? -1 : static_cast<int>(Choice(input, i + 1) % count);
-            right = mode == 6 ? -1 : static_cast<int>(Choice(input, i + 17) % count);
+            left = Choice(input, i + 1) % 4 == 0 ? -1 : OpenDot::Sol::CheckedInteger<int>(Choice(input, i + 1) % count);
+            right = mode == 6 ? -1 : OpenDot::Sol::CheckedInteger<int>(Choice(input, i + 17) % count);
         }
         edges.push_back({left, right});
-        sol_gc_store_ref(&nodes[i]->Left, left < 0 ? nullptr : &nodes[static_cast<unsigned>(left)]->Object);
-        sol_gc_store_ref(&nodes[i]->Right, right < 0 ? nullptr : &nodes[static_cast<unsigned>(right)]->Object);
+        sol_gc_store_ref(&nodes.at(i)->Left,
+                         left < 0 ? nullptr : &nodes.at(OpenDot::Sol::CheckedInteger<unsigned>(left))->Object);
+        sol_gc_store_ref(&nodes.at(i)->Right,
+                         right < 0 ? nullptr : &nodes.at(OpenDot::Sol::CheckedInteger<unsigned>(right))->Object);
     }
     std::vector<unsigned> retained;
     // Finish any allocation-triggered epoch while all nodes are rooted before testing exact reachability.
@@ -106,7 +108,7 @@ void GcCase(const Input &input, Roots &roots)
                               : Choice(input, i + 33) % 5 == 0;
         if (keep)
         {
-            roots.Set(i, &nodes[i]->Object);
+            roots.Set(i, &nodes.at(i)->Object);
             retained.push_back(i);
         }
     }
@@ -121,29 +123,30 @@ void GcCase(const Input &input, Roots &roots)
     {
         const auto i = retained.back();
         retained.pop_back();
-        if (reachable[i])
+        if (reachable.at(i))
         {
             continue;
         }
-        reachable[i] = true;
-        for (auto target : edges[i])
+        reachable.at(i) = true;
+        for (auto target : edges.at(i))
         {
             if (target >= 0)
             {
-                retained.push_back(static_cast<unsigned>(target));
+                retained.push_back(OpenDot::Sol::CheckedInteger<unsigned>(target));
             }
         }
     }
     sol_gc_collect();
     for (unsigned i = 0; i < count; ++i)
     {
-        const bool handleValid = sol_gc_resolve_handle(weak[i], &roots[127]);
-        const bool alive = roots[127] != nullptr;
+        const bool handleValid = sol_gc_resolve_handle(weak.at(i), &roots.At(127));
+        const bool alive = roots.At(127) != nullptr;
         Require(handleValid, "Weak handle became invalid before release.");
-        Require(alive == reachable[i], "GC differs from independent graph reachability oracle.");
+        Require(alive == reachable.at(i), "GC differs from independent graph reachability oracle.");
         if (alive)
         {
-            Require(reinterpret_cast<Node *>(roots[127])->Cookie == 0xF0220000ULL + i, "GC survivor payload changed.");
+            Require(Detail::StorageCast<Node>(roots.At(127))->Cookie == 0xF0220000ULL + i,
+                    "GC survivor payload changed.");
         }
         roots.Set(127, nullptr);
     }
@@ -157,13 +160,14 @@ void GcCase(const Input &input, Roots &roots)
         unsigned selected = 0;
         for (unsigned i = 0; i < count; ++i)
         {
-            if (reachable[i])
+            if (reachable.at(i))
             {
                 selected = i;
             }
         }
-        Require(sol_gc_resolve_handle(weak[selected], &roots[127]) && roots[127], "Rotation target was not live.");
-        roots.Set(0, roots[127]);
+        Require(sol_gc_resolve_handle(weak.at(selected), &roots.At(127)) && roots.At(127),
+                "Rotation target was not live.");
+        roots.Set(0, roots.At(127));
         roots.Set(127, nullptr);
         reachable.assign(count, false);
         retained.push_back(selected);
@@ -171,24 +175,24 @@ void GcCase(const Input &input, Roots &roots)
         {
             const auto i = retained.back();
             retained.pop_back();
-            if (reachable[i])
+            if (reachable.at(i))
             {
                 continue;
             }
-            reachable[i] = true;
-            for (auto target : edges[i])
+            reachable.at(i) = true;
+            for (auto target : edges.at(i))
             {
                 if (target >= 0)
                 {
-                    retained.push_back(static_cast<unsigned>(target));
+                    retained.push_back(OpenDot::Sol::CheckedInteger<unsigned>(target));
                 }
             }
         }
         sol_gc_collect();
         for (unsigned i = 0; i < count; ++i)
         {
-            const bool handleValid = sol_gc_resolve_handle(weak[i], &roots[127]);
-            Require(handleValid && (roots[127] != nullptr) == reachable[i],
+            const bool handleValid = sol_gc_resolve_handle(weak.at(i), &roots.At(127));
+            Require(handleValid && (roots.At(127) != nullptr) == reachable.at(i),
                     "Root rotation reachability mismatch.");
             roots.Set(127, nullptr);
         }
@@ -197,8 +201,8 @@ void GcCase(const Input &input, Roots &roots)
     sol_gc_collect();
     for (auto *handle : weak)
     {
-        const bool handleValid = sol_gc_resolve_handle(handle, &roots[127]);
-        Require(handleValid && roots[127] == nullptr, "Unrooted object survived a full collection.");
+        const bool handleValid = sol_gc_resolve_handle(handle, &roots.At(127));
+        Require(handleValid && roots.At(127) == nullptr, "Unrooted object survived a full collection.");
         roots.Set(127, nullptr);
         sol_gc_release_handle(handle);
     }

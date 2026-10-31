@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "Core.h"
+#include "CheckedAccess.h"
 #include <array>
 
 using namespace OpenDot::Sol::Runtime;
@@ -9,19 +10,21 @@ namespace
 {
 // Element kind 11 is reserved for managed-reference arrays; kind 12 stores raw function pointers.
 constexpr std::array<std::uint32_t, 13> Widths{1, 1, 1, 2, 4, 4, 8, 8, 4, 8, 8, 8, 8};
-const auto Elements = [] {
+constexpr auto Elements = []() noexcept {
     std::array<TypeDescriptor, 13> result{};
     for (std::size_t index = 0; index < result.size(); ++index)
     {
-        result[index] = {Widths[index], 16, 200 + index, 4, 0, nullptr, nullptr, nullptr, nullptr, nullptr};
+        Detail::CheckedAt(result, index) = {Detail::CheckedAt(Widths, index), 16, 200 + index, 4, 0, nullptr, nullptr,
+                                            nullptr, nullptr, nullptr};
     }
     return result;
 }();
-const auto ArrayTypes = [] {
+constexpr auto ArrayTypes = []() noexcept {
     std::array<TypeDescriptor, 13> result{};
     for (std::size_t index = 0; index < result.size(); ++index)
     {
-        result[index] = {32, 16, 220 + index, 2, 0, &sol_rt_object_type, nullptr, nullptr, nullptr, nullptr};
+        Detail::CheckedAt(result, index) = {32, 16, 220 + index, 2, 0, &sol_rt_object_type, nullptr, nullptr, nullptr,
+                                            nullptr};
     }
     return result;
 }();
@@ -42,13 +45,14 @@ StringArray *sol_rt_array_new(int length, int elementKind)
         return sol_rt_array_create(length, sizeof(Header *), &sol_rt_object_type,
                                    &sol_rt_reference_array_type);
     }
-    if (elementKind < 0 || elementKind >= static_cast<int>(Widths.size()))
+    if (elementKind < 0 || elementKind >= Detail::Integer<int>(Widths.size()))
     {
         sol_rt_fail(7);
     }
-    const auto index = static_cast<std::size_t>(elementKind);
-    return sol_rt_array_create(length, Widths[index], index == 10 ? &sol_rt_string_type : &Elements[index],
-                               index == 10 ? &sol_rt_string_array_type : &ArrayTypes[index]);
+    const auto index = Detail::Integer<std::size_t>(elementKind);
+    return sol_rt_array_create(length, Detail::CheckedAt(Widths, index),
+                               index == 10 ? &sol_rt_string_type : &Detail::CheckedAt(Elements, index),
+                               index == 10 ? &sol_rt_string_array_type : &Detail::CheckedAt(ArrayTypes, index));
 }
 
 void *sol_rt_array_address(StringArray *array, int index, int expectedStride)
@@ -57,10 +61,12 @@ void *sol_rt_array_address(StringArray *array, int index, int expectedStride)
     {
         sol_rt_fail(4);
     }
-    if (expectedStride <= 0 || array->Stride != static_cast<std::uint32_t>(expectedStride))
+    if (expectedStride <= 0 || array->Stride != Detail::Integer<std::uint32_t>(expectedStride))
     {
         sol_rt_fail(7);
     }
-    return reinterpret_cast<char *>(array) + sizeof(StringArray) + static_cast<std::size_t>(index) * array->Stride;
+    const std::span bytes(Detail::StorageCast<std::byte>(array->Data()),
+                          Detail::Integer<std::size_t>(array->Length) * array->Stride);
+    return bytes.subspan(Detail::Integer<std::size_t>(index) * array->Stride, array->Stride).data();
 }
 }

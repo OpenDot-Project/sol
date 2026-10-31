@@ -1,11 +1,16 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include <array>
+#include <tuple>
+#include "CheckedAccess.h"
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <string>
 #include <unordered_set>
 #include <vector>
+
+using OpenDot::Sol::Runtime::Detail::Integer;
 
 namespace
 {
@@ -22,6 +27,7 @@ struct State final
     bool Scanning = false;
     bool Processed = false;
     std::uint8_t Current = 0;
+    // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
     unsigned Steps = 0;
 };
 
@@ -36,24 +42,24 @@ struct Audit final
 std::string Key(const State &state)
 {
     std::string key;
-    key.push_back(static_cast<char>(state.Marked));
-    key.push_back(static_cast<char>(state.Gray));
-    key.push_back(static_cast<char>(state.Scanned));
+    key.push_back(std::bit_cast<char>(Integer<unsigned char>(state.Marked)));
+    key.push_back(std::bit_cast<char>(Integer<unsigned char>(state.Gray)));
+    key.push_back(std::bit_cast<char>(Integer<unsigned char>(state.Scanned)));
     for (auto step : state.Producer)
     {
-        key.push_back(static_cast<char>(step));
+        key.push_back(std::bit_cast<char>(Integer<unsigned char>(step)));
     }
     key.push_back(state.Queued ? 'q' : '-');
     key.push_back(state.Claimed ? 'c' : '-');
     key.push_back(state.Scanning ? 's' : '-');
     key.push_back(state.Processed ? 'p' : '-');
-    key.push_back(static_cast<char>(state.Current));
+    key.push_back(std::bit_cast<char>(Integer<unsigned char>(state.Current)));
     return key;
 }
 
-void Publish(State &state, unsigned object)
+void Publish(State &state, unsigned object) noexcept
 {
-    const auto bit = static_cast<std::uint8_t>(1U << object);
+    const auto bit = Integer<std::uint8_t>(1U << object);
     if (!(state.Marked & bit))
     {
         state.Marked |= bit;
@@ -65,7 +71,7 @@ void Publish(State &state, unsigned object)
     }
 }
 
-bool Lost(const State &state)
+bool Lost(const State &state) noexcept
 {
     return state.Gray && !state.Queued && !state.Claimed;
 }
@@ -95,11 +101,11 @@ bool Explore(const State &state, bool recheck, Audit &audit, std::vector<std::st
     };
     for (unsigned producer = 0; producer < state.Producer.size(); ++producer)
     {
-        if (state.Producer[producer] < 2)
+        if (state.Producer.at(producer) < 2)
         {
             auto next = state;
-            ++next.Producer[producer];
-            if (state.Producer[producer] == 0)
+            ++next.Producer.at(producer);
+            if (state.Producer.at(producer) == 0)
             {
                 if (state.Claimed)
                 {
@@ -140,7 +146,7 @@ bool Explore(const State &state, bool recheck, Audit &audit, std::vector<std::st
             ++object;
         }
         next.Scanning = true;
-        next.Current = static_cast<std::uint8_t>(object);
+        next.Current = Integer<std::uint8_t>(object);
         advanced = true;
         if (!visit(next, "consumer chooses a gray object"))
         {
@@ -150,8 +156,8 @@ bool Explore(const State &state, bool recheck, Audit &audit, std::vector<std::st
     if (state.Scanning)
     {
         auto next = state;
-        const auto bit = static_cast<std::uint8_t>(1U << state.Current);
-        next.Gray &= static_cast<std::uint8_t>(~bit);
+        const auto bit = Integer<std::uint8_t>(1U << state.Current);
+        next.Gray = Integer<std::uint8_t>(next.Gray & ~bit);
         next.Scanned |= bit;
         next.Scanning = false;
         next.Processed = true;
@@ -201,9 +207,9 @@ int RunReadyWorkModel()
     {
         return 226;
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr,
         "Ready work model: %zu states, %llu terminal schedules; missing-recheck counterexample (%zu steps) detected.\n",
-        correct.Seen.size(), static_cast<unsigned long long>(correct.Terminal), broken.Counterexample.size());
+        correct.Seen.size(), correct.Terminal, broken.Counterexample.size());
     return 0;
 }

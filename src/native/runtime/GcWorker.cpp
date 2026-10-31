@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
+#include <tuple>
 #include <algorithm>
 
 namespace OpenDot::Sol::Runtime::Heap
@@ -16,7 +17,7 @@ bool Park(State &state, std::unique_lock<std::mutex> &guard, Phase phase)
     state.Current = phase;
     state.Changed.notify_all();
     state.Changed.wait(guard, [&] {
-        return state.Stop || std::all_of(state.Threads.begin(), state.Threads.end(), [](const auto &thread) {
+        return state.Stop || std::all_of(state.Threads.begin(), state.Threads.end(), [](const auto &thread) noexcept {
             return thread->Mode != ThreadMode::Running;
         });
     });
@@ -24,7 +25,7 @@ bool Park(State &state, std::unique_lock<std::mutex> &guard, Phase phase)
     return !state.Stop;
 }
 
-void RecordSweepBatch(State &state, std::uint64_t started, std::uint64_t count)
+void RecordSweepBatch(State &state, std::uint64_t started, std::uint64_t count) noexcept
 {
     if (!count)
     {
@@ -72,7 +73,7 @@ void Sweep(State &state, std::unique_lock<std::mutex> &guard)
         {
             break;
         }
-        if (batchCount == 64 || batchBytes >= 256 * 1024)
+        if (batchCount == 64 || batchBytes >= 256ULL * 1024)
         {
             RecordSweepBatch(state, batchStarted, batchCount);
             guard.unlock();
@@ -120,7 +121,7 @@ void Run()
         {
             while (!state.Work.Empty() && !state.Stop)
             {
-                (void)TraceBatch(state, TraceBudget{}, false);
+                std::ignore = TraceBatch(state, TraceBudget{}, false);
                 guard.unlock();
                 std::this_thread::yield();
                 guard.lock();

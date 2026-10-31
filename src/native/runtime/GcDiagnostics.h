@@ -117,12 +117,18 @@ namespace OpenDot::Sol::Runtime::Heap
 {
 std::uint64_t MonotonicNanoseconds() noexcept;
 std::uint64_t ElapsedNanoseconds(std::uint64_t start) noexcept;
-std::uint64_t SaturatingAdd(std::uint64_t left, std::uint64_t right) noexcept;
-std::uint64_t DistributionUpperBound(const GcDistribution &value, unsigned percentile);
-const char *CounterName(GcCounter value);
-const char *HistogramName(GcHistogram value);
-const char *EventName(GcEventKind value);
 
+constexpr std::uint64_t SaturatingAdd(std::uint64_t left, std::uint64_t right) noexcept
+{
+    return right > UINT64_MAX - left ? UINT64_MAX : left + right;
+}
+
+std::uint64_t DistributionUpperBound(const GcDistribution &value, unsigned percentile) noexcept;
+const char *CounterName(GcCounter value) noexcept;
+const char *HistogramName(GcHistogram value) noexcept;
+const char *EventName(GcEventKind value) noexcept;
+
+// NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
 class EventRing final
 {
     std::array<GcEvent, 4096> _events{};
@@ -134,7 +140,7 @@ public:
     void Enable(bool enabled) noexcept;
     void Reset() noexcept;
     void Append(GcEventKind kind, std::uint64_t epoch, std::uint64_t work, std::uint64_t duration) noexcept;
-    std::uint32_t Read(std::uint64_t after, GcEvent *output, std::uint32_t capacity) const;
+    std::uint32_t Read(std::uint64_t after, GcEvent *output, std::uint32_t capacity) const noexcept;
     std::uint64_t First() const noexcept;
     std::uint64_t Next() const noexcept;
     std::uint64_t Dropped() const noexcept;
@@ -158,7 +164,7 @@ public:
     void Reset() noexcept;
 };
 
-bool ReadEventSetting();
+bool ReadEventSetting() noexcept;
 }
 
 extern "C"

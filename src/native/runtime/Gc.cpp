@@ -1,8 +1,11 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
+#include "CheckedAccess.h"
+#include <bit>
 #include <algorithm>
-#include <cstdlib>
+// NOLINTNEXTLINE(CppUnusedIncludeDirective): Direct standard-library contract, including MSVC intrinsics.
+#include <exception>
 
 namespace OpenDot::Sol::Runtime::Heap
 {
@@ -14,7 +17,7 @@ State &Get()
     return state;
 }
 
-State::~State()
+State::~State() try
 {
     {
         const std::lock_guard guard(Mutex);
@@ -36,13 +39,13 @@ State::~State()
         Allocator.Release(entry->Storage, guard);
     }
 }
-
-bool Handshake(Phase phase)
+catch (...)
 {
-    return phase == Phase::Start || phase == Phase::Terminate;
+    // Shutdown cannot recover from failed synchronization or resource release.
+    std::terminate();
 }
 
-void RequireManaged()
+void RequireManaged() noexcept
 {
     if (!CurrentThread || CurrentThread->Mode != ThreadMode::Running)
     {
@@ -75,15 +78,15 @@ void Shade(State &state, Header *value)
         }
         return;
     }
-    auto *entry = found->second;
-    if (!entry->Tracing->Shade(entry->Storage.Slot, state.Epoch))
+    auto &entry = *found->second;
+    if (!entry.Tracing->Shade(entry.Storage.Slot, state.Epoch))
     {
         state.Cost.Increment(GcCounter::AlreadyMarked);
         return;
     }
     state.Cost.Increment(GcCounter::NewMarks);
-    entry->Cursor = 0;
-    state.Work.Publish(*entry->Tracing);
+    entry.Cursor = 0;
+    state.Work.Publish(*entry.Tracing);
 }
 
 void Roots(State &state)
@@ -99,7 +102,8 @@ void Roots(State &state)
             {
                 ++visits;
                 state.Cost.Increment(GcCounter::RootSlots);
-                Shade(state, std::atomic_ref(frame->Slots[index]).load(std::memory_order_acquire));
+                Shade(state, std::atomic_ref(Detail::CheckedAt(std::span{frame->Slots, frame->Count}, index)).load(
+                          std::memory_order_acquire));
             }
         }
     }
@@ -165,7 +169,7 @@ void sol_gc_detach()
     }
     CurrentThread->AllocationCache.Flush(state.Allocator);
     AddThreadAllocationStats(state.RetiredThreadAllocation, CurrentThread->AllocationCache.Stats());
-    state.Threads.remove_if([](const auto &thread) {
+    state.Threads.remove_if([](const auto &thread) noexcept {
         return thread.get() == CurrentThread;
     });
     CurrentThread = nullptr;
@@ -211,7 +215,8 @@ void sol_gc_push_frame(RootFrame *frame)
     {
         for (std::uint32_t index = 0; index < frame->Count; ++index)
         {
-            Shade(state, std::atomic_ref(frame->Slots[index]).load(std::memory_order_acquire));
+            Shade(state, std::atomic_ref(Detail::CheckedAt(std::span{frame->Slots, frame->Count}, index)).load(
+                      std::memory_order_acquire));
         }
     }
 }
@@ -287,7 +292,7 @@ void sol_gc_leave_export(int transition)
 void sol_gc_store_ref(Header **destination, Header *value)
 {
     RequireManaged();
-    if (!destination || reinterpret_cast<std::uintptr_t>(destination) % alignof(Header *) != 0)
+    if (!destination || std::bit_cast<std::uintptr_t>(destination) % alignof(Header *) != 0)
     {
         sol_rt_fail(7);
     }

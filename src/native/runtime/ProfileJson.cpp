@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcProfile.h"
+#include "CheckedAccess.h"
 #include <array>
+#include <bit>
 #include <charconv>
 #include <string_view>
 
@@ -25,7 +27,7 @@ class Json final
     void Quote(std::string_view value)
     {
         _text += '"';
-        constexpr char hex[] = "0123456789abcdef";
+        constexpr auto hex = std::to_array("0123456789abcdef");
         for (const unsigned char letter : value)
         {
             switch (letter)
@@ -49,12 +51,12 @@ class Json final
                 if (letter < 32)
                 {
                     _text += "\\u00";
-                    _text += hex[letter >> 4];
-                    _text += hex[letter & 15];
+                    _text += Detail::CheckedAt(hex, letter >> 4);
+                    _text += Detail::CheckedAt(hex, letter & 15);
                 }
                 else
                 {
-                    _text += static_cast<char>(letter);
+                    _text += std::bit_cast<char>(letter);
                 }
                 break;
             }
@@ -111,7 +113,7 @@ public:
     {
         Prefix(name);
         std::array<char, 32> digits;
-        const auto result = std::to_chars(digits.data(), digits.data() + digits.size(), value);
+        const auto result = std::to_chars(digits.data(), std::span{digits}.subspan(digits.size()).data(), value);
         if (result.ec != std::errc{})
         {
             sol_rt_fail(7);
@@ -259,7 +261,8 @@ std::string SerializeProfile(const ProfileResult &result)
     json.Begin(true, "counters");
     for (std::size_t index = 0; index < result.Diagnostics.Counters.size(); ++index)
     {
-        json.Number(result.Diagnostics.Counters[index], Heap::CounterName(static_cast<GcCounter>(index)));
+        json.Number(Detail::CheckedAt(result.Diagnostics.Counters, index),
+                    Heap::CounterName(static_cast<GcCounter>(index)));
     }
     json.End();
     json.Begin(false, "histogram_upper_bounds_ns");
@@ -272,7 +275,7 @@ std::string SerializeProfile(const ProfileResult &result)
     for (std::size_t index = 0; index < result.Diagnostics.Distributions.size(); ++index)
     {
         json.Begin(true, Heap::HistogramName(static_cast<GcHistogram>(index)));
-        Histogram(json, result.Diagnostics.Distributions[index]);
+        Histogram(json, Detail::CheckedAt(result.Diagnostics.Distributions, index));
         json.End();
     }
     json.End();

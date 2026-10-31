@@ -7,9 +7,10 @@
 #include <lld/Common/Driver.h>
 #include <lld/Common/ErrorHandler.h>
 #pragma warning(pop)
-#include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <memory>
+#include <string>
 #include <stdexcept>
 #include <vector>
 
@@ -54,19 +55,16 @@ extern "C" bool SolLldLink(const char *const *arguments, std::uint64_t count, in
         *exitCode = result.retCode;
         if (!messages.empty())
         {
-            *diagnostics = std::malloc(messages.size());
-            if (!*diagnostics)
-            {
-                throw std::bad_alloc();
-            }
-            std::memcpy(*diagnostics, messages.data(), messages.size());
+            auto memory = std::make_unique<unsigned char[]>(messages.size());
+            std::memcpy(memory.get(), messages.data(), messages.size());
+            *diagnostics = memory.release();
             *size = messages.size();
         }
         return true;
     }
     catch (const std::exception &error)
     {
-        Error = error.what();
+        SetError(error);
         return false;
     }
 }

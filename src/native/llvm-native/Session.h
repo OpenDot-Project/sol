@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #pragma once
-#include "Support.h"
-#include "Api.h"
 #include "Operations.h"
 // Upstream LLVM SDK templates trigger these MSVC diagnostics; first-party code keeps /W4 /WX.
 #pragma warning(push)
@@ -14,6 +12,7 @@
 #pragma warning(pop)
 #include <memory>
 #include <thread>
+#include <string_view>
 #include <vector>
 
 namespace OpenDot::Sol::LlvmNative
@@ -34,7 +33,7 @@ struct Session final
     std::vector<Entry> Entries{{}};
     std::thread::id Thread = std::this_thread::get_id();
     std::uint32_t Identity;
-    Session();
+    explicit Session(std::string_view moduleName);
     void CheckThread() const;
     Entry &Get(std::int64_t handle);
     llvm::Type *Type(std::int64_t handle);
@@ -46,5 +45,5 @@ struct Session final
     std::vector<unsigned char> Output(int kind);
 };
 
-void Verify(llvm::Module &module);
+void Verify(const llvm::Module &module);
 }

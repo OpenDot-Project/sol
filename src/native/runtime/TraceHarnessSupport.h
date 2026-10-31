@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #pragma once
 #include "GcInternal.h"
+#include <tuple>
+#include "CheckedAccess.h"
 #include <cstring>
 #include <vector>
 
@@ -26,6 +28,8 @@ inline const TypeDescriptor ArrayType{sizeof(StringArray), 16, 0x542, 2, 0,
 
 /// Runs the actual allocator/index/bitmap/tracer against isolated native state, without a worker.
 /// It allows deterministic budgets and same-span discovery; public concurrency fixtures run separately.
+inline constexpr std::uint64_t TestHeapLimit = 64ULL * 1024ULL * 1024;
+
 class TraceFixture final
 {
     Heap::ThreadState *_previous;
@@ -33,12 +37,17 @@ class TraceFixture final
 public:
     Heap::State State;
 
-    TraceFixture() : _previous(Heap::CurrentThread)
+    explicit TraceFixture(std::uint64_t limit) : _previous(Heap::CurrentThread)
     {
         State.Threads.push_back(std::make_unique<Heap::ThreadState>());
         Heap::CurrentThread = State.Threads.back().get();
-        State.Limit = 64ULL * 1024 * 1024;
+        State.Limit = limit;
     }
+
+    TraceFixture(const TraceFixture &) = delete;
+    TraceFixture &operator=(const TraceFixture &) = delete;
+    TraceFixture(TraceFixture &&) = delete;
+    TraceFixture &operator=(TraceFixture &&) = delete;
 
     ~TraceFixture()
     {
@@ -54,7 +63,7 @@ public:
         {
             sol_rt_fail(6);
         }
-        std::memset(storage.Object, 0, static_cast<std::size_t>(bytes));
+        std::memset(storage.Object, 0, Detail::Integer<std::size_t>(bytes));
         storage.Object->Type = &type;
         auto entry = std::make_unique<Heap::Allocation>();
         entry->Storage = storage;
@@ -83,21 +92,21 @@ public:
 
     Node *NewNode(std::uint64_t value = 0)
     {
-        auto *node = reinterpret_cast<Node *>(Allocate(NodeType, sizeof(Node)));
+        auto *node = Detail::StorageCast<Node>(Allocate(NodeType, sizeof(Node)));
         node->Value = value;
         return node;
     }
 
     StringArray *NewArray(unsigned count)
     {
-        auto *array = reinterpret_cast<StringArray *>(Allocate(ArrayType, sizeof(StringArray) + count * 8ULL));
-        array->Length = static_cast<std::int32_t>(count);
+        auto *array = Detail::StorageCast<StringArray>(Allocate(ArrayType, sizeof(StringArray) + count * 8ULL));
+        array->Length = Detail::Integer<std::int32_t>(count);
         array->Stride = sizeof(Header *);
         array->Element = &NodeType;
         return array;
     }
 
-    void Begin()
+    void Begin() noexcept
     {
         if (!State.Work.Empty())
         {
@@ -117,7 +126,7 @@ public:
         std::uint64_t iterations = 0;
         while (!State.Work.Empty())
         {
-            (void)Heap::TraceBatch(State, budget, false);
+            std::ignore = Heap::TraceBatch(State, budget, false);
             if (++iterations > 1000000)
             {
                 sol_rt_fail(7);
@@ -127,8 +136,8 @@ public:
 
     bool Marked(Header *value) const
     {
-        const auto *entry = State.Index.at(value);
-        return entry->Tracing->Marked(entry->Storage.Slot, State.Epoch);
+        const auto &entry = *State.Index.at(value);
+        return entry.Tracing->Marked(entry.Storage.Slot, State.Epoch);
     }
 };
 
@@ -142,6 +151,11 @@ public:
     {
         sol_gc_push_frame(&_frame);
     }
+
+    PublicFrame(const PublicFrame &) = delete;
+    PublicFrame &operator=(const PublicFrame &) = delete;
+    PublicFrame(PublicFrame &&) = delete;
+    PublicFrame &operator=(PublicFrame &&) = delete;
 
     ~PublicFrame()
     {
@@ -164,7 +178,7 @@ public:
     }
 };
 
-inline GcDiagnosticSnapshot Snapshot()
+inline GcDiagnosticSnapshot Snapshot() noexcept(false)
 {
     GcDiagnosticSnapshot snapshot;
     if (!sol_gc_diagnostics(&snapshot, sizeof(snapshot)))
@@ -174,8 +188,8 @@ inline GcDiagnosticSnapshot Snapshot()
     return snapshot;
 }
 
-inline std::uint64_t Counter(const GcDiagnosticSnapshot &snapshot, GcCounter counter)
+inline std::uint64_t Counter(const GcDiagnosticSnapshot &snapshot, GcCounter counter) noexcept
 {
-    return snapshot.Counters[static_cast<std::size_t>(counter)];
+    return Detail::CheckedAt(snapshot.Counters, static_cast<std::size_t>(counter));
 }
 }

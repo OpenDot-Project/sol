@@ -44,28 +44,31 @@ template <class T> T Function(const char *name)
 
 struct Session final
 {
-    void *Value = Api.Create();
+    const Functions &Calls;
+    void *Value;
 
-    Session()
+    explicit Session(const Functions &calls) : Calls(calls), Value(calls.Create())
     {
         Require(Value != nullptr, "Cannot create LLVM fuzz session.");
     }
 
     Session(const Session &) = delete;
     Session &operator=(const Session &) = delete;
+    Session(Session &&) = delete;
+    Session &operator=(Session &&) = delete;
 
     ~Session()
     {
-        Api.Destroy(Value);
+        Calls.Destroy(Value);
     }
 
     std::int64_t Apply(Operation op, std::int64_t type = 0, std::initializer_list<std::int64_t> args = {},
                        std::int64_t data = 0, const char *text = "")
     {
         std::int64_t result = 0;
-        if (!Api.Apply(Value, static_cast<int>(op), type, args.begin(), args.size(), data, text, &result))
+        if (!Calls.Apply(Value, static_cast<int>(op), type, args.begin(), args.size(), data, text, &result))
         {
-            throw std::runtime_error(Api.Error());
+            throw std::runtime_error(Calls.Error());
         }
         return result;
     }
@@ -87,6 +90,8 @@ struct Buffer final
 
     Buffer(const Buffer &) = delete;
     Buffer &operator=(const Buffer &) = delete;
+    Buffer(Buffer &&) = delete;
+    Buffer &operator=(Buffer &&) = delete;
 
     ~Buffer()
     {
@@ -127,13 +132,13 @@ void UnloadBackend() noexcept
 
 void BackendCase(const Input &input)
 {
-    Session session;
-    const auto mode = input[5];
-    const std::int32_t a = static_cast<std::int32_t>(Choice(input, 0) % 65536) - 16384;
+    Session session(Api);
+    const auto mode = input.at(5);
+    const std::int32_t a = OpenDot::Sol::CheckedInteger<std::int32_t>(Choice(input, 0) % 65536) - 16384;
     const std::int32_t b = mode >= 10 && mode <= 12
-                               ? static_cast<std::int32_t>(Choice(input, 1) % 16)
-                               : 1 + static_cast<std::int32_t>(Choice(input, 1) % 128);
-    const auto ua = std::bit_cast<std::uint32_t>(a), ub = static_cast<std::uint32_t>(b);
+                               ? OpenDot::Sol::CheckedInteger<std::int32_t>(Choice(input, 1) % 16)
+                               : 1 + OpenDot::Sol::CheckedInteger<std::int32_t>(Choice(input, 1) % 128);
+    const auto ua = std::bit_cast<std::uint32_t>(a), ub = OpenDot::Sol::CheckedInteger<std::uint32_t>(b);
     const auto i32 = session.Apply(Operation::IntegerType, 0, {}, 32);
     const auto pointer = session.Apply(Operation::PointerType);
     const auto function = session.Apply(Operation::Function, i32, {i32, pointer}, 0, "wmain");
@@ -242,14 +247,14 @@ void BackendCase(const Input &input)
                                          std::bit_cast<std::int64_t>(static_cast<double>(b)));
         const auto sum = session.Apply(Operation::FAdd, 0, {left, right});
         const auto expectedFloat = session.Apply(Operation::Floating, type, {},
-                                                 std::bit_cast<std::int64_t>(static_cast<double>(a + b)));
+                                                 std::bit_cast<std::int64_t>(static_cast<double>(a) + b));
         const auto equal = session.Apply(Operation::FCmp, 0, {sum, expectedFloat});
         value = session.Apply(Operation::ZExt, i32, {equal});
         expected = 1;
     }
     else if (mode == 18)
     {
-        Session foreign;
+        Session foreign(Api);
         const auto type = foreign.Apply(Operation::IntegerType, 0, {}, 32);
         std::int64_t ignored = 0;
         Require(!Api.Apply(session.Value, static_cast<int>(Operation::Zero), type, nullptr, 0, 0, "", &ignored),
@@ -258,23 +263,26 @@ void BackendCase(const Input &input)
     std::ignore = session.Apply(Operation::Return, 0, {value});
     if (mode == 19)
     {
-        const std::int64_t operands[]{av, bv};
+        const std::array operands{av, bv};
         std::int64_t ignored = 0;
-        Require(!Api.Apply(session.Value, static_cast<int>(Operation::Add), 0, operands, 2, 0, "", &ignored),
+        Require(!Api.Apply(session.Value, static_cast<int>(Operation::Add), 0, operands.data(), operands.size(), 0, "",
+                           &ignored),
                 "LLVM bridge accepted an instruction after a terminator.");
     }
     Require(Api.Verify(session.Value), "Generated LLVM module failed verification.");
     Buffer bitcode(session.Value, 1);
-    const auto *bytes = static_cast<const unsigned char *>(bitcode.Bytes);
-    Require(bytes[0] == 'B' && bytes[1] == 'C' && bytes[2] == 0xC0 && bytes[3] == 0xDE, "Invalid LLVM bitcode magic.");
+    const std::span bytes(static_cast<const unsigned char *>(bitcode.Bytes), bitcode.Size);
+    Require(
+        CheckedElement(bytes, 0) == 'B' && CheckedElement(bytes, 1) == 'C' && CheckedElement(bytes, 2) == 0xC0
+        && CheckedElement(bytes, 3) == 0xDE, "Invalid LLVM bitcode magic.");
     Buffer object(session.Value, 2);
-    const auto *coff = static_cast<const unsigned char *>(object.Bytes);
-    Require(coff[0] == 0x64 && coff[1] == 0x86, "LLVM output is not x64 COFF.");
-    const SolLlvmSymbol symbols[]{{nullptr, 0}};
-    wchar_t name[] = L"sol-fuzz";
-    wchar_t *arguments[]{name};
+    const std::span coff(static_cast<const unsigned char *>(object.Bytes), object.Size);
+    Require(CheckedElement(coff, 0) == 0x64 && CheckedElement(coff, 1) == 0x86, "LLVM output is not x64 COFF.");
+    const std::array<SolLlvmSymbol, 1> symbols{{{nullptr, 0}}};
+    auto name = std::to_array(L"sol-fuzz");
+    std::array arguments{name.data()};
     int actual = 0;
-    if (!Api.Execute(bytes, bitcode.Size, symbols, 0, 1, arguments, &actual))
+    if (!Api.Execute(bytes.data(), bitcode.Size, symbols.data(), 0, 1, arguments.data(), &actual))
     {
         throw std::runtime_error(Api.Error());
     }

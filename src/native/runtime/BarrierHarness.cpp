@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "TraceHarnessSupport.h"
+#include <tuple>
+#include "CheckedAccess.h"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -16,8 +18,7 @@ namespace
 bool IdleDoesNotAcquireHeapMutex()
 {
     sol_gc_attach();
-    bool okay = true;
-    {
+    const bool okay = [] {
         PublicFrame roots(1);
         auto *object = sol_gc_alloc(&NodeType, sizeof(Node));
         roots.Store(0, object);
@@ -41,12 +42,14 @@ bool IdleDoesNotAcquireHeapMutex()
         finished.release();
         owner.join();
         const auto after = Snapshot();
-        okay = completedWhileLocked.load(std::memory_order_acquire) && roots.Get(0) == object
-               && Counter(after, GcCounter::IdleBarriers) - Counter(before, GcCounter::IdleBarriers) == 10000
-               && Counter(after, GcCounter::ActiveBarriers) == Counter(before, GcCounter::ActiveBarriers);
+        const bool barrierOkay = completedWhileLocked.load(std::memory_order_acquire) && roots.Get(0) == object
+                                 && Counter(after, GcCounter::IdleBarriers) - Counter(before, GcCounter::IdleBarriers)
+                                 == 10000
+                                 && Counter(after, GcCounter::ActiveBarriers) == Counter(
+                                     before, GcCounter::ActiveBarriers);
         sol_gc_collect();
-        okay = okay && sol_gc_stats().ObjectCount == 1;
-    }
+        return barrierOkay && sol_gc_stats().ObjectCount == 1;
+    }();
     sol_gc_collect();
     sol_gc_detach();
     sol_rt_shutdown();
@@ -114,21 +117,22 @@ bool RootChurnAcrossThreads()
     std::array<std::thread, 4> mutators;
     for (unsigned thread = 0; thread < mutators.size(); ++thread)
     {
-        mutators[thread] = std::thread([&, thread] {
+        mutators.at(thread) = std::thread([&, thread] {
             sol_gc_attach();
             {
                 PublicFrame roots(5);
+                // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
                 ready.fetch_add(1, std::memory_order_release);
                 for (unsigned index = 0; index < 2000; ++index)
                 {
-                    auto *node = reinterpret_cast<Node *>(sol_gc_alloc(&NodeType, sizeof(Node)));
+                    auto *node = Detail::StorageCast<Node>(sol_gc_alloc(&NodeType, sizeof(Node)));
                     node->Value = index + thread * 2000ULL;
                     roots.Store(index % 5, &node->Object);
                     auto *previous = roots.Get((index + 4) % 5);
                     sol_gc_store_ref(&node->Left, previous);
                     // No raw pointer crosses a safepoint without a registered owner.
                     sol_gc_poll();
-                    const auto *rooted = reinterpret_cast<const Node *>(roots.Get(index % 5));
+                    const auto *rooted = Detail::StorageCast<const Node>(roots.Get(index % 5));
                     if (rooted->Value != index + thread * 2000ULL)
                     {
                         valid.store(false, std::memory_order_release);
@@ -166,18 +170,19 @@ bool RootChurnAcrossThreads()
 }
 }
 
-int RunBarrierTests()
+int RunBarrierTests() noexcept(false)
 {
     unsigned index = 0;
     for (auto test : {IdleDoesNotAcquireHeapMutex, StartBarrierPublishesBeforePark, RootChurnAcrossThreads})
     {
-        if (!test())
+        if (!test || !test())
         {
-            std::fprintf(stderr, "Barrier fixture failed: %u\n", index);
+            std::ignore = std::fprintf(stderr, "Barrier fixture failed: %u\n", index);
             return 232;
         }
         ++index;
     }
-    std::fprintf(stderr, "Barrier: idle mutex independence, start publication, four-mutator root churn passed.\n");
+    std::ignore = std::fprintf(
+        stderr, "Barrier: idle mutex independence, start publication, four-mutator root churn passed.\n");
     return 0;
 }

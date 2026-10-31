@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include <Windows.h>
+#include "../Checked.h"
 #include <array>
+// NOLINTNEXTLINE(CppUnusedIncludeDirective): Direct standard-library contract, including MSVC intrinsics.
 #include <cstdio>
 #include <fcntl.h>
 #include <io.h>
@@ -23,11 +25,12 @@ struct TemporaryFile final
 {
     std::array<wchar_t, MAX_PATH + 1> Path{};
 
-    TemporaryFile()
+    explicit TemporaryFile(const wchar_t *prefix)
     {
-        std::array<wchar_t, MAX_PATH + 1> directory{};
-        const auto length = GetTempPathW(static_cast<DWORD>(directory.size()), directory.data());
-        if (!length || length >= directory.size() || !GetTempFileNameW(directory.data(), L"sol", 0, Path.data()))
+        constexpr DWORD DirectoryCapacity = MAX_PATH + 1;
+        std::array<wchar_t, DirectoryCapacity> directory{};
+        const auto length = GetTempPathW(DirectoryCapacity, directory.data());
+        if (!length || length >= directory.size() || !GetTempFileNameW(directory.data(), prefix, 0, Path.data()))
         {
             throw std::runtime_error("Cannot create dependency test file.");
         }
@@ -54,7 +57,7 @@ struct GzipCloser final
 
 int GzipWriteFailure()
 {
-    const TemporaryFile temporary;
+    const TemporaryFile temporary(L"sol");
     int descriptor = -1;
     if (_wsopen_s(&descriptor, temporary.Path.data(), _O_RDONLY | _O_BINARY, _SH_DENYNO, _S_IREAD))
     {
@@ -66,13 +69,14 @@ int GzipWriteFailure()
         std::ignore = _close(descriptor);
         return 2;
     }
-    std::array<unsigned char, 32768> input{};
+    constexpr unsigned InputSize = 32768;
+    std::array<unsigned char, InputSize> input{};
     if (gzbuffer(file.get(), 128) != 0 || gzsetparams(file.get(), Z_NO_COMPRESSION, Z_DEFAULT_STRATEGY) != Z_OK)
     {
         return 3;
     }
     // The read-only descriptor forces the underlying write to fail after consuming caller input.
-    if (gzwrite(file.get(), input.data(), static_cast<unsigned>(input.size())) != 0)
+    if (gzwrite(file.get(), input.data(), InputSize) != 0)
     {
         return 4;
     }
@@ -93,23 +97,26 @@ int GzipWriteFailure()
 
 int XmlAndCompression()
 {
-    constexpr char xml[] = "<assembly><identity name=\"Sol\"/></assembly>";
+    constexpr auto xml = std::to_array("<assembly><identity name=\"Sol\"/></assembly>");
+    constexpr int XmlLength = OpenDot::Sol::CheckedInteger<int>(xml.size() - 1);
     std::unique_ptr<xmlDoc, decltype(&xmlFreeDoc)> document{
-        xmlReadMemory(xml, static_cast<int>(sizeof(xml) - 1), nullptr, nullptr, XML_PARSE_NONET | XML_PARSE_NO_XXE),
+        xmlReadMemory(xml.data(), XmlLength, nullptr, nullptr, XML_PARSE_NONET | XML_PARSE_NO_XXE),
         &xmlFreeDoc};
     if (!document || !xmlDocGetRootElement(document.get()))
     {
         return 7;
     }
-    std::array<unsigned char, 1024> input{};
-    std::array<unsigned char, 2048> compressed{};
-    std::array<unsigned char, 1024> restored{};
-    uLongf size = static_cast<uLongf>(compressed.size());
-    if (compress2(compressed.data(), &size, input.data(), static_cast<uLong>(input.size()), Z_BEST_SPEED) != Z_OK)
+    constexpr uLong InputSize = 1024;
+    constexpr uLongf CompressedCapacity = 2048;
+    std::array<unsigned char, InputSize> input{};
+    std::array<unsigned char, CompressedCapacity> compressed{};
+    std::array<unsigned char, InputSize> restored{};
+    uLongf size = CompressedCapacity;
+    if (compress2(compressed.data(), &size, input.data(), InputSize, Z_BEST_SPEED) != Z_OK)
     {
         return 8;
     }
-    uLongf output = static_cast<uLongf>(restored.size());
+    uLongf output = InputSize;
     if (uncompress(restored.data(), &output, compressed.data(), size) != Z_OK || output != input.size() || restored !=
         input)
     {

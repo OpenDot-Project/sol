@@ -31,7 +31,7 @@ $sourceFiles += ';runtime/MarkWork.h;runtime/GcDiagnostics.h;runtime/GcPacing.h;
 $arguments = @('src/native/Sol.Native.sln', '--no-build', '--no-updates', '--disable-settings-layers=GlobalAll;GlobalPerProduct;SolutionPersonal;ProjectPersonal', "--toolset-path=$(Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe')", "--properties=$properties", '--caches-home=out/jetbrains/cache', "--include=$sourceFiles")
 $sourceFiles += ';runtime/TraceLayoutHarness.cpp;runtime/ProfileOptionsHarness.cpp'
 $sourceFiles += ';dependencies/DependencyHarness.cpp'
-$sourceFiles += ';llvm-native/Operations.h'
+$sourceFiles += ';llvm-native/Operations.h;Checked.h;runtime/CheckedAccess.h;runtime/ReferenceArrayHarness.cpp;runtime/FunctionArrayHarness.cpp'
 if ($Fuzz) { $sourceFiles = 'fuzz/Main.cpp;fuzz/CoverageMain.cpp;fuzz/Fuzz.h;fuzz/RuntimeCases.cpp;fuzz/GcCases.cpp;fuzz/BackendCases.cpp;llvm-native/Operations.h' }
 $arguments[-1] = "--include=$sourceFiles"
 if ($Sources) {
@@ -81,8 +81,8 @@ try {
         if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Fresh InspectCode output is missing.' }
         $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
         if ($report.version -ne '2.1.0' -or @($report.runs).Count -eq 0) { throw 'Invalid InspectCode SARIF output.' }
-        $results = @($report.runs | ForEach-Object { $_.results })
-        if ($results | Where-Object { $_.level -eq 'error' }) { throw "Native InspectCode reported errors; see $reportPath." }
+        $results = @($report.runs | ForEach-Object { $_.results } | Where-Object { $null -ne $_ })
+        if ($results.Count -ne 0) { throw "Native InspectCode reported warning/error findings; see $reportPath." }
         Copy-Item -LiteralPath $reportPath -Destination $latestPath
         Write-Host "Native InspectCode completed: $($results.Count) warning/error findings."
     }

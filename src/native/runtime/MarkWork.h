@@ -11,6 +11,7 @@ class ReadyWork;
 
 /// Resident span work. All mutation is serialized by the heap mutex, including claimed-span shading.
 /// Word epochs avoid clearing every span or every word during a root handshake.
+// NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
 class MarkRegion final
 {
     struct Word final
@@ -29,8 +30,8 @@ class MarkRegion final
     MarkRegion *_next = nullptr;
     bool _queued = false;
     bool _claimed = false;
-    Word &ForWrite(std::uint32_t slot, std::uint64_t epoch);
-    void CheckSlot(std::uint32_t slot) const;
+    Word &ForWrite(std::uint32_t slot, std::uint64_t epoch) noexcept;
+    void CheckSlot(std::uint32_t slot) const noexcept;
     friend class ReadyWork;
 
 public:
@@ -38,15 +39,17 @@ public:
     ~MarkRegion();
     MarkRegion(const MarkRegion &) = delete;
     MarkRegion &operator=(const MarkRegion &) = delete;
+    MarkRegion(MarkRegion &&) = delete;
+    MarkRegion &operator=(MarkRegion &&) = delete;
     void Initialize(Header *base, std::uint32_t slots, std::uint32_t stride);
-    void SetBase(Header *base);
-    void Black(std::uint32_t slot, std::uint64_t epoch);
-    bool Shade(std::uint32_t slot, std::uint64_t epoch);
-    bool Marked(std::uint32_t slot, std::uint64_t epoch) const;
+    void SetBase(Header *base) noexcept;
+    void Black(std::uint32_t slot, std::uint64_t epoch) noexcept;
+    bool Shade(std::uint32_t slot, std::uint64_t epoch) noexcept;
+    bool Marked(std::uint32_t slot, std::uint64_t epoch) const noexcept;
     bool HasGray(std::uint64_t epoch) const noexcept;
-    std::uint32_t FirstGray(std::uint64_t epoch) const;
-    void Complete(std::uint32_t slot, std::uint64_t epoch);
-    Header *Address(std::uint32_t slot) const;
+    std::uint32_t FirstGray(std::uint64_t epoch) const noexcept;
+    void Complete(std::uint32_t slot, std::uint64_t epoch) noexcept;
+    Header *Address(std::uint32_t slot) const noexcept;
     void Cancel() noexcept;
     std::uint32_t SlotCount() const noexcept;
     std::uint64_t MetadataBytes() const noexcept;
@@ -66,9 +69,9 @@ class ReadyWork final
     std::uint64_t _peak = 0;
 
 public:
-    void Publish(MarkRegion &region);
-    MarkRegion *Claim();
-    void Finish(MarkRegion &region, std::uint64_t epoch);
+    void Publish(MarkRegion &region) noexcept;
+    MarkRegion *Claim() noexcept;
+    void Finish(MarkRegion &region, std::uint64_t epoch) noexcept;
     void CancelAll() noexcept;
     bool Empty() const noexcept;
     std::uint64_t Count() const noexcept;
@@ -76,6 +79,6 @@ public:
     std::uint64_t Publications() const noexcept;
     std::uint64_t Coalesced() const noexcept;
     std::uint64_t Peak() const noexcept;
-    void ResetCounters();
+    void ResetCounters() noexcept;
 };
 }

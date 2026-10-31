@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "Session.h"
+#include "Api.h"
+#include "Support.h"
+#include "../Checked.h"
+#include <span>
+#include <tuple>
+#include <string>
 // Upstream LLVM SDK templates trigger these MSVC diagnostics; first-party code keeps /W4 /WX.
 #pragma warning(push)
 #pragma warning(disable: 4244 4702)
@@ -12,12 +18,52 @@
 #include <llvm/Transforms/Utils/Cloning.h>
 #pragma warning(pop)
 #include <cstring>
-#include <cstdlib>
 #include <stdexcept>
 
 namespace OpenDot::Sol::LlvmNative
 {
+namespace
+{
 thread_local std::string Error;
+thread_local const char *FallbackError = nullptr;
+}
+
+void ClearError() noexcept
+{
+    Error.clear();
+    FallbackError = nullptr;
+}
+
+void SetError(std::string_view message) noexcept
+{
+    try
+    {
+        Error.assign(message);
+        FallbackError = nullptr;
+    }
+    catch (...)
+    {
+        Error.clear();
+        FallbackError = "Native LLVM failure: error diagnostics allocation failed.";
+    }
+}
+
+void SetError(const std::exception &error) noexcept
+{
+    try
+    {
+        SetError(error.what());
+    }
+    catch (...)
+    {
+        SetError("Native LLVM failure: exception diagnostics are unavailable.");
+    }
+}
+
+const char *LastError() noexcept
+{
+    return FallbackError ? FallbackError : Error.c_str();
+}
 
 std::vector<unsigned char> Session::Output(int kind)
 {
@@ -71,17 +117,17 @@ template <class Action> bool Protect(Action action) noexcept
     try
     {
         action();
-        OpenDot::Sol::LlvmNative::Error.clear();
+        OpenDot::Sol::LlvmNative::ClearError();
         return true;
     }
     catch (const std::exception &error)
     {
-        OpenDot::Sol::LlvmNative::Error = error.what();
+        OpenDot::Sol::LlvmNative::SetError(error);
         return false;
     }
     catch (...)
     {
-        OpenDot::Sol::LlvmNative::Error = "Unknown native LLVM failure.";
+        OpenDot::Sol::LlvmNative::SetError("Unknown native LLVM failure.");
         return false;
     }
 }
@@ -103,19 +149,20 @@ void *SolLlvmCreate() noexcept
     void *result = nullptr;
     Protect([&] {
         OpenDot::Sol::LlvmNative::Initialize();
-        result = new OpenDot::Sol::LlvmNative::Session();
+        result = std::make_unique<OpenDot::Sol::LlvmNative::Session>("sol-module").release();
     });
     return result;
 }
 
 void SolLlvmDestroy(void *session) noexcept
 {
-    delete static_cast<OpenDot::Sol::LlvmNative::Session *>(session);
+    const std::unique_ptr<OpenDot::Sol::LlvmNative::Session> owner{
+        static_cast<OpenDot::Sol::LlvmNative::Session *>(session)};
 }
 
 const char *SolLlvmError() noexcept
 {
-    return OpenDot::Sol::LlvmNative::Error.c_str();
+    return OpenDot::Sol::LlvmNative::LastError();
 }
 
 const char *SolLlvmVersion() noexcept
@@ -135,7 +182,8 @@ bool SolLlvmApply(void *pointer, int operation, std::int64_t type, const std::in
         std::vector<std::int64_t> args;
         if (count)
         {
-            args.assign(operands, operands + count);
+            const std::span input(operands, count);
+            args.assign(input.begin(), input.end());
         }
         *result = Get(pointer).Apply(static_cast<OpenDot::Sol::LlvmNative::Operation>(operation), type, args, data,
                                      text);
@@ -145,33 +193,39 @@ bool SolLlvmApply(void *pointer, int operation, std::int64_t type, const std::in
 bool SolLlvmString(void *pointer, const unsigned char *bytes, std::uint64_t size, std::int64_t *result) noexcept
 {
     return Protect([&] {
-        if (!result || size > 64 * 1024 * 1024 || (size && !bytes))
+        if (!result || size > 64ULL * 1024 * 1024 || (size && !bytes))
         {
             throw std::invalid_argument("Invalid LLVM String literal bytes.");
         }
         auto &session = Get(pointer);
         session.CheckThread();
         auto &context = session.Context;
-        auto *data = llvm::ConstantDataArray::get(context, llvm::ArrayRef(bytes, static_cast<std::size_t>(size)));
+        auto &data = *llvm::ConstantDataArray::get(context,
+                                                   llvm::ArrayRef(
+                                                       bytes, OpenDot::Sol::CheckedInteger<std::size_t>(size)));
         auto *i32 = llvm::Type::getInt32Ty(context);
         auto *ptr = llvm::PointerType::getUnqual(context);
-        auto *type = llvm::StructType::get(context, {ptr, i32, i32, i32, i32, data->getType()});
+        auto *type = llvm::StructType::get(context, {ptr, i32, i32, i32, i32, data.getType()});
         auto *constant = llvm::ConstantStruct::get(type, {llvm::Constant::getNullValue(ptr),
                                                           llvm::ConstantInt::get(i32, 0),
                                                           llvm::ConstantInt::get(i32, 0),
                                                           llvm::ConstantInt::get(i32, size),
-                                                          llvm::ConstantInt::getSigned(i32, -1), data});
-        auto *global = new llvm::GlobalVariable(*session.Module, type, false, llvm::GlobalValue::PrivateLinkage,
-                                                constant, "sol_str");
-        global->setAlignment(llvm::Align(16));
-        *result = session.Add({nullptr, global});
+                                                          llvm::ConstantInt::getSigned(i32, -1), &data});
+        auto global = std::make_unique<llvm::GlobalVariable>(*session.Module, type, false,
+                                                             llvm::GlobalValue::PrivateLinkage,
+                                                             constant, "sol_str");
+        auto &registered = *global;
+        // The module-taking constructor registered lifetime ownership; entries are non-owning.
+        std::ignore = global.release();
+        registered.setAlignment(llvm::Align(16));
+        *result = session.Add({nullptr, &registered});
     });
 }
 
 bool SolLlvmVerify(void *pointer) noexcept
 {
     return Protect([&] {
-        auto &session = Get(pointer);
+        const auto &session = Get(pointer);
         session.CheckThread();
         OpenDot::Sol::LlvmNative::Verify(*session.Module);
     });
@@ -185,22 +239,18 @@ bool SolLlvmOutput(void *pointer, int kind, void **bytes, std::uint64_t *size) n
             throw std::invalid_argument("Missing LLVM output location.");
         }
         auto data = Get(pointer).Output(kind);
-        auto *memory = std::malloc(data.size() ? data.size() : 1);
-        if (!memory)
-        {
-            throw std::bad_alloc();
-        }
+        auto memory = std::make_unique<unsigned char[]>(data.empty() ? 1 : data.size());
         if (!data.empty())
         {
-            std::memcpy(memory, data.data(), data.size());
+            std::memcpy(memory.get(), data.data(), data.size());
         }
-        *bytes = memory;
+        *bytes = memory.release();
         *size = data.size();
     });
 }
 
 void SolLlvmFree(void *bytes) noexcept
 {
-    std::free(bytes);
+    const std::unique_ptr<unsigned char[]> owner{static_cast<unsigned char *>(bytes)};
 }
 }

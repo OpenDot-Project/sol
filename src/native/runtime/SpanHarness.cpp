@@ -1,10 +1,14 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "SpanAllocator.h"
+#include <tuple>
+#include <bit>
+#include "CheckedAccess.h"
 #include "Core.h"
 #include <Windows.h>
 #include <algorithm>
 #include <cstdio>
+// NOLINTNEXTLINE(CppUnusedIncludeDirective): Direct standard-library contract, including MSVC intrinsics.
 #include <cstring>
 #include <unordered_set>
 #include <vector>
@@ -14,7 +18,7 @@ using namespace OpenDot::Sol::Runtime::Heap;
 
 namespace
 {
-constexpr std::uint64_t Limit = 16ULL * 1024 * 1024;
+constexpr std::uint64_t Limit = 16ULL * 1024ULL * 1024;
 
 int Classes()
 {
@@ -25,12 +29,12 @@ int Classes()
     {
         std::vector<Block> blocks;
         std::unordered_set<Header *> addresses;
-        const auto count = static_cast<unsigned>(SpanBytes / size + 3);
+        const auto count = Detail::Integer<unsigned>(SpanBytes / size + 3);
         for (unsigned index = 0; index < count; ++index)
         {
             const auto block = allocator.TryAllocate(size, Limit, guard);
             if (!block.Object || !block.Owner || block.Capacity != size || !addresses.insert(block.Object).second
-                || reinterpret_cast<std::uintptr_t>(block.Object) % 16)
+                || std::bit_cast<std::uintptr_t>(block.Object) % 16)
             {
                 return 101;
             }
@@ -39,15 +43,15 @@ int Classes()
         }
         for (const auto &block : blocks)
         {
-            const auto *bytes = reinterpret_cast<const unsigned char *>(block.Object);
-            if (bytes[0] != 0x5A || bytes[size - 1] != 0x5A)
+            const std::span bytes(Detail::StorageCast<const unsigned char>(block.Object), size);
+            if (bytes.front() != 0x5A || bytes.back() != 0x5A)
             {
                 return 102;
             }
             allocator.Release(block, guard);
         }
     }
-    auto stats = allocator.Stats();
+    const auto stats = allocator.Stats();
     if (stats.SmallObjectCount || stats.CapacityBytes || stats.SpanCount != SizeClasses.size()
         || stats.CommittedBytes != SpanBytes * SizeClasses.size())
     {
@@ -57,7 +61,7 @@ int Classes()
     allocator.BeginCycle();
     for (auto size : SizeClasses)
     {
-        auto block = allocator.TryAllocate(size, Limit, guard);
+        const auto block = allocator.TryAllocate(size, Limit, guard);
         if (!block.Object || allocator.Stats().SpanCount != SizeClasses.size())
         {
             return 104;
@@ -83,9 +87,9 @@ int BoundariesAndReuse()
         {
             continue;
         }
-        const auto bytes = static_cast<std::uint64_t>(size - 16);
+        const auto bytes = Detail::Integer<std::uint64_t>(size - 16);
         const auto expected = *std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes);
-        auto block = allocator.TryAllocate(bytes, Limit, guard);
+        const auto block = allocator.TryAllocate(bytes, Limit, guard);
         if (!block.Object || block.Capacity != expected)
         {
             return 110;
@@ -105,13 +109,13 @@ int BoundariesAndReuse()
     std::unordered_set<Header *> freed;
     for (unsigned index = 0; index < blocks.size(); index += 2)
     {
-        freed.insert(blocks[index].Object);
-        allocator.Release(blocks[index], guard);
+        freed.insert(blocks.at(index).Object);
+        allocator.Release(blocks.at(index), guard);
     }
     for (unsigned index = 0; index < blocks.size(); index += 2)
     {
-        blocks[index] = allocator.TryAllocate(64, Limit, guard);
-        if (!freed.erase(blocks[index].Object))
+        blocks.at(index) = allocator.TryAllocate(64, Limit, guard);
+        if (!freed.erase(blocks.at(index).Object))
         {
             return 112;
         }
@@ -143,26 +147,26 @@ int Epochs()
     }
     allocator.BeginCycle();
     const auto fresh = allocator.TryAllocate(64, Limit, guard);
-    if (fresh.Owner == old[0].Owner)
+    if (fresh.Owner == old.at(0).Owner)
     {
         return 120;
     }
-    allocator.Sweep(old[0], true, guard);
-    allocator.Sweep(old[1], false, guard);
+    allocator.Sweep(old.at(0), true, guard);
+    allocator.Sweep(old.at(1), false, guard);
     const auto racing = allocator.TryAllocate(64, Limit, guard);
-    if (racing.Owner == old[0].Owner)
+    if (racing.Owner == old.at(0).Owner)
     {
         return 121;
     }
-    allocator.Sweep(old[2], true, guard);
-    allocator.Sweep(old[3], true, guard);
+    allocator.Sweep(old.at(2), true, guard);
+    allocator.Sweep(old.at(3), true, guard);
     const auto reused = allocator.TryAllocate(64, Limit, guard);
-    if (reused.Owner != old[0].Owner)
+    if (reused.Owner != old.at(0).Owner)
     {
         return 122;
     }
     allocator.BeginCycle();
-    for (const auto &block : {old[1], fresh, racing, reused})
+    for (const auto &block : {old.at(1), fresh, racing, reused})
     {
         allocator.Sweep(block, true, guard);
     }
@@ -178,7 +182,7 @@ int LargeAndBudget()
     std::mutex mutex;
     std::unique_lock guard(mutex);
     SpanAllocator allocator;
-    auto tiny = allocator.TryAllocate(16, Limit, guard);
+    const auto tiny = allocator.TryAllocate(16, Limit, guard);
     allocator.Release(tiny, guard);
     // A dedicated region can reclaim the bounded empty-span reserve to fit its commit budget.
     auto large = allocator.TryAllocate(65536, 65536, guard);
@@ -195,7 +199,8 @@ int LargeAndBudget()
     large = allocator.TryAllocate(32784, Limit, guard);
     SYSTEM_INFO system{};
     GetSystemInfo(&system);
-    const auto expectedCommit = (32784ULL + system.dwPageSize - 1) & ~static_cast<std::uint64_t>(system.dwPageSize - 1);
+    const auto expectedCommit = (32784ULL + system.dwPageSize - 1) & ~Detail::Integer<std::uint64_t>(
+                                    system.dwPageSize - 1);
     MEMORY_BASIC_INFORMATION info{};
     if (!large.Object || large.Owner || large.Capacity != expectedCommit || large.Reserved != 65536
         || !VirtualQuery(large.Object, &info, sizeof(info)) || info.State != MEM_COMMIT
@@ -215,17 +220,18 @@ int LargeAndBudget()
     return 0;
 }
 
-int ZeroedReuse()
+int ZeroedReuse() noexcept(false)
 {
     sol_gc_attach();
     auto *value = sol_gc_alloc(&sol_rt_object_type, 272);
-    std::memset(reinterpret_cast<char *>(value) + sizeof(Header), 0x55, 272 - sizeof(Header));
+    const auto payload = std::span(Detail::StorageCast<char>(value), 272).subspan(sizeof(Header));
+    std::memset(payload.data(), 0x55, payload.size());
     sol_gc_collect();
-    auto *replacement = sol_gc_alloc(&sol_rt_object_type, 272);
-    const auto *bytes = reinterpret_cast<const unsigned char *>(replacement);
+    const auto *replacement = sol_gc_alloc(&sol_rt_object_type, 272);
+    const std::span bytes(Detail::StorageCast<const unsigned char>(replacement), 272);
     for (unsigned index = sizeof(Header); index < 272; ++index)
     {
-        if (bytes[index])
+        if (Detail::CheckedAt(bytes, index))
         {
             return 140;
         }
@@ -243,23 +249,23 @@ int ZeroedReuse()
 }
 }
 
-int RunSpanTests()
+int RunSpanTests() noexcept(false)
 {
     for (auto test : {Classes, BoundariesAndReuse, Epochs, LargeAndBudget, ZeroedReuse})
     {
-        const auto code = test();
+        const auto code = test ? test() : 7;
         if (code)
         {
             return code;
         }
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr,
         "Span allocator: 44 classes, reuse, sealed epochs, virtual regions, commit limits and zeroing passed\n");
     return 0;
 }
 
-int RunSpanPoisonTest(bool freed)
+int RunSpanPoisonTest(bool freed) noexcept(false)
 {
     sol_gc_attach();
     auto *object = sol_gc_alloc(&sol_rt_object_type, 272);
@@ -268,7 +274,15 @@ int RunSpanPoisonTest(bool freed)
         sol_gc_collect();
     }
     // An ASan child must diagnose both class slack and a reclaimed slot retained in an empty span.
-    auto *byte = reinterpret_cast<volatile unsigned char *>(object) + (freed ? 0 : 272);
+#if defined(_MSC_VER) && !defined(__clang__)
+    [[gsl::suppress("bounds.1", justification:
+            "Intentional ASan poisoned-slot probe; the harness requires this process to fail.")]]
+#endif
+        auto *byte = Detail::StorageCast<volatile unsigned char>(object) + (freed ? 0 : 272);
+    if (!byte)
+    {
+        return 99;
+    }
     *byte = 1;
     return 99;
 }

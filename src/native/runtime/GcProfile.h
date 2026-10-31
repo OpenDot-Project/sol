@@ -39,10 +39,11 @@ struct AllocationTimings final
     std::uint64_t Total = 0;
     std::uint64_t Maximum = 0;
     void Record(std::uint64_t duration);
-    void Merge(AllocationTimings &&other);
+    void Merge(AllocationTimings other);
     std::uint64_t Percentile(unsigned percentile) const;
 };
 
+// NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
 struct ProfileResult final
 {
     ProfileOptions Options;
@@ -59,9 +60,9 @@ struct ProfileResult final
     bool AddressSanitized = false;
 };
 
-const char *ScenarioName(ProfileScenario scenario);
-bool ParseProfileOptions(int count, wchar_t **arguments, ProfileOptions &options);
+const char *ScenarioName(ProfileScenario scenario) noexcept;
+bool ParseProfileOptions(int count, const wchar_t *const *arguments, ProfileOptions &options) noexcept;
 bool ExecuteProfile(ProfileResult &result);
 std::string SerializeProfile(const ProfileResult &result);
-int RunGcProfile(int count, wchar_t **arguments);
+int RunGcProfile(int count, const wchar_t *const *arguments);
 }
