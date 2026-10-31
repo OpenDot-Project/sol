@@ -3,6 +3,7 @@
 param(
     [ValidateSet('Cleanup', 'Inspect')][string]$Mode = 'Inspect',
     [ValidateRange(1, 8)][int]$Jobs = 2,
+    [switch]$Fuzz,
     [string[]]$Sources
 )
 $ErrorActionPreference = 'Stop'
@@ -24,11 +25,14 @@ $packs = Join-Path (Split-Path (Get-Command dotnet).Source -Parent) 'packs'
 $reference = Get-ChildItem (Join-Path $packs 'Microsoft.NETCore.App.Ref') -Directory | Where-Object Name -Like '10.*' | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
 if (-not $reference) { throw '.NET 10 reference packs are missing.' }
 $properties = "Configuration=Release;Platform=x64;PlatformToolset=$($toolset.Name);DotNetPackRoot=$packs;ReferencePackVersion=$($reference.Name);LLVMRoot=$env:LLVM_ROOT;TestHarness=true;StaticRuntime=true"
+if ($Fuzz) { $properties += ';FuzzHarness=true;CoverageSourceIndex=true' }
 $sourceFiles = 'llvm-bridge/Compiler.cpp;llvm-native/Api.h;llvm-native/Support.h;llvm-native/Session.h;llvm-native/Session.cpp;llvm-native/Output.cpp;llvm-native/Orc.cpp;llvm-native/Linker.cpp;runtime/SolRT.cpp;runtime/SolRT.h;runtime/Core.cpp;runtime/Core.h;runtime/Arrays.cpp;runtime/Gc.cpp;runtime/GcAllocation.cpp;runtime/GcHandles.cpp;runtime/IdentitySequence.h;runtime/ThreadAllocation.h;runtime/ThreadAllocation.cpp;runtime/ThreadAllocationHarness.cpp;runtime/HandleHarness.cpp;runtime/Gc.h;runtime/GcConfig.cpp;runtime/GcInternal.h;runtime/GcWorker.cpp;runtime/GcModel.cpp;runtime/NativeScope.h;runtime/Harness.cpp;runtime/GcHarness.cpp;runtime/SpanAllocator.h;runtime/SpanAllocator.cpp;runtime/SpanHarness.cpp;runtime/RegionHarness.cpp;exec-host/Main.cpp;launcher/main.cpp'
 $sourceFiles += ';runtime/MarkWork.h;runtime/GcDiagnostics.h;runtime/GcPacing.h;runtime/GcProfile.h;runtime/TraceHarnessSupport.h;runtime/MarkWork.cpp;runtime/GcDiagnostics.cpp;runtime/GcDiagnosticNames.cpp;runtime/GcPacing.cpp;runtime/GcTracing.cpp;runtime/MarkBitmapHarness.cpp;runtime/ReadyWorkModel.cpp;runtime/BarrierPhaseModel.cpp;runtime/SpanTraceHarness.cpp;runtime/DiagnosticsHarness.cpp;runtime/PacingHarness.cpp;runtime/BarrierHarness.cpp;runtime/DescriptorHarness.cpp;runtime/GcProfile.cpp;runtime/ProfileWorkloads.cpp;runtime/ProfileJson.cpp'
 $arguments = @('src/native/Sol.Native.sln', '--no-build', '--no-updates', '--disable-settings-layers=GlobalAll;GlobalPerProduct;SolutionPersonal;ProjectPersonal', "--toolset-path=$(Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe')", "--properties=$properties", '--caches-home=out/jetbrains/cache', "--include=$sourceFiles")
 $sourceFiles += ';runtime/TraceLayoutHarness.cpp;runtime/ProfileOptionsHarness.cpp'
 $sourceFiles += ';dependencies/DependencyHarness.cpp'
+$sourceFiles += ';llvm-native/Operations.h'
+if ($Fuzz) { $sourceFiles = 'fuzz/Main.cpp;fuzz/CoverageMain.cpp;fuzz/Fuzz.h;fuzz/RuntimeCases.cpp;fuzz/GcCases.cpp;fuzz/BackendCases.cpp;llvm-native/Operations.h' }
 $arguments[-1] = "--include=$sourceFiles"
 if ($Sources) {
     $allowed = $sourceFiles.Split(';')

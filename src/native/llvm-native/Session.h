@@ -3,6 +3,7 @@
 #pragma once
 #include "Support.h"
 #include "Api.h"
+#include "Operations.h"
 // Upstream LLVM SDK templates trigger these MSVC diagnostics; first-party code keeps /W4 /WX.
 #pragma warning(push)
 #pragma warning(disable: 4244 4702)
@@ -17,16 +18,6 @@
 
 namespace OpenDot::Sol::LlvmNative
 {
-enum class Operation
-{
-    VoidType, IntegerType, FloatType, DoubleType, PointerType, ArrayType, StructType,
-    Integer, Floating, Zero, Function, Parameter, Block, Position, Alloca, Load, Store,
-    Gep, StructGep, Call, Return, Branch, ConditionalBranch, Unreachable, Phi, Extract,
-    Add, Sub, Mul, SDiv, UDiv, SRem, URem, And, Or, Xor, Shl, LShr, AShr,
-    FAdd, FSub, FMul, FDiv, FRem, FNeg, ICmp, FCmp, ZExt, SExt, Trunc, FPExt,
-    FunctionType, IndirectCall,
-};
-
 struct Entry final
 {
     llvm::Type *Type = nullptr;

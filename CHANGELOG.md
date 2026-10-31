@@ -14,6 +14,9 @@ remains broader than the implementation. The published Sol 0.0.1 assets remain i
 
 ### Added
 
+- Reproducible 100,000-input fuzz seed corpora across frontend, AST/declaration analysis,
+  runtime, native LLVM backend and GC, with isolated managed/native workers, integrity
+  checks, independent oracles, ASan runtime/GC replay and Windows CI validation.
 - Explicit native upstream-commit OSV queries, strict paginated advisory evidence validation,
   and a separate Windows advisory workflow. A pinned upstream zlib fix, libxml2 HTML/XInclude
   removal and hash-bound ASan/symbol qualification harden the native dependency inputs.
