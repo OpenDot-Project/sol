@@ -100,6 +100,154 @@ public sealed class NativeRuntimeIntegrationTests
     }
 
     [Fact(Skip = "Runs in the required native-backend test job.", SkipUnless = nameof(Enabled), Timeout = 30000)]
+    public void NestedGenericArraysKeepManagedElementsReachableAcrossCollection()
+    {
+        var compilation = FirCompilation.Create([AstTestSources.Parse("""
+            import std.stdio
+            func <T> first(values: [][]T): T = values[0][0]
+            object Main {
+                func main(args: []String) throws IOException {
+                    val rows: [][]String = [["kept"]]
+                    Gc.collect()
+                    println(first<String>(rows))
+                }
+            }
+            """)], TestContext.Current.CancellationToken);
+        Assert.True(compilation.Program is not null, string.Join("\n", compilation.Diagnostics
+            .Select(diagnostic => diagnostic.Code + ": " + diagnostic.Message)));
+        Assert.NotNull(compilation.Program);
+
+        using var output = new MemoryStream();
+        using var error = new MemoryStream();
+        int exitCode = OrcExecutor.Execute(compilation.Program, [], false, Backend,
+            TestContext.Current.CancellationToken, output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("kept\n", Encoding.UTF8.GetString(output.ToArray()));
+        Assert.Empty(error.ToArray());
+    }
+
+    [Fact(Skip = "Runs in the required native-backend test job.", SkipUnless = nameof(Enabled), Timeout = 30000)]
+    public void GenericDefaultArgumentsEvaluateExplicitValuesOnceInSourceOrder()
+    {
+        var compilation = FirCompilation.Create([AstTestSources.Parse("""
+            import std.stdio
+            func <T> cascade(first: T, second: T = first, third: T = second): T = third
+            func mark(value: int): int throws IOException { println(value); value }
+            object Main {
+                func main(args: []String) throws IOException {
+                    println(cascade(third = mark(30), first = mark(10)))
+                    println(cascade(first = mark(1)))
+                }
+            }
+            """)], TestContext.Current.CancellationToken);
+        Assert.True(compilation.Program is not null, string.Join("\n", compilation.Diagnostics
+            .Select(diagnostic => diagnostic.Code + ": " + diagnostic.Message)));
+        Assert.NotNull(compilation.Program);
+
+        using var output = new MemoryStream();
+        using var error = new MemoryStream();
+        int exitCode = OrcExecutor.Execute(compilation.Program, [], false, Backend,
+            TestContext.Current.CancellationToken, output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("30\n10\n30\n1\n1\n", Encoding.UTF8.GetString(output.ToArray()));
+        Assert.Empty(error.ToArray());
+    }
+
+    [Fact(Skip = "Runs in the required native-backend test job.", SkipUnless = nameof(Enabled), Timeout = 30000)]
+    public void StatelessObjectGenericMethodsExecuteThroughReceiverFreeFir()
+    {
+        var compilation = FirCompilation.Create([AstTestSources.Parse("""
+            import std.stdio
+            object Text {
+                func <T> identity(value: T): T { Gc.collect(); value }
+                func <T> relay(value: T, fallback: T = value): T = identity<T>(fallback)
+                func <T> replace(ref current: T, next: T) { current = next }
+            }
+            object Main {
+                func main(args: []String) throws IOException {
+                    var changed = "old" + args[0]
+                    Text.replace<String>(ref changed, "new" + args[0])
+                    Gc.collect()
+                    println(Text.relay<String>("method" + args[0]))
+                    println(changed)
+                }
+            }
+            """)], TestContext.Current.CancellationToken);
+        Assert.True(compilation.Program is not null, string.Join("\n", compilation.Diagnostics
+            .Select(diagnostic => diagnostic.Code + ": " + diagnostic.Message)));
+        Assert.NotNull(compilation.Program);
+
+        using var output = new MemoryStream();
+        using var error = new MemoryStream();
+        int exitCode = OrcExecutor.Execute(compilation.Program, ["root"], false, Backend,
+            TestContext.Current.CancellationToken, output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("methodroot\nnewroot\n", Encoding.UTF8.GetString(output.ToArray()));
+        Assert.Empty(error.ToArray());
+    }
+
+    [Fact(Skip = "Runs in the required native-backend test job.", SkipUnless = nameof(Enabled), Timeout = 30000)]
+    public void ArrayValuedGenericObjectVarargElementRemainsRootedAcrossCollection()
+    {
+        var compilation = FirCompilation.Create([AstTestSources.Parse("""
+            import std.stdio
+            object Utility {
+                func <T> first(vararg values: T): T { Gc.collect(); values[0] }
+            }
+            object Main {
+                func main(args: []String) throws IOException {
+                    val entries: []String = ["array" + args[0]]
+                    println(Utility.first<[]String>(entries)[0])
+                }
+            }
+            """)], TestContext.Current.CancellationToken);
+        Assert.True(compilation.Program is not null, string.Join("\n", compilation.Diagnostics
+            .Select(diagnostic => diagnostic.Code + ": " + diagnostic.Message)));
+        Assert.NotNull(compilation.Program);
+
+        using var output = new MemoryStream();
+        using var error = new MemoryStream();
+        int exitCode = OrcExecutor.Execute(compilation.Program, ["nested"], false, Backend,
+            TestContext.Current.CancellationToken, output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("arraynested\n", Encoding.UTF8.GetString(output.ToArray()));
+        Assert.Empty(error.ToArray());
+    }
+
+    [Fact(Skip = "Runs in the required native-backend test job.", SkipUnless = nameof(Enabled), Timeout = 30000)]
+    public void GenericRefStoreKeepsTheReplacementObjectReachable()
+    {
+        var compilation = FirCompilation.Create([AstTestSources.Parse("""
+            import std.stdio
+            func <T> replace(ref current: T, next: T) { current = next }
+            object Main {
+                func main(args: []String) throws IOException {
+                    var current: String = "old" + args[0]
+                    replace<String>(ref current, "new" + args[0])
+                    Gc.collect()
+                    println(current)
+                }
+            }
+            """)], TestContext.Current.CancellationToken);
+        Assert.True(compilation.Program is not null, string.Join("\n", compilation.Diagnostics
+            .Select(diagnostic => diagnostic.Code + ": " + diagnostic.Message)));
+        Assert.NotNull(compilation.Program);
+
+        using var output = new MemoryStream();
+        using var error = new MemoryStream();
+        int exitCode = OrcExecutor.Execute(compilation.Program, ["text"], false, Backend,
+            TestContext.Current.CancellationToken, output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("newtext\n", Encoding.UTF8.GetString(output.ToArray()));
+        Assert.Empty(error.ToArray());
+    }
+
+    [Fact(Skip = "Runs in the required native-backend test job.", SkipUnless = nameof(Enabled), Timeout = 30000)]
     public async Task CancellationAfterGuestOutputTerminatesExecution()
     {
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

@@ -37,7 +37,8 @@ internal sealed partial class Parser
         or PlusPlusToken or MinusMinusToken or LessLessToken or GreaterGreaterToken or EqualsEqualsToken
         or BangEqualsToken or LessToken or GreaterToken or LessEqualsToken or GreaterEqualsToken or TrueKeyword or FalseKeyword;
 
-    private SyntaxNode ParseParameters(bool constructor = false, SyntaxKind close = CloseParenToken)
+    private SyntaxNode ParseParameters(bool constructor = false, SyntaxKind close = CloseParenToken,
+        bool allowOmittedTypes = false)
     {
         int start = Start;
         Expect(close == CloseParenToken ? OpenParenToken : OpenBracketToken);
@@ -58,8 +59,12 @@ internal sealed partial class Parser
                     Advance();
                     group.Add(ConsumeName());
                 }
-                Expect(ColonToken);
-                group.Add(ParseType());
+                if (Take(ColonToken)) { group.Add(ParseType()); }
+                else if (!allowOmittedTypes)
+                {
+                    Expect(ColonToken);
+                    group.Add(ParseType());
+                }
                 if (Take(EqualsToken)) { group.Add(ParseExpression()); }
                 groups.Add(Node(NodeKind.ParameterGroup, groupStart, group));
                 EnsureProgress(before);

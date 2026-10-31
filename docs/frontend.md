@@ -92,7 +92,7 @@ import std.stdio
 import output = std.stdio
 ```
 
-Imports are recorded as syntax. No standard library is loaded or linked in this release.
+The 0.0.1 frontend recorded imports as syntax only. Sol 0.1.0 adds compiler-owned bootstrap declarations for the documented std.core, std.stdio, and std.math subset; general module loading and standard-library coverage remain incomplete.
 Selective imports and import aliases are parsed. Object declarations can contain supported member
 declarations; object base lists and most other type declarations still report unsupported syntax.
 
@@ -147,7 +147,7 @@ rune literals must close on the same physical line; rune contents must contain o
 Malformed UTF-8 is diagnosed even inside comments and quoted literals. Numeric base digits and
 underscore placement are checked; numeric suffixes are not implemented.
 
-## Control flow in the development branch (Unreleased)
+## Control flow beyond the 0.0.1 frontend
 
 The following additions require a current source build; the published 0.0.1 component does not
 contain them. They extend syntax inspection without adding semantic validation or execution.
@@ -255,7 +255,7 @@ structure where applicable. This preserves storage/declaration intent for later 
 are not allowed in array or tuple literals. Semantic constraints such as valid writable storage,
 label scope, ref escape, and callback type compatibility remain unimplemented.
 
-## Declarations and members in the development branch (Unreleased)
+## Declarations and members beyond the 0.0.1 frontend
 
 Current source builds also parse class, struct/ref struct, object/companion, interface, and enum
 declarations; primary/secondary constructors; init blocks; properties/accessors/indexers;

@@ -2,46 +2,42 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Getting started
 
-## Install the Windows component
+## Choose and install a package
 
-Download `sol-0.0.1-windows-x86_64.zip` and its `.sha256` companion from the
-[Sol 0.0.1 release](https://github.com/OpenDot-Project/sol/releases/tag/v0.0.1).
-In PowerShell, from the download directory:
+Sol 0.1.0 has a frontend component and a native component. Both target Windows x86-64 and include
+a private .NET 10.0.13 runtime.
+
+- Download sol-0.1.0-windows-x86_64.zip for CST, AST, and verified FIR inspection. This component does not include LLVM.
+- Download sol-0.1.0-windows-x86_64-native.zip for the same compiler plus the restricted LLVM/SolRT backend, AOT artifacts, and isolated ORC execution.
+
+Download the selected archive and its matching SHA-256 file from the
+[Sol 0.1.0 release](https://github.com/OpenDot-Project/sol/releases/tag/v0.1.0). In PowerShell,
+from the directory containing both files:
 
 ```powershell
-$archive = 'sol-0.0.1-windows-x86_64.zip'
+$archive = 'sol-0.1.0-windows-x86_64-native.zip'
 $expected = ((Get-Content "$archive.sha256" -Raw).Trim() -split '\s+')[0]
-$actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
-if ($actual -ne $expected) { throw 'Checksum mismatch.' }
+$actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected.ToLowerInvariant()) { throw 'Checksum mismatch.' }
 Expand-Archive -LiteralPath $archive -DestinationPath .
-$solc = '.\sol-0.0.1-windows-x86_64\bin\solc.exe'
+$component = [IO.Path]::GetFileNameWithoutExtension($archive)
+$solc = Join-Path $component 'bin/solc.exe'
 & $solc --version --verbose
 ```
 
-This component targets Windows x86-64. It carries its own .NET 10.0.13 runtime; the compiler's
-managed application requires .NET 10, but a separate system installation is unnecessary for the
-component. LLVM is also unnecessary for the released CST-only frontend.
+Change the archive variable to the frontend ZIP when you only need source inspection. Keep each
+extracted component's bin, managed, and runtime directories together. The compiler launcher uses
+that component's private framework-dependent .NET runtime; this is not .NET NativeAOT or an SDK
+self-contained application.
 
-The extracted layout is:
-
-```text
-sol-0.0.1-windows-x86_64/
-  bin/solc.exe
-  managed/                 Managed compiler assemblies and runtime configuration
-  runtime/                 Private dotnet host and .NET runtime
-  licenses/                Sol license and attribution files
-  CHANGELOG.md
-  component.json           File sizes, SHA-256 values, and component identity
-```
-
-Move the entire directory to relocate it. Moving only `solc.exe` breaks its relative payload paths.
-The native launcher starts the package's own runtime and forwards arguments and the compiler exit
-code. Our scripts assemble these directories; the managed application is not NativeAOT or an SDK
-self-contained publish. Third-party runtime license and notice files remain inside `runtime`.
+The native component needs the Microsoft Visual C++ v14 x64 Redistributable for its C++/CLI
+adapter. AOT EXE/DLL linking additionally needs MSVC x64 libraries and the Windows SDK available
+through an x64 Visual Studio developer shell. ORC, staticlib, and solib outputs do not require
+installed LLVM tools or Windows SDK library paths. See [native component prerequisites](native-component.md).
 
 ## Parse a source file
 
-Create `example.sol` in your working directory with this content:
+Create example.sol:
 
 ```sol
 module samples.math
@@ -58,21 +54,41 @@ val named = { x, y -> x + y }
 val positional = { $0 + $1 }
 ```
 
+Write its CST JSON with either component:
+
 ```powershell
-& $solc .\example.sol --emit=cst -o .\example.cst.json
+& $solc .`example.sol --emit=cst -o .`example.cst.json
 if ($LASTEXITCODE -ne 0) { throw 'Parsing failed.' }
-$tree = Get-Content .\example.cst.json -Raw | ConvertFrom-Json
+$tree = Get-Content .`example.cst.json -Raw | ConvertFrom-Json
 $tree.module
 $tree.root.kind
 ```
 
-The last two values are `samples.math` and `CompilationUnit`. The output includes a structured
-syntax root and an ordered token stream with comments and whitespace. It does not contain resolved
-symbols or executable code. The module is declared by the file; it is not derived from `example.sol`.
+The last two values are samples.math and CompilationUnit. CST output contains a structured syntax
+root and ordered token stream with comments and whitespace. It does not contain resolved symbols
+or executable code. A source file declares its logical module; that name does not have to match
+the file path.
+
+## Inspect FIR or compile a native program
+
+The native package can emit verified FIR for supported inputs and can compile the closed subset
+documented in [Verified FIR and native programs](fir-native.md). The managed compiler component
+cannot link a native executable by itself. For example, from a source checkout with the native
+sample available:
+
+```powershell
+& $solc spec/examples/native/FirstProgram.sol -o .`Hello.exe
+.`Hello.exe Alice 20
+& $solc spec/examples/native/FirstProgram.sol -C llvm-compiler=orc -- Alice 20
+```
+
+The executable is an AMD64 Windows PE program. ORC executes in a separate native guest process.
+These examples use only the supported bootstrap subset; they do not demonstrate general object
+construction, source exception handling, or full standard-library coverage.
 
 ## Observe a diagnostic
 
-Remove the module declaration and parse again. Solc reports `SOL1100` and returns exit code 1.
+Remove the module declaration and parse again. Solc reports SOL1100 and returns exit code 1.
 It does not write a replacement CST output for an input set containing errors. An already existing
 output remains untouched on a parse failure, so check the exit code rather than treating a stale
 file as evidence of success.
@@ -80,14 +96,7 @@ file as evidence of success.
 For machine-readable source diagnostics:
 
 ```powershell
-& $solc .\example.sol --emit=cst --error-format=json --color=never 2> diagnostics.jsonl
+& $solc .`example.sol --emit=cst --error-format=json --color=never 2> diagnostics.jsonl
 ```
 
-The [CLI reference](cli.md) explains which diagnostic paths currently produce JSON.
-
-## What to do next
-
-Use the [frontend API](frontend.md) to inspect sources in a C# application, or follow
-[development setup](development.md) to build a checkout. The [status page](status.md) lists the
-features that still require implementation. A normal invocation without `--emit=cst` currently
-returns `SOL0001`; it does not generate a native executable.
+The [CLI reference](cli.md) explains output modes and diagnostic paths.

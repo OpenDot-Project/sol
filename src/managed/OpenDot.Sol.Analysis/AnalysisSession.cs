@@ -18,6 +18,7 @@ public sealed partial class AnalysisSession
     private readonly Dictionary<AstDeclaration, DeclarationSymbol> _symbols;
     private readonly Dictionary<AstFile, AstSnapshot> _files;
     private readonly ImmutableDictionary<string, ImmutableDictionary<string, ImmutableArray<DeclarationSymbol>>> _exports;
+    private readonly ImmutableDictionary<string, ImmutableDictionary<string, ImmutableArray<DeclarationSymbol>>> _internals;
     private readonly ImmutableDictionary<string, ImmutableDictionary<string, ImmutableArray<string>>> _qualifiers;
 
     internal AnalysisSession(AnalysisBuilder builder)
@@ -31,6 +32,13 @@ public sealed partial class AnalysisSession
         Graph = builder.Graph;
         ReExportGraph = builder.ReExportGraph;
         _exports = builder.Exports.ToImmutableDictionary(StringComparer.Ordinal);
+        _internals = Modules.ToImmutableDictionary(pair => pair.Key,
+            pair => pair.Value.Declarations.Where(symbol => symbol.IsInternal)
+                .GroupBy(symbol => symbol.Name, StringComparer.Ordinal)
+                .ToImmutableDictionary(group => group.Key,
+                    group => group.OrderBy(symbol => symbol.QualifiedName, StringComparer.Ordinal)
+                        .ThenBy(symbol => symbol.Signature, StringComparer.Ordinal).ToImmutableArray(), StringComparer.Ordinal),
+            StringComparer.Ordinal);
         _qualifiers = builder.Qualifiers.ToImmutableDictionary(StringComparer.Ordinal);
         Diagnostics = builder.Diagnostics.OrderBy(d => d.Source.Path, StringComparer.Ordinal)
             .ThenBy(d => d.Span.Start).ThenBy(d => d.Code, StringComparer.Ordinal)
@@ -116,17 +124,22 @@ public sealed partial class AnalysisSession
         var candidates = new List<DeclarationSymbol>();
         foreach (var import in file.Imports)
         {
-            var targets = new List<string>();
-            if ((import.Alias ?? import.ModuleName) == qualifier) { targets.Add(import.ModuleName); }
+            var targets = new List<(string ModuleName, bool IsDirect)>();
+            if ((import.Alias ?? import.ModuleName) == qualifier) { targets.Add((import.ModuleName, true)); }
             if (import.Alias is null && !import.IsSelective && _qualifiers.TryGetValue(import.ModuleName, out var aliases))
             {
-                targets.AddRange(aliases.GetValueOrDefault(qualifier, []));
+                targets.AddRange(aliases.GetValueOrDefault(qualifier, []).Select(moduleName => (moduleName, false)));
             }
-            foreach (var target in targets)
+            foreach (var (target, isDirect) in targets)
             {
                 if (_exports.TryGetValue(target, out var exports))
                 {
                     candidates.AddRange(exports.GetValueOrDefault(name, []));
+                }
+
+                if (isDirect)
+                {
+                    candidates.AddRange(InternalSymbols(target, name));
                 }
             }
         }
@@ -134,6 +147,7 @@ public sealed partial class AnalysisSession
         {
             candidates.AddRange(core.GetValueOrDefault(name, []));
         }
+        if (qualifier == "std.core") { candidates.AddRange(InternalSymbols("std.core", name)); }
         if (qualifier == file.ModuleName && Modules.TryGetValue(qualifier, out var own))
         {
             candidates.AddRange(own.Declarations.Where(d => d.Name == name));
@@ -145,23 +159,35 @@ public sealed partial class AnalysisSession
     {
         foreach (var import in file.Imports)
         {
-            if (import.Alias is not null || !_exports.TryGetValue(import.ModuleName, out var exports))
-            {
-                continue;
-            }
+            if (import.Alias is not null) { continue; }
+            var exports = _exports.GetValueOrDefault(import.ModuleName);
             if (!import.IsSelective)
             {
-                foreach (var symbol in exports.GetValueOrDefault(name, [])) { yield return symbol; }
+                if (exports is not null)
+                {
+                    foreach (var symbol in exports.GetValueOrDefault(name, [])) { yield return symbol; }
+                }
+                foreach (var symbol in InternalSymbols(import.ModuleName, name)) { yield return symbol; }
             }
             else
             {
                 foreach (var item in import.Items.Where(item => item.LocalName == name))
                 {
-                    foreach (var symbol in exports.GetValueOrDefault(item.OriginalName, [])) { yield return symbol; }
+                    if (exports is not null)
+                    {
+                        foreach (var symbol in exports.GetValueOrDefault(item.OriginalName, [])) { yield return symbol; }
+                    }
+                    foreach (var symbol in InternalSymbols(import.ModuleName, item.OriginalName)) { yield return symbol; }
                 }
             }
         }
+
+        // std.core is implicit. Its internal declarations are still scoped to this one analyzed distribution.
+        foreach (var symbol in InternalSymbols("std.core", name)) { yield return symbol; }
     }
+
+    private ImmutableArray<DeclarationSymbol> InternalSymbols(string moduleName, string name) =>
+        _internals.TryGetValue(moduleName, out var declarations) ? declarations.GetValueOrDefault(name, []) : [];
 
     private void ValidateFile(AstFile file)
     {

@@ -90,12 +90,14 @@ internal sealed class LexicalBuilder
                 {
                     Add(scope, parameter.Name, LocalSymbolKind.Parameter, parameter.NameOrigin,
                         parameter.Type, parameter.PassingMode is AstPassingMode.Ref or AstPassingMode.Out,
-                        parameter.DefaultValue?.Origin.Span.End ?? parameter.NameOrigin.Span.End);
+                        parameter.DefaultValue?.Origin.Span.End ?? parameter.NameOrigin.Span.End,
+                        parameter.PassingMode);
                 }
                 if (callable is AstAccessor { Name: "set" or "init" })
                 {
                     var property = Ancestors(node).OfType<AstProperty>().FirstOrDefault();
-                    Add(scope, "value", LocalSymbolKind.AccessorValue, node.Origin, property?.Type, false, node.Origin.Span.Start);
+                    var valueType = property?.Type ?? Ancestors(node).OfType<AstIndexer>().FirstOrDefault()?.ValueType;
+                    Add(scope, "value", LocalSymbolKind.AccessorValue, node.Origin, valueType, false, node.Origin.Span.Start);
                 }
                 break;
             case AstTypeDeclaration type:
@@ -115,7 +117,8 @@ internal sealed class LexicalBuilder
                     if (name is null) { continue; }
                     Add(scope, name.Origin.Text, LocalSymbolKind.Parameter, name.Origin,
                         parameter.Children.OfType<AstType>().FirstOrDefault(),
-                        parameter.Children.Any(n => n.SyntaxKind == NodeKind.PassingMode && n.Origin.Text is "ref" or "out"), name.Origin.Span.End);
+                        parameter.Children.Any(n => n.SyntaxKind == NodeKind.PassingMode && n.Origin.Text is "ref" or "out"),
+                        name.Origin.Span.End, PassingMode(parameter));
                 }
                 break;
             case AstCatch handler:
@@ -165,7 +168,9 @@ internal sealed class LexicalBuilder
                 foreach (var name in group.Children.Where(n => n.SyntaxKind == NodeKind.Name))
                 {
                     Add(scope, name.Origin.Text, LocalSymbolKind.Parameter, name.Origin,
-                        group.Children.OfType<AstType>().FirstOrDefault(), false, name.Origin.Span.End);
+                        group.Children.OfType<AstType>().FirstOrDefault(),
+                        PassingMode(group) is AstPassingMode.Ref or AstPassingMode.Out,
+                        name.Origin.Span.End, PassingMode(group));
                 }
             }
         }
@@ -200,12 +205,21 @@ internal sealed class LexicalBuilder
         foreach (var parameter in type.PrimaryConstructor.Parameters.Where(p => !p.IsProperty))
         {
             Add(scope, parameter.Name, LocalSymbolKind.Parameter, parameter.NameOrigin, parameter.Type,
-                false, type.Origin.Span.Start);
+                parameter.PassingMode is AstPassingMode.Ref or AstPassingMode.Out,
+                type.Origin.Span.Start, parameter.PassingMode);
         }
     }
 
+    private static AstPassingMode PassingMode(AstNode node)
+        => node.Children.FirstOrDefault(child => child.SyntaxKind == NodeKind.PassingMode)?.Origin.Text switch
+        {
+            "ref" => AstPassingMode.Ref,
+            "out" => AstPassingMode.Out,
+            _ => AstPassingMode.Value,
+        };
+
     private void Add(int scope, string? name, LocalSymbolKind kind, AstOrigin origin,
-        AstType? type, bool mutable, int visible)
+        AstType? type, bool mutable, int visible, AstPassingMode passingMode = AstPassingMode.Value)
     {
         if (string.IsNullOrEmpty(name) || name == "_") { return; }
         var symbols = Scopes[scope].Symbols;
@@ -215,6 +229,7 @@ internal sealed class LexicalBuilder
         {
             Diagnostics.Add(new("SOL2120", "Duplicate lexical declaration: " + name, origin.Source, origin.Span));
         }
-        symbols.Add(new(_nextSymbol++, name, kind, origin, type, mutable, visible, scope));
+        symbols.Add(new(_nextSymbol++, name, kind, origin, type, mutable, visible, scope)
+        { PassingMode = passingMode });
     }
 }

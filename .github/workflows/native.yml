@@ -42,6 +42,8 @@ jobs:
         run: ./eng/native-tools.ps1 -Mode Inspect
       - name: Inspect native fuzz sources
         run: ./eng/native-tools.ps1 -Mode Inspect -Fuzz
+      - name: Test pinned native notice sources
+        run: ./eng/test-native-notices.ps1
       - run: ./eng/test-native.ps1
       - run: ./eng/test-backends.ps1
       - run: ./eng/test-runtime.ps1

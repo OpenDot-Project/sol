@@ -25,6 +25,9 @@ int RunBarrierTests();
 int RunDescriptorFailure(const wchar_t *mode);
 int RunTraceLayoutTests();
 int RunProfileOptionsTests();
+int RunReferenceArrayTests();
+int RunFunctionArrayTests();
+int RunArrayAccessFailure(const wchar_t *mode);
 
 int wmain(int argc, wchar_t **argv)
 {
@@ -48,11 +51,19 @@ int wmain(int argc, wchar_t **argv)
     {
         return RunSpanPoisonTest(false);
     }
+    if (argc == 2 && std::wcsncmp(argv[1], L"array-", 6) == 0)
+    {
+        return RunArrayAccessFailure(argv[1] + 6);
+    }
     if (argc == 2 && std::wcscmp(argv[1], L"heap-pressure") == 0)
     {
         sol_gc_attach();
         sol_gc_alloc(&sol_rt_object_type, 20 * 1024 * 1024);
         return 90;
+    }
+    if (argc == 2 && std::wcscmp(argv[1], L"function-array") == 0)
+    {
+        return RunFunctionArrayTests();
     }
     wchar_t executable[] = L"harness.exe";
     wchar_t first[] = L"Sol";
@@ -132,5 +143,6 @@ int wmain(int argc, wchar_t **argv)
             return failure;
         }
     }
-    return 0;
+    if (const int failure = RunReferenceArrayTests()) { return failure; }
+    return RunFunctionArrayTests();
 }

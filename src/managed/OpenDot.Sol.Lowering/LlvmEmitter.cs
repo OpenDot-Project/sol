@@ -27,6 +27,8 @@ public sealed partial class LlvmEmitter
     private bool _terminated;
     private readonly Stack<(long Break, long Continue)> _loops = [];
     private readonly record struct Value(string Type, long Operand, ResolvedType SourceType);
+    private sealed record CallEvaluationFrame(Value[] Values, bool[] Captured);
+    private readonly Stack<CallEvaluationFrame> _callEvaluations = [];
 
     private LlvmEmitter(VerifiedFirProgram program, ILlvmModule module, CancellationToken cancellation)
     { _verified = program; _module = module; _cancellation = cancellation; }
@@ -112,6 +114,7 @@ public sealed partial class LlvmEmitter
             if (slot.IsParameter && slot.Mode is AstPassingMode.Ref or AstPassingMode.Out) { _addresses.Add(slot.Id, _parameters[slot.Id]); }
             else if (!_addresses.ContainsKey(slot.Id)) { _addresses.Add(slot.Id, Op(LlvmOperation.Alloca, T(Type(slot.Type)))); }
         }
+        AllocateArrayIterationSlots(function.Body!);
         foreach (var parameter in function.Parameters.Where(p => p.Mode is not (AstPassingMode.Ref or AstPassingMode.Out)))
         { Store(new(Type(parameter.Type), _parameters[parameter.Id], parameter.Type), Address(parameter.Id)); }
         Call("sol_gc_poll"); Statement(function.Body!);
@@ -129,6 +132,12 @@ public sealed partial class LlvmEmitter
             case FirStore store: Store(Expression(store.Value), Address(store.Slot)); break;
             case FirEvaluate evaluation: Expression(evaluation.Value); break;
             case FirReturn ret:
+                if (ret.Value is { Type.Kind: ResolvedTypeKind.Bottom } bottom)
+                {
+                    Expression(bottom);
+                    if (!_terminated) { Op(LlvmOperation.Unreachable); _terminated = true; }
+                    break;
+                }
                 if (ret.Value is null || FirVerifier.IsEmpty(ret.Value.Type))
                 { if (ret.Value is not null) { Expression(ret.Value); } EndRoots(); Op(LlvmOperation.Return); }
                 else { var returned = Expression(ret.Value); EndRoots(); Op(LlvmOperation.Return, args: [returned.Operand]); }
@@ -146,6 +155,7 @@ public sealed partial class LlvmEmitter
                 Start(body); _loops.Push((after, update)); Statement(loop.Body); _loops.Pop(); if (!_terminated) { Branch(update); }
                 Start(update); if (loop.Update is not null) { Statement(loop.Update); }
                 if (!_terminated) { Call("sol_gc_poll"); Branch(test); } Start(after); break;
+            case FirArrayForEach iteration: ArrayForEach(iteration); break;
             case FirBreak: Branch(_loops.Peek().Break); _terminated = true; break;
             case FirContinue: Branch(_loops.Peek().Continue); _terminated = true; break;
             default: throw new InvalidOperationException("Unverified FIR statement.");
@@ -160,6 +170,13 @@ public sealed partial class LlvmEmitter
         {
             case FirConstant constant: return Constant(constant);
             case FirRead read: return new(type, Op(LlvmOperation.Load, T(type), [Address(read.Slot)], type == "ptr" ? 1 : 0), read.Type);
+            case FirFunctionReference reference:
+                return new("ptr", _functions["sol_fn_" + reference.Target], reference.Type);
+            case FirCallValueReference reference:
+                if (!_callEvaluations.TryPeek(out var frame) || reference.EvaluationIndex < 0
+                    || reference.EvaluationIndex >= frame.Values.Length || !frame.Captured[reference.EvaluationIndex])
+                { throw new InvalidOperationException("FIR call-value reference is not bound to an earlier evaluation."); }
+                return frame.Values[reference.EvaluationIndex];
             case FirUnary unary:
                 var operand = Expression(unary.Value);
                 if (unary.Operation == "+") { return operand; }
@@ -176,6 +193,7 @@ public sealed partial class LlvmEmitter
                 return new(type, Op(LlvmOperation.Load, T(type), [location], type == "ptr" ? 1 : 0), index.Type);
             case FirArrayLiteral array: return ArrayLiteral(array);
             case FirCall call: return EmitCall(call);
+            case FirIndirectCall call: return EmitIndirectCall(call);
             case FirIntrinsic intrinsic:
                 var inputs = intrinsic.Arguments.Select(Expression).ToArray();
                 if (!intrinsic.ParameterOrder.IsEmpty) { inputs = inputs.Zip(intrinsic.ParameterOrder).OrderBy(p => p.Second).Select(p => p.First).ToArray(); }
@@ -192,16 +210,40 @@ public sealed partial class LlvmEmitter
 
     private Value EmitCall(FirCall call)
     {
-        var target = _verified.Program.Functions[call.Target]; var arguments = new long[target.Parameters.Length]; var values = new List<Value>();
-        foreach (var argument in call.Arguments)
+        var target = _verified.Program.Functions[call.Target]; var arguments = new long[target.Parameters.Length]; var runtimeValues = new List<Value>();
+        var frame = new CallEvaluationFrame(new Value[call.Arguments.Length], new bool[call.Arguments.Length]);
+        _callEvaluations.Push(frame);
+        try
         {
-            if (target.RuntimeFunction != FirRuntimeFunction.None) { values.Add(Expression(argument.Value)); continue; }
-            arguments[argument.Parameter] = argument.Mode is AstPassingMode.Ref or AstPassingMode.Out ? Address(((FirRead)argument.Value).Slot) : Expression(argument.Value).Operand;
+            for (int index = 0; index < call.Arguments.Length; index++)
+            {
+                var argument = call.Arguments[index];
+                if (target.RuntimeFunction != FirRuntimeFunction.None)
+                {
+                    var value = Expression(argument.Value);
+                    frame.Values[index] = value; frame.Captured[index] = true; runtimeValues.Add(value);
+                    continue;
+                }
+                if (argument.Mode is AstPassingMode.Ref or AstPassingMode.Out)
+                {
+                    long address = Address(((FirRead)argument.Value).Slot);
+                    frame.Values[index] = new(Type(argument.Value.Type), address, argument.Value.Type);
+                    arguments[argument.Parameter] = address;
+                }
+                else
+                {
+                    var value = Expression(argument.Value);
+                    frame.Values[index] = value;
+                    arguments[argument.Parameter] = value.Operand;
+                }
+                frame.Captured[index] = true;
+            }
         }
+        finally { _callEvaluations.Pop(); }
         if (target.RuntimeFunction != FirRuntimeFunction.None)
         {
             int channel = target.RuntimeFunction is FirRuntimeFunction.Error or FirRuntimeFunction.Errorln ? 1 : 0;
-            foreach (var value in values) { Print(value, channel); }
+            foreach (var value in runtimeValues) { Print(value, channel); }
             if (target.RuntimeFunction is FirRuntimeFunction.Println or FirRuntimeFunction.Errorln) { Call("sol_rt_newline", Int(channel)); }
             return new("void", 0, call.Type);
         }
@@ -224,6 +266,9 @@ public sealed partial class LlvmEmitter
     private Value Constant(FirConstant constant)
     {
         string type = Type(constant.Type);
+        if (constant.Spelling == "null"
+            && (FirVerifier.IsNullSentinel(constant.Type) || FirVerifier.IsNullableFunction(constant.Type)))
+        { return new("ptr", Op(LlvmOperation.Zero, T("ptr")), constant.Type); }
         if (FirVerifier.IsString(constant.Type)) { return new(type, Call("sol_rt_literal", _module.CreateString(SolLiteral.DecodeUtf8(constant.Spelling))), constant.Type); }
         if (type == "void") { return new(type, 0, constant.Type); }
         if (constant.Type.Name == "bool") { return new(type, Int(constant.Spelling == "true" ? 1 : 0, type), constant.Type); }

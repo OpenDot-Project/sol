@@ -16,7 +16,8 @@ public sealed class FirTests
         AstTestSources.Parse("import std.stdio\n" + declarations + "\nobject Main { func main(args: []String) throws IOException { " + body + " } }")], TestContext.Current.CancellationToken);
     private static VerifiedFirProgram Valid(FirCompilation compilation)
     {
-        Assert.NotNull(compilation.Program);
+        Assert.True(compilation.Program is not null,
+            string.Join('\n', compilation.Diagnostics.Select(diagnostic => diagnostic.Code + " " + diagnostic.Message)));
         Assert.Empty(compilation.Diagnostics);
         return compilation.Program;
     }
@@ -54,22 +55,40 @@ public sealed class FirTests
         Assert.NotEmpty(LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public void HeaderlessNoncapturingLambdaProducesVerifiedFunctionValue()
+    {
+        var program = Valid(Compile("val callback = { 42 }; println(callback())"));
+
+        var lambda = Assert.Single(program.Program.Functions.Where(function => function.LambdaSource is not null));
+        Assert.Equal("<lambda>", lambda.Name);
+        Assert.Equal("int", lambda.ReturnType.Name);
+        Assert.NotNull(lambda.Body);
+        Assert.NotEmpty(LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken));
+    }
+
     [Theory]
     [InlineData("var x: int; println(x)")]
     [InlineData("val x: int = true")]
-    [InlineData("val callback = { 42 }; println(callback())")]
     [InlineData("defer {}; println(1)")]
     [InlineData("try { println(1) } catch (e: IOException) {}")]
     [InlineData("println(default<int>())")]
-    [InlineData("println(id(1))", "func <T> id(value: T): T = value")]
     [InlineData("println(overflow())", "func overflow(): byte = 256")]
     [InlineData("println(1)", "val globalValue = 42")]
-    [InlineData("stop()", "func stop(): ! { for {} }")]
     public void UnsafeOrUnqualifiedSourceNeverProducesVerifiedFir(string body, string declarations = "")
     {
         var result = Compile(body, declarations);
         Assert.Null(result.Program);
         Assert.NotEmpty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void BottomCallsAreValidAndDoNotReturnNormally()
+    {
+        var program = Valid(Compile("stop()", "func stop(): ! { for {} }"));
+        string llvm = LoweringTrace.Inspect(program, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains("Unreachable", llvm, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("ret void", llvm, System.StringComparison.Ordinal);
     }
 
     [Theory]
@@ -87,7 +106,7 @@ public sealed class FirTests
         string json = FirJson.Serialize(program, TestContext.Current.CancellationToken);
         using var document = JsonDocument.Parse(json);
         Assert.True(document.RootElement.GetProperty("verified").GetBoolean());
-        Assert.Equal(1, document.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(7, document.RootElement.GetProperty("schema").GetInt32());
         Assert.DoesNotContain("<solrt>", json);
         Assert.NotEmpty(document.RootElement.GetProperty("flow").EnumerateArray());
         Assert.Equal(json, FirJson.Serialize(program, TestContext.Current.CancellationToken));
@@ -115,9 +134,11 @@ public sealed class FirTests
         var function = verified.Program.Functions.Single(f => f.Name == "fill");
         var returnNode = Assert.IsType<FirReturn>(function.Body!.Statements[^1]);
         var broken = function with { Body = function.Body with { Statements = [returnNode] } };
-        var result = FirVerifier.Verify(verified.Program with { Functions = verified.Program.Functions.SetItem(function.Id, broken) }, TestContext.Current.CancellationToken);
+        var changedFunctions = verified.Program.Functions.SetItem(function.Id, broken);
+        var result = FirVerifier.Verify(verified.Program with { Functions = changedFunctions }, TestContext.Current.CancellationToken);
         Assert.Null(result.Program);
-        Assert.Contains(result.Diagnostics, d => d.Code == "SOL2411");
+        var flow = FirFlowGraph.Create(broken, changedFunctions, TestContext.Current.CancellationToken);
+        Assert.Contains(flow.Diagnostics, diagnostic => diagnostic.Code == "SOL2411");
     }
 
     [Fact]

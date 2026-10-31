@@ -106,7 +106,12 @@ definite assignment after exceptional control flow is not proven here.
 
 Named lambda and anonymous-function parameters own separate scopes. No implicit `it` is introduced.
 References crossing a lambda or local-function boundary are marked as outer-local capture candidates.
-This is not an escape, lifetime, or closure-allocation proof. Receiver/member captures need later binding.
+`LocalFunctionCaptures`/`GetLocalFunctionCaptures(function)` records the resolved local symbols a
+nested named function references across its function boundary, including source-ordered references
+and combined read/write access. It excludes top-level/member functions and does not create a closure
+ABI or prove lifetime. These inventories are not escape, lifetime, or closure-allocation proofs.
+Receiver/member captures are tracked separately for lambdas and anonymous functions; local-function
+receiver environments remain outside this inventory.
 
 Primary constructor property parameters are available in the type's source scope.
 Constructor-only parameters are available to instance initialization, not ordinary methods.
@@ -115,8 +120,33 @@ Generated backing-slot semantics and constructor definite assignment remain unim
 
 Missing unqualified value references remain query results rather than unconditional diagnostics.
 Some such names can be module qualifiers, intrinsic calls, or receiver-dependent references;
-the future expression binder must distinguish these before issuing unresolved-value errors.
-Positional lambda references likewise require an expected function type for complete binding.
+the body binder distinguishes these before issuing unresolved-value errors. Positional lambda
+references require an expected function type for complete binding.
+
+## Body analysis and callable expressions
+
+`BodyAnalysis.Create(sourceAnalysis)` layers expression types, selected supported calls and operators,
+checked-effect propagation, return/result checking, definite assignment for supported `out` storage,
+and explicit deferred-proof locations over the immutable source tables. `GetLocalType` returns a
+resolved local type only when that analysis owns the symbol and has a non-error type. This remains
+source analysis; it does not write types into AST nodes or create FIR.
+
+Anonymous function expressions have their own parameter scope and result/effect flow. The public
+`AnonymousFunctionBodies` inventory records a resolved function type, abstract normal-exit-state
+count, reachable fallthrough, and per-`out`-parameter assignment facts. The count is not a count of
+runtime paths. `IsComplete` means this function's analyzed source subtree has no known diagnostics or
+deferred proof gap. `GetAnonymousFunctionBody` returns null if the function signature or body summary
+could not be produced. Local/receiver capture inventories and escape classifications are separate
+tables; none of these source facts establish closure layout or authorize native code.
+
+Lambdas expose parallel `LambdaBodies`/`GetLambdaBody` facts: resolved function type, abstract exit
+count, fallthrough, out-parameter assignment, and completeness. With no expected result type, the
+body binder joins reachable labeled returns and the tail while excluding nested callable bodies.
+Nullable function context supplies lambda parameter types; the lambda expression remains non-null
+and widens at the destination. Current native FIR still rejects that nullable lambda lift.
+
+See [function values and closure limits](generic-fir-specialization/FunctionValues.md) for the exact
+noncapturing lambda/anonymous-function FIR subset and the rejected closure cases.
 
 ## Inspection and limits
 
@@ -143,6 +173,22 @@ substitution, nominal constraints, and a supported subset of direct-call overloa
 `SourceAnalysis.Defaults` additionally indexes declaration-owned/inherited defaults and checks
 their parameter scope. See [argument contracts](arguments.md) for these query guarantees and limits.
 
-Complete expression typing, contextual inference, overload selection, conversions, generic body constraints,
-checked effects, smart casts, definite assignment, ref escape, verified FIR, and native code generation
-remain separate future stages. A source analysis without diagnostics does not certify those properties.
+Expression typing, overload selection, conversions, checked effects, and selected definite-assignment
+checks exist only for documented bounded constructs. User-defined conversion search, complete generic
+body rebinding, smart casts, full definite-assignment coverage, and general ref/closure escape proof
+remain incomplete. Verified FIR and native emission apply a stricter subset and independently check
+source correspondence. A source analysis without diagnostics does not certify the whole language.
+
+`LambdaEnvironmentPlanner` and `AnonymousFunctionEnvironmentPlanner` combine the source capture,
+receiver, escape, body-completeness, and resolved-local-type inventories into deterministic field and
+lifetime candidates. Receiver requirements have a distinct `ReceiverCapture` storage candidate;
+they are not labeled as ref/out borrowed locals. A ref-like receiver that may escape keeps lifetime
+unknown. `Stack` and `Heap` describe source candidates only: these planners do not choose allocation,
+define field offsets, emit a closure ABI, or produce a Yellow Tea root descriptor.
+
+The escape inventory can prove a mutable local callable alias non-escaping when every tracked write
+has a known callable or local-alias source and the joined uses remain local. It unions all observed
+callable identities across writes and branch alternatives; it does not choose a path. Null or
+untracked writes, ref/out consumers, nested callable capture, publication, and unsupported use remain
+unknown or escape-capable. This refinement describes observed source uses; it does not authorize
+stack allocation or imply that a call argument is non-retaining.

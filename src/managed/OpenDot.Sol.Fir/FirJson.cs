@@ -21,9 +21,14 @@ public static class FirJson
                 FirBlock block => new { statements = block.Statements.Select(Node).ToArray() },
                 FirConstant constant => new { constant.Spelling },
                 FirRead read => new { read.Slot },
+                FirFunctionReference reference => new { reference.Target },
+                FirCallValueReference reference => new { evaluationIndex = reference.EvaluationIndex },
                 FirUnary unary => new { unary.Operation, value = Node(unary.Value) },
                 FirBinary binary => new { binary.Operation, left = Node(binary.Left), right = Node(binary.Right) },
-                FirCall call => new { call.Target, arguments = call.Arguments.Select(a => new { a.Parameter, mode = a.Mode.ToString(), value = Node(a.Value) }).ToArray() },
+                FirCall call => new { call.Target, typeArguments = call.TypeArguments.Select(t => t.Id).ToArray(),
+                    arguments = call.Arguments.Select(a => new { a.Parameter, mode = a.Mode.ToString(), value = Node(a.Value) }).ToArray() },
+                FirIndirectCall call => new { function = Node(call.Function),
+                    arguments = call.Arguments.Select(a => new { a.Parameter, mode = a.Mode.ToString(), value = Node(a.Value) }).ToArray() },
                 FirIntrinsic intrinsic => new { operation = intrinsic.Operation.ToString(), order = intrinsic.ParameterOrder, arguments = intrinsic.Arguments.Select(Node).ToArray() },
                 FirArrayLength length => new { array = Node(length.Array) },
                 FirArrayIndex index => new { array = Node(index.Array), index = Node(index.Index) },
@@ -34,6 +39,7 @@ public static class FirJson
                 FirReturn ret => new { value = ret.Value is null ? null : Node(ret.Value) },
                 FirIf conditional => new { condition = Node(conditional.Condition), then = Node(conditional.Then), @else = conditional.Else is null ? null : Node(conditional.Else) },
                 FirLoop loop => new { initializer = loop.Initializer is null ? null : Node(loop.Initializer), condition = loop.Condition is null ? null : Node(loop.Condition), body = Node(loop.Body), update = loop.Update is null ? null : Node(loop.Update) },
+                FirArrayForEach loop => new { itemSlot = loop.ItemSlot, array = Node(loop.Array), body = Node(loop.Body) },
                 FirBreak or FirContinue => new { },
                 _ => throw new InvalidOperationException("Unknown verified FIR node."),
             };
@@ -42,13 +48,40 @@ public static class FirJson
         }
         return JsonSerializer.Serialize(new
         {
-            schema = 1, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
+            schema = 7, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
             functions = program.Program.Functions.Select(f => new { f.Id, f.Name, runtime = f.RuntimeFunction.ToString(),
-                returnType = f.ReturnType.Id, parameters = f.Parameters.Select(p => p.Id).ToArray(),
-                slots = f.Slots.Select(s => new { s.Id, s.Name, type = s.Type.Id, s.Mutable, mode = s.Mode.ToString(), s.IsParameter }).ToArray(),
+                specializationArguments = f.SpecializationArguments.Select(t => t.Id).ToArray(),
+                returnType = f.ReturnType.Id, effects = f.Effects.Select(effect => effect.Id).ToArray(),
+                parameters = f.Parameters.Select(p => p.Id).ToArray(),
+                slots = f.Slots.Select(s => new { s.Id, s.Name, type = s.Type.Id, s.Mutable,
+                    mode = s.Mode.ToString(), s.IsParameter, s.IsEscaping }).ToArray(),
                 body = f.Body is null ? null : Node(f.Body) }).ToArray(),
-            types = program.Program.Analysis.Types.Types.Select(t => new { t.Id, kind = t.Kind.ToString(), t.Name, arguments = t.Arguments.Select(a => a.Id).ToArray() }).ToArray(),
-            flow = program.FlowGraphs.Select(g => g.Blocks.Select(b => new { b.Id, b.Reads, b.Writes, b.Kills, b.Successors, b.Returns }).ToArray()).ToArray(),
-        }, new JsonSerializerOptions { WriteIndented = true });
+            types = program.Program.Analysis.Types.Types.Select(t => new
+            {
+                t.Id, kind = t.Kind.ToString(), t.Name,
+                arguments = t.Arguments.Select(argument => argument.Id).ToArray(),
+                parameterModes = t.ParameterModes.Select(mode => mode.ToString()).ToArray(),
+                effects = t.Effects.Select(effect => effect.Id).ToArray(),
+            }).ToArray(),
+            flow = program.FlowGraphs.Select(g => new
+            {
+                g.FunctionId,
+                blocks = g.Blocks.Select(b => new
+                {
+                    b.Id, b.Reads, b.Writes, b.Kills, b.Successors, b.Returns,
+                    calls = b.Calls.Select(call => new
+                    {
+                        call.Target,
+                        effects = call.Effects.Select(effect => effect.Id).ToArray(),
+                        start = call.Origin.Span.Start,
+                        length = call.Origin.Span.Length,
+                    }).ToArray(),
+                }).ToArray(),
+            }).ToArray(),
+        }, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        });
     }
 }

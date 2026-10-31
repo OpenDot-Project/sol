@@ -2,11 +2,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Current runtime implementation
 
-The development branch contains an experimental precise, non-moving concurrent collector in
-`src/native/runtime`. This is unreleased work, with provisional descriptor layout version 0.
-The design chapters describe the intended complete runtime; this page records the narrower code.
-No production-readiness or measured pause guarantee follows from the implementation.
-
+The Sol 0.1.0 native component includes an experimental precise, non-moving concurrent collector.
+This page records the implementation and its limits; the design chapters describe requirements
+beyond the shipped runtime. The native descriptor layout is provisional ABI 0. No
+production-readiness or measured pause guarantee follows from the implementation.
 ## Process ownership
 
 The managed compiler uses the host .NET GC. Its LLVM bridge produces compiler data and COFF objects;

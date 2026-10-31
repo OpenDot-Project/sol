@@ -11,11 +11,11 @@ Sol's implementation is primarily C# 14 on .NET 10, built with MSBuild. The curr
 | `OpenDot.Sol.Text` | Immutable UTF-8 byte snapshots, spans, and source coordinates. |
 | `OpenDot.Sol.Diagnostics` | Source-bound diagnostics with validated byte ranges. |
 | `OpenDot.Sol.Cst` | Lossless lexer, initial declaration/expression parser, and syntax models. |
-| `OpenDot.Sol.Psi` | Typed immutable source views, snapshot identity/navigation, and explicit module grouping (Unreleased). |
-| `OpenDot.Sol.Ast` | Immutable structural normalization, source origins, parameter expansion, and type shapes (Unreleased). |
-| `OpenDot.Sol.Analysis` | Declaration/import lookup, module graphs, and partial composition in an explicit source distribution (Unreleased). |
-| `OpenDot.Sol.Fir` | Closed native-subset FIR, compiler-owned bootstrap declarations, verification, and CFG definite assignment (Unreleased). |
-| `OpenDot.Sol.Lowering` | C# LLVM emission, native bridge contract/loading, COFF/link execution (Unreleased). |
+| `OpenDot.Sol.Psi` | Typed immutable source views, snapshot identity/navigation, and explicit module grouping. |
+| `OpenDot.Sol.Ast` | Immutable structural normalization, source origins, parameter expansion, and type shapes. |
+| `OpenDot.Sol.Analysis` | Declaration/import lookup, module graphs, and partial composition in an explicit source distribution. |
+| `OpenDot.Sol.Fir` | Closed native-subset FIR, compiler-owned bootstrap declarations, verification, and CFG definite assignment. |
+| `OpenDot.Sol.Lowering` | C# LLVM emission and native bridge contract/loading; included in the native component. |
 | `OpenDot.Sol.Driver` | Explicit-source parsing, CST/AST output, and declaration-analysis entry points. |
 | `OpenDot.Sol.Cli` | Solc's independent argument parser, process entry, diagnostics, and output transactions. |
 
@@ -35,9 +35,7 @@ The compiler design follows this order:
 UTF-8 source -> Lexer -> CST -> PSI -> AST -> FIR -> LLVM IR
 ```
 
-Only source handling, lexing, and an initial CST subset are implemented in 0.0.1.
-Source development additionally covers nominal/member declarations, typed PSI views, structural AST,
-and declaration/body analysis. It also implements a closed [verified FIR/native subset](fir-native.md).
+Sol 0.0.1 implemented source handling, lexing, and an initial CST subset. Sol 0.1.0 adds nominal/member declarations, typed PSI views, structural AST, declaration/body analysis, and a closed [verified FIR/native subset](fir-native.md).
 See [AST](ast.md) and [analysis](analysis.md) for the wider frontend boundaries.
 The stages have the following responsibilities; complete language coverage remains pending:
 
@@ -61,9 +59,9 @@ a thin C++20/CLI adapter and an unmanaged LLVM C++ API component. C# issues type
 native sessions own LLVM contexts/modules/builders and emit COFF/binary bitcode. Embedded LLD.COFF
 and LLD.Common handle COFF linking and archives. See [native AOT](fir-native.md).
 
-Yellow Tea is the planned native Sol garbage collector. Its design uses precise, non-moving,
+Yellow Tea is the experimental native collector for Sol. Its design uses precise, non-moving,
 concurrent mark/sweep with short coordination phases; production collection must not fall back
-to a full-heap stop-the-world scan. The provisional development implementation collects a restricted
+to a full-heap stop-the-world scan. The provisional implementation in the 0.1.0 native component collects a restricted
 String/scalar-array subset with precise roots and bounded concurrent work; no latency guarantee has
 been established. Sol objects live in a native process separately from compiler CLR objects.
 
@@ -80,6 +78,6 @@ and the planned standard library. Its documentation covers those components and 
 Other tools document their own implementations in their own repositories.
 
 The standard library belongs to the native Sol program environment, not the compiler's .NET runtime.
-The development bootstrap embeds compiler-owned `std.core` declarations and specialized scalar/String
+The native component embeds compiler-owned `std.core` declarations and specialized scalar/String
 `std.stdio` output adapters. The wider standard library still needs implementation and runtime support.
-In the published 0.0.1 release imports are syntax only.
+In the historical 0.0.1 release imports were syntax only; the 0.1.0 native bootstrap includes only the documented core, stdio, and integral math subset.

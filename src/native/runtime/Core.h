@@ -37,6 +37,7 @@ extern "C"
 SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_throwable_type;
 SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_exception_type;
 SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_runtime_exception_type;
+SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_reference_array_type;
 SOL_RT_API OpenDot::Sol::Runtime::String *sol_rt_string_create(const char *bytes, int length);
 SOL_RT_API int sol_rt_string_length(OpenDot::Sol::Runtime::String *value);
 SOL_RT_API int sol_rt_string_compare(const OpenDot::Sol::Runtime::String *left,

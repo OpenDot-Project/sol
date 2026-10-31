@@ -16,6 +16,10 @@ internal sealed record ArgumentMapping(ImmutableArray<CallArgumentBinding> Argum
 internal static class CallArgumentMapper
 {
     internal static ArgumentMapping Map(AstCall call, AstCallable function, ParameterDefaultSet defaultContract, CancellationToken cancellation)
+        => Map(call.Arguments, function, defaultContract, cancellation);
+
+    internal static ArgumentMapping Map(ImmutableArray<AstArgument> arguments, AstCallable function,
+        ParameterDefaultSet defaultContract, CancellationToken cancellation)
     {
         var parameters = function.Parameters;
         var mappings = ImmutableArray.CreateBuilder<CallArgumentBinding>();
@@ -27,17 +31,19 @@ internal static class CallArgumentMapper
         for (int index = 0; index < parameters.Length; index++) { indexes.TryAdd(parameters[index].Name, index); }
         int position = 0;
         bool requiresNamed = false;
-        bool usesVararg = parameters.Any(p => p.PassingMode == AstPassingMode.Vararg);
+        // Ranking records whether a source argument actually uses the vararg parameter. An omitted
+        // vararg is tracked separately as an empty pack and must not penalize ordinary arity.
+        bool usesVararg = false;
         ArgumentMapping Fail(string message) => new(mappings.ToImmutable(), defaults.ToImmutable(), empty.ToImmutable(), usesVararg, message);
 
-        for (int index = 0; index < call.Arguments.Length; index++)
+        for (int index = 0; index < arguments.Length; index++)
         {
             cancellation.ThrowIfCancellationRequested();
-            var argument = call.Arguments[index];
+            var argument = arguments[index];
             int target;
             if (argument.IsTrailingLambda)
             {
-                if (index != call.Arguments.Length - 1 || parameters.IsEmpty) { return Fail("A trailing lambda requires a final parameter."); }
+                if (index != arguments.Length - 1 || parameters.IsEmpty) { return Fail("A trailing lambda requires a final parameter."); }
                 target = parameters.Length - 1;
                 if (parameters[target].PassingMode != AstPassingMode.Value) { return Fail("A trailing lambda cannot fill a vararg/ref/out parameter."); }
             }
@@ -84,7 +90,7 @@ internal static class CallArgumentMapper
             cancellation.ThrowIfCancellationRequested();
             if (occupied[index]) { continue; }
             if (defaultContract.Parameters[index] is not null) { defaults.Add(index); continue; }
-            if (parameters[index].PassingMode == AstPassingMode.Vararg) { usesVararg = true; empty.Add(index); continue; }
+            if (parameters[index].PassingMode == AstPassingMode.Vararg) { empty.Add(index); continue; }
             return Fail("A required parameter is missing.");
         }
         return new(mappings.ToImmutable(), defaults.ToImmutable(), empty.ToImmutable(), usesVararg, null);

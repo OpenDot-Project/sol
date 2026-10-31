@@ -10,7 +10,7 @@ public abstract class PsiDeclaration : PsiElement
 {
     internal PsiDeclaration(PsiSnapshot snapshot, SyntaxNode syntax, PsiElement? parent) : base(snapshot, syntax, parent) { }
     public PsiName? NameElement => Children.OfType<PsiName>().FirstOrDefault();
-    public string? Name => NameElement?.Text;
+    public virtual string? Name => NameElement?.Text;
     public IEnumerable<string> Modifiers => Children.Where(c => c.Kind == NodeKind.Modifier).Select(c => c.Text);
     public IEnumerable<PsiAnnotation> Annotations => Children.OfType<PsiAnnotation>();
     public bool IsPartial => Modifiers.Contains("partial");
@@ -38,6 +38,9 @@ public abstract class PsiCallableDeclaration : PsiDeclaration
 public sealed class PsiFunction : PsiCallableDeclaration
 {
     internal PsiFunction(PsiSnapshot snapshot, SyntaxNode syntax, PsiElement? parent) : base(snapshot, syntax, parent) { }
+    public bool IsCheckedOperator => NameElement?.Text.StartsWith("checked ", System.StringComparison.Ordinal) == true;
+    public string? OperatorName => IsCheckedOperator ? NameElement?.Text["checked ".Length..] : NameElement?.Text;
+    public override string? Name => OperatorName;
     public IEnumerable<PsiTypeParameter> TypeParameters => Child(NodeKind.TypeParameterList)?.Children.OfType<PsiTypeParameter>() ?? [];
     public PsiTypeReference? ReturnType => Child(NodeKind.ReturnType)?.Children.OfType<PsiTypeReference>().FirstOrDefault();
     public PsiElement? Body => Children.LastOrDefault(c => c.Kind is not (NodeKind.Annotation or NodeKind.Modifier

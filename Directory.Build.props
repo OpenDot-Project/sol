@@ -16,7 +16,7 @@
     <PublishSingleFile>false</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <PublishReadyToRun>false</PublishReadyToRun>
-    <Version>0.0.2</Version>
+    <Version>0.1.0</Version>
     <Company>OpenDot Project</Company>
     <Copyright>Copyright OpenDot Project</Copyright>
     <PackageLicenseExpression>Apache-2.0 WITH LLVM-exception</PackageLicenseExpression>

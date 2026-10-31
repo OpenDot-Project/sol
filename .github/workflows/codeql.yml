@@ -40,7 +40,7 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
-      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: ${{ matrix.language }}
           build-mode: manual
@@ -48,9 +48,30 @@ jobs:
       - run: dotnet restore Sol.slnx --locked-mode
       - run: dotnet build Sol.slnx --no-restore --configuration Release
         if: matrix.language == 'csharp'
+      - name: Set external native dependency roots
+        if: matrix.language == 'cpp'
+        run: |
+          $env:SOL_TOOLCHAIN_ROOT = Join-Path $env:RUNNER_TEMP 'sol-codeql/toolchains'
+          $env:SOL_DEPENDENCY_ROOT = Join-Path $env:RUNNER_TEMP 'sol-codeql/dependencies'
+          "SOL_TOOLCHAIN_ROOT=$env:SOL_TOOLCHAIN_ROOT" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
+          "SOL_DEPENDENCY_ROOT=$env:SOL_DEPENDENCY_ROOT" | Out-File -LiteralPath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Acquire pinned LLVM for native analysis
         if: matrix.language == 'cpp'
         run: ./eng/install-llvm.ps1
+      - name: Verify native dependencies are outside the source checkout
+        if: matrix.language == 'cpp'
+        run: |
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+          $workspaceRoot = $workspace.TrimEnd([char[]]@('\', '/'))
+          $workspacePrefix = $workspaceRoot + [IO.Path]::DirectorySeparatorChar
+          foreach ($path in @($env:LLVM_ROOT, $env:SOL_TOOLCHAIN_ROOT, $env:SOL_DEPENDENCY_ROOT)) {
+            $fullPath = [IO.Path]::GetFullPath($path)
+            if ($fullPath.Equals($workspaceRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                $fullPath.StartsWith($workspacePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+              throw "Third-party source root must be outside the checkout: $fullPath"
+            }
+            Write-Host "Verified external dependency root: $fullPath"
+          }
       - name: Build native launcher and LLVM/runtime components
         if: matrix.language == 'cpp'
         shell: pwsh
@@ -59,6 +80,6 @@ jobs:
           ./eng/build-backend.ps1
           ./eng/build-native-fuzz.ps1
           ./eng/build-coverage-fuzz.ps1 -Target all
-      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           category: /language:${{ matrix.language }}

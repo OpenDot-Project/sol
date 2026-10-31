@@ -7,9 +7,10 @@ using namespace OpenDot::Sol::Runtime;
 
 namespace
 {
-constexpr std::array<std::uint32_t, 11> Widths{1, 1, 1, 2, 4, 4, 8, 8, 4, 8, 8};
+// Element kind 11 is reserved for managed-reference arrays; kind 12 stores raw function pointers.
+constexpr std::array<std::uint32_t, 13> Widths{1, 1, 1, 2, 4, 4, 8, 8, 4, 8, 8, 8, 8};
 const auto Elements = [] {
-    std::array<TypeDescriptor, 10> result{};
+    std::array<TypeDescriptor, 13> result{};
     for (std::size_t index = 0; index < result.size(); ++index)
     {
         result[index] = {Widths[index], 16, 200 + index, 4, 0, nullptr, nullptr, nullptr, nullptr, nullptr};
@@ -17,19 +18,30 @@ const auto Elements = [] {
     return result;
 }();
 const auto ArrayTypes = [] {
-    std::array<TypeDescriptor, 10> result{};
+    std::array<TypeDescriptor, 13> result{};
     for (std::size_t index = 0; index < result.size(); ++index)
     {
         result[index] = {32, 16, 220 + index, 2, 0, &sol_rt_object_type, nullptr, nullptr, nullptr, nullptr};
     }
     return result;
 }();
+constexpr std::uint32_t ReferenceOffset = 0;
+constexpr ScanShape ReferenceElements{&ReferenceOffset, 1};
 }
 
 extern "C"
 {
+SOL_RT_API const TypeDescriptor sol_rt_reference_array_type{sizeof(StringArray), 16, 230, 2, 0,
+                                                            &sol_rt_object_type, &ReferenceElements, nullptr,
+                                                            nullptr, nullptr};
+
 StringArray *sol_rt_array_new(int length, int elementKind)
 {
+    if (elementKind == 11)
+    {
+        return sol_rt_array_create(length, sizeof(Header *), &sol_rt_object_type,
+                                   &sol_rt_reference_array_type);
+    }
     if (elementKind < 0 || elementKind >= static_cast<int>(Widths.size()))
     {
         sol_rt_fail(7);

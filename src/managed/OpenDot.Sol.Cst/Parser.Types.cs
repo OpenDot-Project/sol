@@ -42,7 +42,7 @@ internal sealed partial class Parser
                     if (Take(ArrowToken))
                     {
                         children.Add(ParseType());
-                        if (IsText("throws")) { children.Add(ParseThrows()); }
+                        if (IsText("throws")) { children.Add(ParseThrows(stopAtParameterDelimiter: true)); }
                     }
                     else if (passingMode) { Error("SOL1101", "Ref/out type modes require a function type."); }
                 }
@@ -149,13 +149,32 @@ internal sealed partial class Parser
         return Node(NodeKind.WhereClause, start, constraints);
     }
 
-    private SyntaxNode ParseThrows()
+    private SyntaxNode ParseThrows() => ParseThrows(stopAtParameterDelimiter: false);
+
+    private SyntaxNode ParseThrows(bool stopAtParameterDelimiter)
     {
         int start = Start;
         Advance();
         var types = new List<SyntaxNode>();
-        do { types.Add(ParseType()); } while (Take(CommaToken));
+        do { types.Add(ParseType()); }
+        while (Kind == CommaToken && !(stopAtParameterDelimiter && BeginsNamedParameterGroupAfterComma())
+            && Take(CommaToken));
         return Node(NodeKind.ThrowsClause, start, types);
+    }
+
+    private bool BeginsNamedParameterGroupAfterComma()
+    {
+        if (Kind != CommaToken) { return false; }
+        int parameterStart = 1;
+        if (Peek(parameterStart).Kind is RefKeyword or OutKeyword or VarargKeyword)
+        { parameterStart++; }
+        if (Peek(parameterStart).Kind != IdentifierToken) { return false; }
+        int lookahead = parameterStart + 1;
+        while (Peek(lookahead).Kind == CommaToken && Peek(lookahead + 1).Kind == IdentifierToken)
+        {
+            lookahead += 2;
+        }
+        return Peek(lookahead).Kind == ColonToken;
     }
 
     private bool LooksLikeGenericApplication()
@@ -172,7 +191,7 @@ internal sealed partial class Parser
                 or OpenBracketToken or CloseBracketToken or IntegerLiteralToken or QuestionToken or BangToken
                 or ArrowToken or RefKeyword or OutKeyword)) { return false; }
             if (depth < 0) { return false; }
-            if (depth == 0) { return Peek(distance + 1).Kind is OpenParenToken or DotToken or OpenBraceToken; }
+            if (depth == 0) { return Peek(distance + 1).Kind is OpenParenToken or DotToken or OpenBraceToken or OpenBracketToken; }
         }
         Error("SOL1104", "The generic application lookahead budget was exceeded.");
         return false;

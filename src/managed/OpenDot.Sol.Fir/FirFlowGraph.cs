@@ -5,28 +5,34 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
+using OpenDot.Sol.Analysis;
 using OpenDot.Sol.Ast;
 using OpenDot.Sol.Diagnostics;
 
 namespace OpenDot.Sol.Fir;
 
 public sealed record FirFlowBlock(int Id, AstOrigin Origin, ImmutableArray<int> Reads,
-    ImmutableArray<int> Writes, ImmutableArray<int> Kills, ImmutableArray<int> Successors, bool Returns);
+    ImmutableArray<int> Writes, ImmutableArray<int> Kills, ImmutableArray<int> Successors,
+    ImmutableArray<FirCallSite> Calls, bool Returns);
+
+/// <summary>A resolved call and its declared exception set at one FIR operation.</summary>
+public sealed record FirCallSite(int? Target, AstOrigin Origin, ImmutableArray<ResolvedType> Effects);
 
 /// <summary>CFG side table owned by FIR; this is not a second intermediate language.</summary>
 public sealed class FirFlowGraph
 {
-    private FirFlowGraph(ImmutableArray<FirFlowBlock> blocks, ImmutableArray<Diagnostic> diagnostics)
-    { Blocks = blocks; Diagnostics = diagnostics; }
+    private FirFlowGraph(int functionId, ImmutableArray<FirFlowBlock> blocks, ImmutableArray<Diagnostic> diagnostics)
+    { FunctionId = functionId; Blocks = blocks; Diagnostics = diagnostics; }
+    public int FunctionId { get; }
     public ImmutableArray<FirFlowBlock> Blocks { get; }
     public ImmutableArray<Diagnostic> Diagnostics { get; }
 
-    internal static FirFlowGraph Create(FirFunction function, CancellationToken cancellation)
+    internal static FirFlowGraph Create(FirFunction function, ImmutableArray<FirFunction> functions, CancellationToken cancellation)
     {
-        var builder = new Builder(function, cancellation);
+        var builder = new Builder(function, functions, cancellation);
         builder.Build();
-        return new(builder.Nodes.Select(n => new FirFlowBlock(n.Id, n.Origin, n.Reads.ToImmutableArray(), n.Writes.ToImmutableArray(),
-            n.Kills.ToImmutableArray(), n.Next.ToImmutableArray(), n.Returns)).ToImmutableArray(), builder.Verify());
+        return new(function.Id, builder.Nodes.Select(n => new FirFlowBlock(n.Id, n.Origin, n.Reads.ToImmutableArray(), n.Writes.ToImmutableArray(),
+            n.Kills.ToImmutableArray(), n.Next.ToImmutableArray(), n.Calls.ToImmutableArray(), n.Returns)).ToImmutableArray(), builder.Verify());
     }
 
     private sealed class Node(int id, AstOrigin origin)
@@ -37,10 +43,11 @@ public sealed class FirFlowGraph
         internal List<int> Reads = [];
         internal List<int> Writes = [];
         internal List<int> Kills = [];
+        internal List<FirCallSite> Calls = [];
         internal bool Returns;
     }
 
-    private sealed class Builder(FirFunction function, CancellationToken cancellation)
+    private sealed class Builder(FirFunction function, ImmutableArray<FirFunction> functions, CancellationToken cancellation)
     {
         internal List<Node> Nodes { get; } = [];
         private int _fallthrough;
@@ -99,6 +106,21 @@ public sealed class FirFlowGraph
                     int updated = loop.Update is null ? update.Id : Statement(loop.Update, update.Id, after.Id, test.Id);
                     if (updated >= 0) { Edge(updated, test.Id); }
                     return after.Id;
+                case FirArrayForEach iteration:
+                    var resetItem = New(iteration.Origin); resetItem.Kills.Add(iteration.ItemSlot); Edge(before, resetItem.Id);
+                    before = Expression(iteration.Array, resetItem.Id);
+                    var eachTest = New(iteration.Origin); Edge(before, eachTest.Id);
+                    var eachAfter = New(iteration.Origin);
+                    Edge(eachTest.Id, eachAfter.Id);
+                    if (iteration.Array is FirArrayLiteral { Elements.IsEmpty: true }) { return eachAfter.Id; }
+                    var itemEntry = New(iteration.Origin); itemEntry.Writes.Add(iteration.ItemSlot);
+                    var eachBody = New(iteration.Body.Origin); var eachStep = New(iteration.Origin);
+                    Edge(eachTest.Id, itemEntry.Id);
+                    Edge(itemEntry.Id, eachBody.Id);
+                    int eachLast = Statement(iteration.Body, eachBody.Id, eachAfter.Id, eachStep.Id);
+                    if (eachLast >= 0) { Edge(eachLast, eachStep.Id); }
+                    Edge(eachStep.Id, eachTest.Id);
+                    return eachAfter.Id;
                 default: throw new InvalidOperationException("Verified statement shape was not handled by CFG construction.");
             }
         }
@@ -109,6 +131,11 @@ public sealed class FirFlowGraph
             {
                 case FirRead read:
                     var node = New(read.Origin); node.Reads.Add(read.Slot); Edge(before, node.Id); return node.Id;
+                case FirFunctionReference:
+                    return before;
+                case FirCallValueReference:
+                    // Its source evaluation already completed earlier in this call plan.
+                    return before;
                 case FirUnary unary: return Expression(unary.Value, before);
                 case FirBinary { Operation: "&&" or "||" } conditional:
                     int left = Expression(conditional.Left, before); var right = New(conditional.Right.Origin); var join = New(conditional.Origin);
@@ -129,10 +156,21 @@ public sealed class FirFlowGraph
                         if (argument.Mode != AstPassingMode.Out) { before = Expression(argument.Value, before); }
                     }
                     var completed = New(call.Origin); Edge(before, completed.Id);
+                    completed.Calls.Add(new(call.Target, call.Origin, functions[call.Target].Effects));
                     foreach (var argument in call.Arguments.Where(a => a.Mode == AstPassingMode.Out))
                     { completed.Writes.Add(((FirRead)argument.Value).Slot); }
                     if (call.Type.Kind == Analysis.ResolvedTypeKind.Bottom) { return New(call.Origin).Id; }
                     return completed.Id;
+                case FirIndirectCall call:
+                    before = Expression(call.Function, before);
+                    foreach (var argument in call.Arguments)
+                    { if (argument.Mode != AstPassingMode.Out) { before = Expression(argument.Value, before); } }
+                    var invoked = New(call.Origin); Edge(before, invoked.Id);
+                    invoked.Calls.Add(new(null, call.Origin, call.Function.Type.Effects));
+                    foreach (var argument in call.Arguments.Where(argument => argument.Mode == AstPassingMode.Out))
+                    { invoked.Writes.Add(((FirRead)argument.Value).Slot); }
+                    if (call.Type.Kind == Analysis.ResolvedTypeKind.Bottom) { return New(call.Origin).Id; }
+                    return invoked.Id;
                 default: return before;
             }
         }

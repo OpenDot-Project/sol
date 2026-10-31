@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-// Status: mapping/default origins are available; full expression/lambda typing and execution are planned.
+// Status: contextual lambda typing and exact-ABI noncapturing function values are implemented.
+// Native default evaluation and vararg packing still gate the calls shown here.
 module demonstrations.calls
 
 func stamp(value: int): int = value

@@ -17,4 +17,10 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Istanbul
+    groups:
+      codeql-actions:
+        applies-to: version-updates
+        patterns:
+          - github/codeql-action/init
+          - github/codeql-action/analyze
     open-pull-requests-limit: 10

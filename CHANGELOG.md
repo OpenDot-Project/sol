@@ -6,15 +6,25 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
 
 ## [Unreleased]
 
-The next release target is **Sol 0.0.2**, tag `v0.0.2`. Source version metadata has advanced;
-publication still requires the protected-branch, merged-commit and tag-build validation gates.
-The published Sol 0.0.1 assets remain immutable.
+## [0.1.0] - 2026-10-28
+
+First release with a restricted verified-FIR/native bootstrap. The complete language specification
+remains broader than the implementation. The published Sol 0.0.1 assets remain immutable.
+
 
 ### Added
 
 - Reproducible 100,000-input fuzz seed corpora across frontend, AST/declaration analysis,
   runtime, native LLVM backend and GC, with isolated managed/native workers, integrity
   checks, independent oracles, ASan runtime/GC replay and Windows CI validation.
+- Explicit native upstream-commit OSV queries, strict paginated advisory evidence validation,
+  and a separate Windows advisory workflow. A pinned upstream zlib fix, libxml2 HTML/XInclude
+  removal and hash-bound ASan/symbol qualification harden the native dependency inputs.
+  The two libxml2 records remain in raw OSV output; exact upstream fixes, disabled HTML/XInclude
+  features, absent symbols, and binary-bound evidence now qualify these records only;
+  no CodeQL suppression or risk exemption is applied.
+  Native staging also rejects missing/stale build bindings and changed payload/report/catalog
+  bytes, preserving a hash inventory with the package's qualification evidence.
 
 - Resident span mark/gray bitmaps and a coalescing ready-region queue, resumable descriptor scans,
   bounded allocation assists, Idle/Sweep barrier fast paths, native diagnostic counters/histograms
@@ -53,17 +63,28 @@ The published Sol 0.0.1 assets remain immutable.
   overloads, native Throwable carrier roots/suppression, and native model/ASan/concurrency checks.
 - Process-isolated native ORC bin execution, scalar C-ABI DLL/static-library output, deterministic
   closed-subset Sol library containers, and host/guest runtime import checks. General source EH,
-  the span allocator, external Sol library consumption and the full standard library remain pending.
+  broader allocator concurrency/workload qualification, external Sol library consumption, and the
+  full standard library remain pending.
 
 - Pinned JetBrains native/C++/CLI cleanup and inspection, MSVC CppCoreCheck build settings,
   and a separate digest-verified Doxygen HTML/XML validation workflow for Windows.
 
 - Verified native-subset FIR, independent type/call/literal and CFG assignment verification,
   `--emit=fir`/`--emit=llvm-ir`, and a qualified LLVM 23.1.3 AOT executable path.
+- Closed module-level generic free-function FIR specialization with declaration-ordered type
+  arguments, bounded instance/body expansion, source-origin and selected-target verification, and
+  FIR JSON schema 5 metadata. A receiver-free subset now covers generic methods on stateless,
+  non-generic top-level objects, including partial declarations, direct singleton qualification,
+  same-owner calls, method constraints, varargs, ref/out, and pure omitted defaults. The native ORC
+  integration path exercises method calls across collection safepoints. Computed receivers, generic
+  owner layouts, constructors/properties/operators/virtual dispatch, and external generic exports
+  remain outside this subset.
 - C++20/CLI LLVM bridge with native RAII, pre/post-pass verification, and COFF object generation.
 - Provisional native SolRT with dynamic/static linking, UTF-8 arguments, scalar/String output,
   checked arithmetic/bounds failures, native execution/import tests, and an ASan ABI harness.
-- Separate Windows native-backend CI with pinned LLVM acquisition and native CodeQL build coverage.
+- Separate Windows native-backend CI with pinned LLVM acquisition and first-party native CodeQL
+  build coverage. Downloaded upstream sources remain outside the repository scan and go through
+  native advisory qualification.
 - Optional source-owned body analysis: receiver/call/lambda typing, access and override diagnostics,
   constructor initialization, structured assignment/null/effect checks, delegation contracts, and
   explicit unverified proof locations. This API alone does not certify native eligibility.

@@ -162,7 +162,8 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
             while (!AtEnd && !Boundary)
             {
                 if (Kind == LessToken && left.Kind is NodeKind.NameExpression or NodeKind.MemberExpression
-                    && LooksLikeGenericApplication())
+                    && (left.Kind == NodeKind.NameExpression && lex.Source.GetText(left.Span) == "super"
+                        || LooksLikeGenericApplication()))
                 {
                     left = Node(NodeKind.GenericExpression, start, [left, ParseTypeArguments()]);
                     continue;
@@ -192,7 +193,7 @@ internal sealed partial class Parser(LexResult lex, int errorLimit, int maxDepth
                 }
                 if (Kind == OpenBracketToken)
                 {
-                    left = Node(NodeKind.IndexExpression, start, [left, ParseSequence(OpenBracketToken, CloseBracketToken, NodeKind.ArgumentList)]);
+                    left = Node(NodeKind.IndexExpression, start, [left, ParseArguments(OpenBracketToken, CloseBracketToken)]);
                     continue;
                 }
                 if (Kind is BangBangToken or PlusPlusToken or MinusMinusToken)

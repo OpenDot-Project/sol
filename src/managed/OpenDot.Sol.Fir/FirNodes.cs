@@ -10,6 +10,10 @@ public abstract record FirNode(AstOrigin Origin);
 public abstract record FirExpression(ResolvedType Type, AstOrigin Origin) : FirNode(Origin);
 public sealed record FirConstant(string Spelling, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirRead(int Slot, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
+/// <summary>A non-capturing, source-resolved function value. The value is a native function pointer.</summary>
+public sealed record FirFunctionReference(int Target, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
+/// <summary>Reads an earlier value captured by the containing call's ordered argument evaluation.</summary>
+public sealed record FirCallValueReference(int EvaluationIndex, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirUnary(string Operation, FirExpression Value, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirBinary(string Operation, FirExpression Left, FirExpression Right, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 public sealed record FirArrayLength(FirExpression Array, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
@@ -21,7 +25,14 @@ public sealed record FirIntrinsic(FirIntrinsicKind Operation, ImmutableArray<Fir
     public ImmutableArray<int> ParameterOrder { get; init; } = [];
 }
 public sealed record FirArgument(int Parameter, AstPassingMode Mode, FirExpression Value);
-public sealed record FirCall(int Target, ImmutableArray<FirArgument> Arguments, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
+public sealed record FirCall(int Target, ImmutableArray<FirArgument> Arguments, ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin)
+{
+    /// <summary>Closed, declaration-ordered type arguments for a specialized generic target.</summary>
+    public ImmutableArray<ResolvedType> TypeArguments { get; init; } = [];
+}
+/// <summary>Invokes a typed function value indirectly using its resolved function signature.</summary>
+public sealed record FirIndirectCall(FirExpression Function, ImmutableArray<FirArgument> Arguments,
+    ResolvedType Type, AstOrigin Origin) : FirExpression(Type, Origin);
 
 public abstract record FirStatement(AstOrigin Origin) : FirNode(Origin);
 public sealed record FirBlock(ImmutableArray<FirStatement> Statements, AstOrigin Origin) : FirStatement(Origin);
@@ -31,15 +42,26 @@ public sealed record FirEvaluate(FirExpression Value, AstOrigin Origin) : FirSta
 public sealed record FirReturn(FirExpression? Value, AstOrigin Origin) : FirStatement(Origin);
 public sealed record FirIf(FirExpression Condition, FirBlock Then, FirBlock? Else, AstOrigin Origin) : FirStatement(Origin);
 public sealed record FirLoop(FirStatement? Initializer, FirExpression? Condition, FirBlock Body, FirStatement? Update, AstOrigin Origin) : FirStatement(Origin);
+public sealed record FirArrayForEach(int ItemSlot, FirExpression Array, FirBlock Body, AstOrigin Origin) : FirStatement(Origin);
 public sealed record FirBreak(AstOrigin Origin) : FirStatement(Origin);
 public sealed record FirContinue(AstOrigin Origin) : FirStatement(Origin);
 
-public sealed record FirSlot(int Id, string Name, ResolvedType Type, bool Mutable, AstPassingMode Mode, bool IsParameter, AstOrigin Origin);
+public sealed record FirSlot(int Id, string Name, ResolvedType Type, bool Mutable, AstPassingMode Mode, bool IsParameter, AstOrigin Origin)
+{
+    /// <summary>Source lifetime contract for a function-valued parameter; false for local slots and lambdas.</summary>
+    public bool IsEscaping { get; init; }
+}
 public enum FirRuntimeFunction { None, Print, Println, Error, Errorln }
 public sealed record FirFunction(int Id, string Name, ImmutableArray<FirSlot> Parameters, ImmutableArray<FirSlot> Slots,
     ResolvedType ReturnType, FirBlock? Body, FirRuntimeFunction RuntimeFunction, ImmutableArray<ResolvedType> Effects, AstOrigin Origin)
 {
     public string? ExportName { get; init; }
+    /// <summary>The source lambda represented by this synthetic, non-capturing function.</summary>
+    public AstLambda? LambdaSource { get; init; }
+    /// <summary>The source anonymous function represented by this synthetic, non-capturing function.</summary>
+    public AstAnonymousFunction? AnonymousFunctionSource { get; init; }
+    /// <summary>Closed generic arguments for this monomorphic body; empty for ordinary functions.</summary>
+    public ImmutableArray<ResolvedType> SpecializationArguments { get; init; } = [];
 }
 
 /// <summary>Unverified source FIR; verification is required before code generation.</summary>

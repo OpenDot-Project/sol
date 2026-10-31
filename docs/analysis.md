@@ -74,10 +74,13 @@ Selective import targets are checked against actual public exports.
 Public imports re-export visible public bindings; private imports do not.
 Public module aliases propagate as qualifiers through public import chains.
 
-Private, internal, and protected declarations are not public exports.
-Internal cross-module access within a distribution is not yet implemented by this public-export
-lookup surface; the session conservatively exposes public declarations across module imports.
-Type/member access control after receiver binding is also outside the current lookup API.
+Private, internal, and protected declarations are not public exports. Internal top-level declarations
+are visible through a direct import inside the one distribution indexed by an `AnalysisSession`;
+normal, aliased, and selective imports preserve the binding's local name. A direct module qualifier can
+resolve that module's internal declarations. Internal symbols do not pass through `public import`,
+`GetExports`, or transitive module qualifiers. The current session has one `DistributionName`; loading
+and checking declarations across distribution metadata remains future work. Type/member access control
+after receiver binding is also outside the current lookup API.
 
 ## Graphs and re-exports
 
@@ -124,7 +127,7 @@ Primary constructor parameters retain their AST property markers; generated prop
 data-class members, and implicit constructor symbols are not synthesized by this index.
 
 The declaration validator also checks duplicate/conflicting modifiers, duplicate parameter names,
-duplicate type parameters, last-position varargs, grouped default/property/vararg restrictions,
+duplicate type parameters, the at-most-one-vararg rule, grouped default/property/vararg restrictions,
 ref/out defaults, duplicate property accessors, and setters on `val` properties.
 It does not infer parameter or return types.
 
@@ -140,7 +143,7 @@ Source paths do not participate in module or type identities.
 | `SOL2001` | Missing source module or implicit core |
 | `SOL2003` | Duplicate signature or conflicting declaration name |
 | `SOL2004` | Duplicate/conflicting declaration modifiers |
-| `SOL2005` | Invalid parameter/type-parameter declaration shape |
+| `SOL2005` | Invalid parameter/type-parameter declaration shape, including duplicate anonymous-function parameters or vararg groups |
 | `SOL2006` | Conflicting property accessors |
 | `SOL2007` | Public re-export cycle |
 | `SOL2008` | Invalid selective import or alias combination |

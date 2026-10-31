@@ -40,13 +40,26 @@ qualifiers retain explicit import and shadowing behavior.
 
 Call mapping reuses the named/default/vararg contract: source-order mapping, named arrays, middle
 varargs, explicit ref/out modes, and final-parameter trailing lambdas. Generic inference uses known
-argument and expected return types; it is not an unrestricted solver. Numeric literal applicability
-and intrinsic/user-conversion ranks participate in selection. User conversions are single-step.
+argument bounds, exact ref/out evidence, expected result types, invariant nested applications, and
+constructed base projections. The solver requires a unique most-specific bound and checks method
+and constructed-owner constraints after inference. Selected closed generic member dependencies and
+direct local callable contexts have a bounded original-body reanalysis stage; this does not establish
+complete monomorphization or native admission. See [generic inference](generic-inference.md) and
+[automatic member body analysis](generic-fir-specialization/AutomaticMemberBodyAnalysis.md).
+Numeric literal applicability and intrinsic/user-conversion ranks participate in selection. User
+conversions are single-step.
 
 Private and protected access, private setters/getters, explicit override, non-overridable members,
 visibility reduction, incompatible returns, and widened checked effect budgets receive diagnostics.
-Current inherited lookup is intentionally bounded; full inherited overload merging, interface-default
-conflict resolution, and generated data members remain work to complete.
+Inherited callable groups merge across substituted base paths; duplicate constructed paths collapse,
+and a more-derived same-signature declaration replaces the base recovery candidate. Inheritance
+lookup is bounded to 128 levels, 8192 path states, and 128 routes per constructed candidate.
+Interface methods/accessors now have declaration-time implementation selection, independent
+getter/setter merging, `by` target records, and direct qualified-super binding. Conflicts and missing
+implementations remain errors even without a call. Generated data members remain incomplete.
+Protected receiver restrictions, cross-binary distribution metadata for `internal`, complete
+non-interface property/indexer inheritance, and complete construction/delegation proofs remain open.
+See [receiver and member resolution](member-resolution.md).
 
 ## Expression and lambda checking
 
@@ -56,13 +69,34 @@ Numeric variables do not silently widen. Contextual literals are checked against
 including negative signed minima. Binary128 contextual rounding remains unverified.
 
 Named and positional lambdas use expected function parameter/result types. Headerless parameterless
-lambdas can infer their tail result. Implicit `it` is not introduced. Ref/out lambda headers retain
-their syntax mode and out obligations. Function effects can broaden to a compatible callback budget;
-a callback cannot silently discard checked effects.
+lambdas can infer their tail result. Without an expected result type, labeled lambda returns and the
+reachable tail are joined using the unique common-type rules; nested callable returns do not enter
+that join. Bare local returns contribute `()`, and bottom-valued returns do not create a normal
+exit. Implicit `it` is not introduced. Ref/out lambda headers retain their syntax mode and out
+obligations. Function effects can broaden to a compatible callback budget; a callback cannot
+silently discard checked effects.
 
-Arithmetic operators and single-step conversions can bind companion declarations. Complete operator
-pair validation, nullable user-operator lifting, conditional truth operators, checked-variant preference,
-and all contextual inference cases are not yet complete. Unsupported expression shapes remain unverified.
+`BodyAnalysis.LambdaBodies` and `GetLambdaBody` expose each resolved lambda signature, abstract
+normal-exit-state count, reachable fallthrough, per-out-parameter assignment, and subtree
+completeness. These are source facts, not runtime executions, closure layouts, or FIR admission.
+Missing signatures have no body summary; deferred or diagnosed bodies can have a summary marked
+incomplete. A non-null lambda can be source-typed in a nullable function context and widened to the
+nullable destination. The current FIR/native nullable-lift gate still rejects those lambda-origin
+values with `SOL2400`.
+
+Arithmetic operators and single-step conversions can bind companion declarations. Operator checks
+validate owner and arity rules, required comparison/truth pairs, Boolean results, shift counts, and
+increment/decrement results. Checked arithmetic variants take precedence when applicable; otherwise
+the ordinary variant remains eligible. Applicable overloads are ordered by conversion rank; a more
+specific conversion beats boxing, and unique implicit user conversions remain single-step. Equality
+dispatches to a declared user operator before the intrinsic equality path. Compound assignments bind
+their underlying binary operator and validate its result against the writable location. Conditional
+`&&`/`||` checks the matching `true`/`false` and same-type `&`/`|` declarations. Nullable value
+operands bind their underlying user operators;
+arithmetic/bitwise and unary results are nullable, while equality and ordering produce `bool`. Builtin
+nullable numeric, Boolean, and comparison expressions receive the same type treatment. Runtime null
+dispatch, nullable Boolean truth-table lowering, executable short-circuit lowering, and all contextual
+or generic operator inference are not yet complete. Unsupported expression shapes remain unverified.
 
 ## Flow, effects, and storage
 
@@ -76,9 +110,36 @@ safe-call branches do not establish unconditional assignment from an expression 
 Loops conservatively retain only facts established on every continuing path.
 
 Throws and declared call/accessor effects propagate to enclosing budgets. Catch removes handled
-subtypes, checks catch ordering, and analyzes handler effects separately. RuntimeException subtypes
-are unchecked; a static Exception/Throwable value remains checked. Finally effects remain visible,
-and out assignments performed in finally are applied to normal return exits.
+subtypes, checks catch ordering, and analyzes handler effects separately. A call records its possible
+checked exception types and a conservative `RuntimeException` edge before normal-return `out`
+assignments are applied. Therefore a catch after an `out` call cannot read a previously assigned local
+as though its pre-call value were unchanged. Function-value `out var` uses the parameter's exact type
+and becomes definitely assigned only on normal return. `ref` calls clear narrowing before the call,
+because the callee may mutate the aliased storage before either returning or throwing.
+
+Each `try` body collects typed exceptional snapshots at supported call/accessor/operator/throw sites.
+Handlers start from the join of snapshots whose declared effect can overlap the catch type; they do not
+inherit assignments that happen only after a potentially throwing operation. A catch that cannot match
+any collected effect reports `SOL2255`. A broader catch consumes a narrower effect; a narrower catch
+does not erase the remaining possibility represented by a broader static effect. Handler exceptions
+flow to the enclosing `try` rather than to sibling handlers. Calls inside a handler do not make later
+sibling catches reachable.
+
+Potentially throwing built-in expressions without a precise call edge use a conservative synthetic
+`RuntimeException` snapshot. It intersects facts known at try entry and after normal completion, drops
+narrowing, and defers analysis if its bounded syntax walk reaches the resource limit. This can reject a
+valid read in a catch, but it does not treat a maybe-assigned local or smart cast as proven. Constant
+`for false` bodies are analyzed for diagnostics but their effects and exception edges do not escape the
+loop. Other loops retain only facts established on every continuing path; the complete CFG fixed point
+and all loop-exit correlations remain future work.
+
+Finally is analyzed on normal completion, each return exit, and each exception escaping the local
+handler set. Its effects flow to the caller and to an enclosing exception sink. The bounded cleanup
+slice tracks reached defer registrations, LIFO lexical-exit actions and source suppression metadata;
+overflow stays deferred. This does not implement runtime Throwable identity or exception unwinding.
+See the [cleanup/construction guide](cleanup-construction.md). RuntimeException subtypes are unchecked; a static
+Exception/Throwable value remains checked. Out assignments performed in finally are applied only when
+that exit completes normally.
 
 Constructor checks cover stored-property assignment, read-before-initialization, repeated writes to
 stored vals, direct receiver publication through arguments, and direct virtual dispatch during
@@ -86,9 +147,10 @@ construction. Base/secondary-constructor chains and complete partial/object init
 are still unverified. Empty implicit construction can obtain its nominal type without fabricating
 a constructor AST node.
 
-Ref/out and ref-like closure captures are rejected. Known heap storage of ref-like fields is rejected.
+Captures of ref/out or ref-like storage require a proven nonescaping use; unsupported lifetime paths
+are rejected. Known heap storage of ref-like fields is rejected.
 Ref-like returns whose borrow origin is not established remain unverified; there is no complete borrow
-origin solver yet. Defer cleanup and more complex exceptional/loop paths still need full flow proof.
+origin solver yet. Cleanup path correlation and more complex exceptional/loop paths still need full flow proof.
 
 Property delegation can validate `operator getValue`, `setValue`, and `provideDelegate` contracts
 when the source set supplies `std.reflect.SolProperty<T>`. Getter/setter effects are separate from
@@ -101,10 +163,10 @@ generation are not implemented by these source checks.
 |---|---|
 | `SOL2200`–`SOL2207` | Return inference, expression domains, conversions, and operators. |
 | `SOL2210`–`SOL2215` | Receivers, value/member lookup, indexing, and access. |
-| `SOL2220`–`SOL2225` | Lambda shape, callable applicability/ambiguity, and local returns. |
+| `SOL2220`–`SOL2226` | Lambda shape, callable applicability/ambiguity, local returns, and anonymous-function default parameters. |
 | `SOL2230`–`SOL2235` | Override contract compatibility. |
 | `SOL2240`–`SOL2247` | Assignment, writable storage, nullable receivers, and continuation/result flow. |
-| `SOL2250`–`SOL2254` | Checked effects, Throwable validity, catches, and cleanup transfer. |
+| `SOL2250`–`SOL2255` | Checked effects, Throwable validity, catch reachability, and cleanup transfer. |
 | `SOL2260`–`SOL2262` | Ref-like storage, borrow escape, and captures. |
 | `SOL2270`–`SOL2273` | Constructor initialization and publication. |
 | `SOL2280`–`SOL2282` | Delegation protocol selection and declaration combinations. |

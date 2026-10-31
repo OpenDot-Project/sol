@@ -114,9 +114,11 @@ public sealed class FirSafetyTests
         var call = Assert.IsType<FirCall>(evaluation.Value);
         var skipped = new FirBinary("&&", new FirConstant("false", call.Type, call.Origin), call, call.Type, call.Origin);
         var tampered = entry with { Body = entry.Body with { Statements = entry.Body.Statements.SetItem(1, evaluation with { Value = skipped }) } };
-        var result = FirVerifier.Verify(program with { Functions = program.Functions.SetItem(entry.Id, tampered) }, TestContext.Current.CancellationToken);
+        var changedFunctions = program.Functions.SetItem(entry.Id, tampered);
+        var result = FirVerifier.Verify(program with { Functions = changedFunctions }, TestContext.Current.CancellationToken);
         Assert.Null(result.Program);
-        Assert.Contains(result.Diagnostics, d => d.Code == "SOL2410");
+        var flow = FirFlowGraph.Create(tampered, changedFunctions, TestContext.Current.CancellationToken);
+        Assert.Contains(flow.Diagnostics, diagnostic => diagnostic.Code == "SOL2410");
     }
 
     [Fact]

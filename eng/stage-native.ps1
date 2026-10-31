@@ -6,8 +6,13 @@ Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 $pin = Get-Content (Join-Path $PSScriptRoot 'native-package.json') -Raw | ConvertFrom-Json
 $backend = [IO.Path]::GetFullPath((Join-Path $root $BackendDirectory))
-$facts = Get-Content (Join-Path $backend 'build-info.json') -Raw | ConvertFrom-Json
+$facts = Get-Content (Join-Path $backend 'build-info.json') -Raw | ConvertFrom-Json -AsHashtable
 if ($facts.schema_version -ne 1 -or $facts.llvm_version -ne $pin.llvm_version) { throw 'Native package build identity mismatch.' }
+Import-Module (Join-Path $PSScriptRoot 'NativeBuildEvidence.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'NativePackageNotices.psm1') -Force
+Assert-NativeBuildBinding $facts['dependency_binding'] $backend `
+    (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') `
+    (Join-Path $PSScriptRoot 'native-advisories.json') $pin.files
 $destination = Join-Path $Stage 'managed/native'
 $licenses = Join-Path $Stage 'licenses/native'
 New-Item -ItemType Directory -Path $destination, $licenses -Force | Out-Null
@@ -21,12 +26,13 @@ $cache = Join-Path $root 'out/downloads/native-notices'
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 foreach ($notice in $pin.notices) {
     $file = Join-Path $cache $notice.name
-    if (-not (Test-Path -LiteralPath $file)) { Invoke-WebRequest $notice.url -OutFile $file }
+    if (-not (Test-Path -LiteralPath $file)) { Save-PinnedNativeNotice -Notice $notice -Destination $file }
     if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $notice.sha256) { throw "Native notice digest mismatch: $($notice.name)" }
     Copy-Item -LiteralPath $file -Destination $licenses
 }
 $dependencies = Join-Path $root 'out/native/llvm-native/dependency-licenses'
 $components = @()
+$catalog = Get-Content (Join-Path $PSScriptRoot 'native-advisories.json') -Raw | ConvertFrom-Json
 foreach ($name in @('zlib', 'zstd', 'libxml2')) {
     $directory = Join-Path $licenses $name
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
@@ -35,8 +41,19 @@ foreach ($name in @('zlib', 'zstd', 'libxml2')) {
     $port = @($spdx.packages | Where-Object SPDXID -EQ 'SPDXRef-port')
     $binary = @($spdx.packages | Where-Object SPDXID -EQ 'SPDXRef-binary')
     if ($port.Count -ne 1 -or $binary.Count -ne 1 -or -not $port[0].versionInfo) { throw "Missing native dependency identity: $name" }
-    $components += @{ name = $name; version = $port[0].versionInfo; vcpkg_binary_abi = $binary[0].versionInfo }
+    $identity = $catalog.components | Where-Object name -CEQ $name
+    $resource = @($spdx.packages | Where-Object SPDXID -EQ 'SPDXRef-resource-0')
+    $reference = if ($name -eq 'zlib') { $identity.commit } else { $identity.tag }
+    if ($resource.Count -ne 1 -or $resource[0].downloadLocation -cne "git+$($identity.repository)@$reference") {
+        throw "Packaged native source identity mismatch: $name"
+    }
+    $components += @{ name = $name; version = $port[0].versionInfo; vcpkg_binary_abi = $binary[0].versionInfo; source_commit = $identity.commit }
 }
+Copy-Item -LiteralPath (Join-Path $root 'out/native/llvm-native/dependency-qualification.json') -Destination $licenses
+$facts.dependency_binding | ConvertTo-Json -Depth 8 |
+    Set-Content -LiteralPath (Join-Path $licenses 'build-binding.json') -Encoding utf8NoBOM
+Assert-NativeBuildBinding $facts.dependency_binding $destination `
+    (Join-Path $licenses 'dependency-qualification.json') (Join-Path $PSScriptRoot 'native-advisories.json') $pin.files
 $source = Get-Content (Join-Path $PSScriptRoot 'llvm-native-dependencies.json') -Raw | ConvertFrom-Json
 @{
     llvm_version = $pin.llvm_version; embedded_linker = @('LLD.COFF', 'LLD.Common')

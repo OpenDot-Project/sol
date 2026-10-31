@@ -61,26 +61,27 @@ internal sealed partial class Parser
     {
         int start = Start;
         Advance();
-        var children = new List<SyntaxNode> { ParseParameters() };
+        var children = new List<SyntaxNode> { ParseParameters(allowOmittedTypes: true) };
         if (Take(ColonToken)) { children.Add(ParseType()); }
         if (IsText("throws"))
         {
             Advance();
             do { children.Add(ParseType()); } while (Take(CommaToken));
         }
-        children.Add(ParseBody());
+        if (Take(EqualsToken)) { children.Add(ParseExpression()); }
+        else { children.Add(ParseBody()); }
         return Node(NodeKind.AnonymousFunctionExpression, start, children);
     }
 
-    private SyntaxNode ParseArguments()
+    private SyntaxNode ParseArguments(SyntaxKind open = OpenParenToken, SyntaxKind close = CloseParenToken)
     {
         int start = Start;
         _suppressedNewlines++;
         try
         {
-            Expect(OpenParenToken);
+            Expect(open);
             var arguments = new List<SyntaxNode>();
-            while (!AtEnd && Kind != CloseParenToken)
+            while (!AtEnd && Kind != close)
             {
                 int before = _index;
                 int argumentStart = Start;
@@ -111,7 +112,7 @@ internal sealed partial class Parser
                 EnsureProgress(before);
                 if (!Take(CommaToken)) { break; }
             }
-            Expect(CloseParenToken);
+            Expect(close);
             return Node(NodeKind.ArgumentList, start, arguments);
         }
         finally { _suppressedNewlines--; }

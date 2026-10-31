@@ -12,6 +12,7 @@ public enum LlvmOperation
     Gep, StructGep, Call, Return, Branch, ConditionalBranch, Unreachable, Phi, Extract,
     Add, Sub, Mul, SDiv, UDiv, SRem, URem, And, Or, Xor, Shl, LShr, AShr,
     FAdd, FSub, FMul, FDiv, FRem, FNeg, ICmp, FCmp, ZExt, SExt, Trunc, FPExt,
+    FunctionType, IndirectCall,
 }
 
 /// <summary>Owns native LLVM objects. Handles are session-scoped opaque identities, never pointers.</summary>

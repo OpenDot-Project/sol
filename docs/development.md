@@ -110,9 +110,13 @@ Every repository workflow runs on Windows 2025. Jobs are separated by responsibi
 | `security.yml` | Digest-verified actionlint, offline zizmor audit, and OSV scanning of tracked NuGet lockfiles. |
 | `package.yml` | Component assembly, private-runtime smoke, and archive artifact. |
 
-CodeQL traces C# and plain native C++ builds, including the LLVM component, guest host and runtime.
-This does not establish complete mixed-mode C++/CLI or cross-language coverage. OSV's workflow
-scans NuGet lockfiles; it is not a complete runtime/native SBOM audit.
+CodeQL traces Sol-owned C# and native C++ compile units, including the guest host and runtime.
+The C++ job downloads LLVM and builds vcpkg dependencies under the runner temporary directory,
+outside the checkout; this keeps generated upstream source out of the Sol source scan without
+path filters or query suppression. Native source commits and advisories are checked by the separate
+hash-pinned native advisory workflow. OSV's general security workflow scans NuGet lockfiles; it is
+not a complete runtime/native SBOM audit. CodeQL does not establish complete mixed-mode C++/CLI or
+cross-language coverage.
 Codacy source analysis is configured separately from these workflows. Coverage upload success is
 tracked independently of whether tests passed. Fork pull requests do not run the trusted Codecov
 upload job. Dependency updates are proposed through Dependabot for NuGet and Actions.
@@ -129,8 +133,8 @@ installed SDK/Redistributable prerequisites and the limits of relocation qualifi
 ## Release process
 
 Changes enter `main` through protected pull requests and required checks. After the merged commit
-passes CI, maintainers create a version tag such as `v0.0.1`. The tag triggers fresh test and package
-runs. Release assets come from that exact successful tag Package run, rather than a developer's
+passes CI, maintainers create the approved version tag, for example `v0.1.0`. The tag triggers
+fresh test and package runs. Release assets come from that exact successful tag Package run, rather than a developer's
 local archive or a pull-request artifact.
 When a release includes the native component, its additional archive must come from the successful
 Native backend run for that same tag and commit. The native workflow also runs on version tags;
