@@ -34,7 +34,9 @@ module source.spec.interface_implementations
 // interface, not an indirect ancestor or another generic application of the same declaration.
 // The selected method/getter/setter/indexer must reach a unique concrete interface body. The call
 // remains a direct source-body selection, without renewed virtual dispatch. Visibility, arguments,
-// substitutions, and checked effects still apply. Construction use is invalid.
+// substitutions, and checked effects still apply. Construction use is invalid, including stored
+// property initializers, init blocks, and property/interface delegate initialization expressions.
+// Runtime local initializers and accessor bodies remain ordinary operation call sites.
 //
 // SOL2236: competing implementation providers; SOL2237: missing required implementation;
 // SOL2238: invalid qualified super; SOL2239: incompatible accessor value types.

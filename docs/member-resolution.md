@@ -131,7 +131,9 @@ behavior remains `Deferred`.
 
 `super<I>.method()`, `super<I>.property`, and `super<I>[index]` require an exact direct constructed
 base interface and a unique concrete body for the requested operation. An indirect ancestor,
-abstract operation, construction use, or bare qualified-super value is rejected. These calls retain
+abstract operation, construction use, or bare qualified-super value is rejected. Construction includes
+stored property initializers, `init` blocks, and property/interface delegate initialization expressions.
+Runtime local initializers and accessor bodies remain ordinary operation call sites. These calls retain
 the selected source body rather than reopening virtual dispatch. This source proof does not grant
 native interface dispatch, layout, forwarding code generation, or receiver ABI support; the FIR
 `SOL2400` boundary remains in force.

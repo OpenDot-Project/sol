@@ -24,10 +24,39 @@ internal sealed partial class BodyBindingBuilder
         var target = Written(arguments[0]);
         if (target.Declaration?.Parts[0].SyntaxKind != NodeKind.InterfaceDeclaration
             || !Types.GetDirectBases(owner, _cancellation).Any(type => ReferenceEquals(type, target))
-            || Ancestors(application).TakeWhile(node => node is not AstTypeDeclaration)
-                .Any(node => node is AstConstructor))
+            || IsQualifiedSuperInitialization(application))
         { Report("SOL2238", "Qualified super must name a direct constructed interface outside construction.", application); return new(null); }
         return new(target);
+    }
+
+    private bool IsQualifiedSuperInitialization(AstGenericApplication application)
+    {
+        AstNode child = application;
+        foreach (var parent in Ancestors(application))
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (parent is AstTypeDeclaration) { break; }
+            if (parent is AstConstructor or AstInitializer || parent.SyntaxKind == NodeKind.BaseList)
+            { return true; }
+            if (parent is AstProperty property
+                && (ReferenceEquals(child, property.Initializer) || child.SyntaxKind == NodeKind.Delegation)
+                && Ancestors(property).OfType<AstDeclaration>().FirstOrDefault() is AstTypeDeclaration)
+            { return true; }
+            child = parent;
+        }
+        return false;
+    }
+
+    private void ValidateQualifiedSuperInitialization()
+    {
+        // Some initialization bodies remain deferred without being expression-bound. Their
+        // qualified-super prohibition still applies to unused declarations.
+        foreach (var application in Files.Keys.OfType<AstGenericApplication>())
+        {
+            _cancellation.ThrowIfCancellationRequested();
+            if (application.Target is AstAtom { Spelling: "super" } && IsQualifiedSuperInitialization(application))
+            { Report("SOL2238", "Qualified super must name a direct constructed interface outside construction.", application); }
+        }
     }
 
     private IEnumerable<MemberBinding> InterfaceMethodCandidates(ResolvedType receiver, string name,
