@@ -82,7 +82,12 @@ try {
         $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
         if ($report.version -ne '2.1.0' -or @($report.runs).Count -eq 0) { throw 'Invalid InspectCode SARIF output.' }
         $results = @($report.runs | ForEach-Object { $_.results } | Where-Object { $null -ne $_ })
-        if ($results.Count -ne 0) { throw "Native InspectCode reported warning/error findings; see $reportPath." }
+        if ($results.Count -ne 0) {
+            foreach ($result in $results) {
+                Write-Host ('InspectCode finding: {0}' -f ($result | ConvertTo-Json -Depth 20 -Compress))
+            }
+            throw "Native InspectCode reported warning/error findings; see $reportPath."
+        }
         Copy-Item -LiteralPath $reportPath -Destination $latestPath
         Write-Host "Native InspectCode completed: $($results.Count) warning/error findings."
     }
