@@ -4,7 +4,7 @@
 
 namespace OpenDot::Sol::Runtime::Heap
 {
-const char *CounterName(GcCounter value)
+const char *CounterName(GcCounter value) noexcept
 {
     switch (value)
     {
@@ -66,12 +66,13 @@ const char *CounterName(GcCounter value)
         return "active_barriers";
     case GcCounter::IdleBarriers:
         return "idle_barriers";
-    default:
-        sol_rt_fail(7);
+    case GcCounter::Count:
+        break;
     }
+    sol_rt_fail(7);
 }
 
-const char *HistogramName(GcHistogram value)
+const char *HistogramName(GcHistogram value) noexcept
 {
     switch (value)
     {
@@ -85,12 +86,13 @@ const char *HistogramName(GcHistogram value)
         return "assist_batch";
     case GcHistogram::SweepBatch:
         return "sweep_batch";
-    default:
-        sol_rt_fail(7);
+    case GcHistogram::Count:
+        break;
     }
+    sol_rt_fail(7);
 }
 
-const char *EventName(GcEventKind value)
+const char *EventName(GcEventKind value) noexcept
 {
     switch (value)
     {
@@ -116,8 +118,7 @@ const char *EventName(GcEventKind value)
         return "pressure_wait";
     case GcEventKind::RefillFailure:
         return "refill_failure";
-    default:
-        sol_rt_fail(7);
     }
+    sol_rt_fail(7);
 }
 }

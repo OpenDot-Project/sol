@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcProfile.h"
+#include "CheckedAccess.h"
 #include "TraceHarnessSupport.h"
 #include <atomic>
 #include <random>
@@ -13,7 +14,7 @@ namespace
 Node *AllocateNode(AllocationTimings &timings, std::uint64_t value, unsigned extra = 0)
 {
     const auto started = Heap::MonotonicNanoseconds();
-    auto *node = reinterpret_cast<Node *>(sol_gc_alloc(&NodeType, sizeof(Node) + extra));
+    auto *node = Detail::StorageCast<Node>(sol_gc_alloc(&NodeType, sizeof(Node) + extra));
     timings.Record(Heap::ElapsedNanoseconds(started));
     node->Value = value;
     return node;
@@ -54,14 +55,14 @@ bool Linked(ProfileResult &result, bool sparse)
             {
                 return false;
             }
-            auto *node = reinterpret_cast<Node *>(roots.Get(0));
+            auto *node = Detail::StorageCast<Node>(roots.Get(0));
             for (unsigned remaining = options.Nodes; remaining; --remaining)
             {
                 if (!node || node->Value != remaining - 1)
                 {
                     return false;
                 }
-                node = reinterpret_cast<Node *>(node->Left);
+                node = Detail::StorageCast<Node>(node->Left);
             }
             if (node)
             {
@@ -84,18 +85,22 @@ bool Wide(ProfileResult &result)
         {
             PublicFrame roots(options.Roots);
             const auto started = Heap::MonotonicNanoseconds();
-            auto *array = reinterpret_cast<StringArray *>(sol_gc_alloc(
+            auto *array = Detail::StorageCast<StringArray>(sol_gc_alloc(
                 &ArrayType, sizeof(StringArray) + options.Nodes * 8ULL));
+            if (!array)
+            {
+                sol_rt_fail(7);
+            }
             result.Allocations.Record(Heap::ElapsedNanoseconds(started));
-            array->Length = static_cast<std::int32_t>(options.Nodes);
+            array->Length = Detail::Integer<std::int32_t>(options.Nodes);
             array->Stride = 8;
             array->Element = &NodeType;
             roots.Store(0, &array->Object);
-            auto **slots = reinterpret_cast<Header **>(array + 1);
+            const std::span slots(Detail::StorageCast<Header *>(array->Data()), options.Nodes);
             for (unsigned index = 0; index < options.Nodes; ++index)
             {
                 auto *node = AllocateNode(result.Allocations, index);
-                sol_gc_store_ref(&slots[index], &node->Object);
+                sol_gc_store_ref(&Detail::CheckedAt(slots, index), &node->Object);
             }
             for (unsigned root = 1; root < options.Roots; ++root)
             {
@@ -107,7 +112,7 @@ bool Wide(ProfileResult &result)
             }
             for (unsigned index = 0; index < options.Nodes; ++index)
             {
-                const auto *node = reinterpret_cast<const Node *>(slots[index]);
+                const auto *node = Detail::StorageCast<const Node>(Detail::CheckedAt(slots, index));
                 if (!node || node->Value != index)
                 {
                     return false;
@@ -143,7 +148,7 @@ bool Churn(ProfileResult &result)
             }
             for (unsigned slot = 0; slot < expected; ++slot)
             {
-                const auto *node = reinterpret_cast<const Node *>(roots.Get(slot));
+                const auto *node = Detail::StorageCast<const Node>(roots.Get(slot));
                 if (!node || node->Value >= options.Nodes || node->Value % options.Roots != slot)
                 {
                     return false;
@@ -205,6 +210,7 @@ bool Concurrent(ProfileResult &result)
         workers.emplace_back([&, thread] {
             sol_gc_attach();
             {
+                // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
                 PublicFrame roots(options.Roots);
                 sol_gc_enter_native();
                 ready.fetch_add(1, std::memory_order_release);
@@ -217,14 +223,14 @@ bool Concurrent(ProfileResult &result)
                 {
                     for (unsigned index = 0; index < options.Nodes; ++index)
                     {
-                        const auto value = (static_cast<std::uint64_t>(thread) << 32) | index;
-                        auto *node = AllocateNode(timings[thread], value);
+                        const auto value = (Detail::Integer<std::uint64_t>(thread) << 32) | index;
+                        auto *node = AllocateNode(timings.at(thread), value);
                         roots.Store(index % options.Roots, &node->Object);
                         if (index % 127 == 0)
                         {
                             sol_gc_collect();
                         }
-                        const auto *rooted = reinterpret_cast<const Node *>(roots.Get(index % options.Roots));
+                        const auto *rooted = Detail::StorageCast<const Node>(roots.Get(index % options.Roots));
                         if (!rooted || rooted->Value != value)
                         {
                             valid.store(false, std::memory_order_release);

@@ -20,6 +20,8 @@ public:
     explicit ExceptionCarrier(Throwable *value);
     ExceptionCarrier(const ExceptionCarrier &other) noexcept;
     ExceptionCarrier &operator=(const ExceptionCarrier &) = delete;
+    ExceptionCarrier(ExceptionCarrier &&) = delete;
+    ExceptionCarrier &operator=(ExceptionCarrier &&) = delete;
     ~ExceptionCarrier();
     Throwable *Value() const noexcept;
 
@@ -30,6 +32,7 @@ private:
 };
 
 static_assert(sizeof(Throwable) == 40);
+static_assert(sizeof(ExceptionCarrier) == 2 * sizeof(void *));
 }
 
 extern "C"

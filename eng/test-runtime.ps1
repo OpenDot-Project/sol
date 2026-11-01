@@ -63,7 +63,8 @@ foreach ($mode in @('slot-use-after-free', 'slot-overflow', 'cache-use-after-ret
         }
     } finally { $child.Dispose() }
 }
-foreach ($mode in @('array-bounds', 'array-negative-index', 'array-stride')) {
+foreach ($mode in @('array-bounds', 'array-negative-index', 'array-stride', 'checked-negative-index', 'checked-end-index',
+                   'checked-empty-index', 'checked-short-slot', 'checked-unaligned-slot', 'checked-integer-range')) {
     $info = [Diagnostics.ProcessStartInfo]::new($exe)
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
@@ -77,7 +78,7 @@ foreach ($mode in @('array-bounds', 'array-negative-index', 'array-stride')) {
         if (-not $child.WaitForExit(30000)) { $child.Kill($true); throw 'Array access rejection timed out.' }
         $message = $errorTask.GetAwaiter().GetResult()
         $output = $outputTask.GetAwaiter().GetResult()
-        $expected = if ($mode -eq 'array-stride') { 'bootstrap invariant failed' } else { 'IndexOutOfBoundsException' }
+        $expected = if ($mode -eq 'array-stride' -or $mode -like 'checked-*') { 'bootstrap invariant failed' } else { 'IndexOutOfBoundsException' }
         if ($child.ExitCode -ne 1 -or $message -notmatch $expected -or
             $message -match 'AddressSanitizer' -or $output.Length -ne 0) {
             throw "Invalid reference array access was accepted or reached invalid memory: ${mode}: $message"

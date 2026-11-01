@@ -1,10 +1,13 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "TraceHarnessSupport.h"
+#include <tuple>
+#include "CheckedAccess.h"
 #include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 
@@ -14,7 +17,7 @@ using namespace OpenDot::Sol::Runtime::Test;
 
 namespace
 {
-bool DisabledEvents()
+bool DisabledEvents() noexcept
 {
     EventRing ring;
     for (unsigned index = 0; index < 9000; ++index)
@@ -32,7 +35,7 @@ bool RingPagination()
     ring.Enable(true);
     for (unsigned index = 1; index <= 102; ++index)
     {
-        ring.Append(GcEventKind::SweepBatch, 7, index * 2, index * 5);
+        ring.Append(GcEventKind::SweepBatch, 7, index * 2ULL, index * 5ULL);
     }
     std::array<GcEvent, 7> page;
     std::uint64_t after = 0;
@@ -40,14 +43,14 @@ bool RingPagination()
     unsigned total = 0;
     for (;;)
     {
-        const auto count = ring.Read(after, page.data(), static_cast<std::uint32_t>(page.size()));
+        const auto count = ring.Read(after, page.data(), Detail::Integer<std::uint32_t>(page.size()));
         if (!count)
         {
             break;
         }
         for (unsigned index = 0; index < count; ++index)
         {
-            const auto &event = page[index];
+            const auto &event = page.at(index);
             if (event.Sequence != after + 1 || event.Epoch != 7 || event.Work != event.Sequence * 2
                 || event.DurationNanoseconds != event.Sequence * 5
                 || event.Kind != static_cast<std::uint64_t>(GcEventKind::SweepBatch)
@@ -81,18 +84,18 @@ bool RingOverwrite()
     unsigned total = 0;
     for (;;)
     {
-        const auto count = ring.Read(after, page.data(), static_cast<std::uint32_t>(page.size()));
+        const auto count = ring.Read(after, page.data(), Detail::Integer<std::uint32_t>(page.size()));
         if (!count)
         {
             break;
         }
         for (unsigned index = 0; index < count; ++index)
         {
-            if (page[index].Sequence != 5905ULL + total || page[index].Work != page[index].Sequence)
+            if (page.at(index).Sequence != 5905ULL + total || page.at(index).Work != page.at(index).Sequence)
             {
                 return false;
             }
-            after = page[index].Sequence;
+            after = page.at(index).Sequence;
             ++total;
         }
     }
@@ -115,22 +118,22 @@ bool HistogramBoundaries()
     std::uint64_t sum = 0;
     for (std::size_t bucket = 0; bucket < GcHistogramBounds.size(); ++bucket)
     {
-        const auto upper = GcHistogramBounds[bucket];
-        const auto duration = bucket ? GcHistogramBounds[bucket - 1] + 1 : 0;
+        const auto upper = GcHistogramBounds.at(bucket);
+        const auto duration = bucket ? GcHistogramBounds.at(bucket - 1) + 1 : 0;
         diagnostics.Observe(GcHistogram::MarkBatch, duration);
         diagnostics.Observe(GcHistogram::MarkBatch, upper);
-        expected[bucket] += 2;
+        expected.at(bucket) += 2;
         samples += 2;
         sum = SaturatingAdd(sum, SaturatingAdd(duration, upper));
     }
     const auto snapshot = diagnostics.Snapshot();
-    const auto &distribution = snapshot.Distributions[static_cast<std::size_t>(GcHistogram::MarkBatch)];
+    const auto &distribution = snapshot.Distributions.at(static_cast<std::size_t>(GcHistogram::MarkBatch));
     if (distribution.Buckets != expected || distribution.Samples != samples
         || distribution.TotalNanoseconds != sum || distribution.MaximumNanoseconds != UINT64_MAX)
     {
         return false;
     }
-    if (DistributionUpperBound(distribution, 50) != GcHistogramBounds[5]
+    if (DistributionUpperBound(distribution, 50) != GcHistogramBounds.at(5)
         || DistributionUpperBound(distribution, 95) != UINT64_MAX
         || DistributionUpperBound(distribution, 100) != UINT64_MAX)
     {
@@ -147,17 +150,17 @@ bool PercentileRanks()
         std::vector<std::uint64_t> observations;
         for (unsigned index = 0; index < count; ++index)
         {
-            const auto value = GcHistogramBounds[index % 11];
+            const auto value = GcHistogramBounds.at(index % 11);
             observations.push_back(value);
             diagnostics.Observe(GcHistogram::AssistBatch, value);
         }
         std::sort(observations.begin(), observations.end());
         const auto snapshot = diagnostics.Snapshot();
-        const auto &distribution = snapshot.Distributions[static_cast<std::size_t>(GcHistogram::AssistBatch)];
+        const auto &distribution = snapshot.Distributions.at(static_cast<std::size_t>(GcHistogram::AssistBatch));
         for (unsigned percentile = 1; percentile <= 100; ++percentile)
         {
             const auto rank = (count * percentile + 99) / 100;
-            if (DistributionUpperBound(distribution, percentile) != observations[rank - 1])
+            if (DistributionUpperBound(distribution, percentile) != observations.at(rank - 1))
             {
                 return false;
             }
@@ -213,13 +216,13 @@ bool NamesAreStable()
     for (unsigned index = 0; index < static_cast<unsigned>(GcCounter::Count); ++index)
     {
         const auto *name = CounterName(static_cast<GcCounter>(index));
-        if (!*name || !counters.emplace(name).second)
+        if (!name || !*name || !counters.emplace(name).second)
         {
             return false;
         }
-        for (const char *letter = name; *letter; ++letter)
+        for (const char letter : std::string_view(name))
         {
-            if ((*letter < 'a' || *letter > 'z') && *letter != '_')
+            if ((letter < 'a' || letter > 'z') && letter != '_')
             {
                 return false;
             }
@@ -262,8 +265,8 @@ bool PublicSnapshot()
         const auto before = Snapshot();
         sol_gc_collect();
         const auto after = Snapshot();
-        const auto &rootTime = after.Distributions[static_cast<std::size_t>(GcHistogram::RootSnapshot)];
-        const auto &waitTime = after.Distributions[static_cast<std::size_t>(GcHistogram::SafepointWait)];
+        const auto &rootTime = after.Distributions.at(static_cast<std::size_t>(GcHistogram::RootSnapshot));
+        const auto &waitTime = after.Distributions.at(static_cast<std::size_t>(GcHistogram::SafepointWait));
         okay = okay && after.Epoch > before.Epoch && after.Phase == 0 && after.ReadyRegions == 0
                && Counter(after, GcCounter::RootSlots) - Counter(before, GcCounter::RootSlots) == 400
                && Counter(after, GcCounter::RootFrames) - Counter(before, GcCounter::RootFrames) == 2
@@ -279,21 +282,21 @@ bool PublicSnapshot()
 }
 }
 
-int RunDiagnosticsTests()
+int RunDiagnosticsTests() noexcept(false)
 {
-    const auto cases = {DisabledEvents, RingPagination, RingOverwrite, HistogramBoundaries,
-                        PercentileRanks, CounterSemantics, NamesAreStable, PublicSnapshot};
+    const std::array<bool (*)(), 8> cases{DisabledEvents, RingPagination, RingOverwrite, HistogramBoundaries,
+                                          PercentileRanks, CounterSemantics, NamesAreStable, PublicSnapshot};
     unsigned index = 0;
     for (auto test : cases)
     {
-        if (!test())
+        if (!test || !test())
         {
-            std::fprintf(stderr, "Diagnostics fixture failed: %u\n", index);
+            std::ignore = std::fprintf(stderr, "Diagnostics fixture failed: %u\n", index);
             return 230;
         }
         ++index;
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr,
         "Diagnostics: bounded event ring, pagination, histogram ranks, atomic counters, root snapshots passed.\n");
     return 0;

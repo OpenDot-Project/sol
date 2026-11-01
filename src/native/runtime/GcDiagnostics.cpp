@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
+#include <tuple>
+#include "CheckedAccess.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -12,7 +14,7 @@ namespace OpenDot::Sol::Runtime::Heap
 {
 std::uint64_t MonotonicNanoseconds() noexcept
 {
-    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+    return Detail::Integer<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
@@ -22,12 +24,7 @@ std::uint64_t ElapsedNanoseconds(std::uint64_t start) noexcept
     return end >= start ? end - start : 0;
 }
 
-std::uint64_t SaturatingAdd(std::uint64_t left, std::uint64_t right) noexcept
-{
-    return right > UINT64_MAX - left ? UINT64_MAX : left + right;
-}
-
-std::uint64_t DistributionUpperBound(const GcDistribution &value, unsigned percentile)
+std::uint64_t DistributionUpperBound(const GcDistribution &value, unsigned percentile) noexcept
 {
     if (!percentile || percentile > 100)
     {
@@ -43,10 +40,10 @@ std::uint64_t DistributionUpperBound(const GcDistribution &value, unsigned perce
     std::uint64_t cumulative = 0;
     for (std::size_t index = 0; index < value.Buckets.size(); ++index)
     {
-        cumulative = SaturatingAdd(cumulative, value.Buckets[index]);
+        cumulative = SaturatingAdd(cumulative, Detail::CheckedAt(value.Buckets, index));
         if (cumulative >= target)
         {
-            return GcHistogramBounds[index];
+            return Detail::CheckedAt(GcHistogramBounds, index);
         }
     }
     sol_rt_fail(7);
@@ -101,11 +98,11 @@ void EventRing::Append(GcEventKind kind, std::uint64_t epoch, std::uint64_t work
     {
         _dropped = SaturatingAdd(_dropped, 1);
     }
-    _events[(sequence - 1) % _events.size()] = {
+    Detail::CheckedAt(_events, (sequence - 1) % _events.size()) = {
         sequence, MonotonicNanoseconds(), epoch, static_cast<std::uint64_t>(kind), work, duration};
 }
 
-std::uint32_t EventRing::Read(std::uint64_t after, GcEvent *output, std::uint32_t capacity) const
+std::uint32_t EventRing::Read(std::uint64_t after, GcEvent *output, std::uint32_t capacity) const noexcept
 {
     if (!capacity)
     {
@@ -120,37 +117,38 @@ std::uint32_t EventRing::Read(std::uint64_t after, GcEvent *output, std::uint32_
         return 0;
     }
     const auto begin = (std::max)(First(), after + 1);
-    const auto count = static_cast<std::uint32_t>((std::min)(static_cast<std::uint64_t>(capacity), _next - begin));
+    const auto count = Detail::Integer<std::uint32_t>((std::min)(std::uint64_t{capacity}, _next - begin));
     for (std::uint32_t index = 0; index < count; ++index)
     {
-        output[index] = _events[(begin + index - 1) % _events.size()];
+        Detail::CheckedAt(std::span{output, capacity}, index) = Detail::CheckedAt(
+            _events, (begin + index - 1) % _events.size());
     }
     return count;
 }
 
 void Diagnostics::Increment(GcCounter counter, std::uint64_t count) noexcept
 {
-    auto &value = _counters[static_cast<std::size_t>(counter)];
+    auto &value = Detail::CheckedAt(_counters, static_cast<std::size_t>(counter));
     value = SaturatingAdd(value, count);
 }
 
 void Diagnostics::Maximum(GcCounter counter, std::uint64_t value) noexcept
 {
-    auto &current = _counters[static_cast<std::size_t>(counter)];
+    auto &current = Detail::CheckedAt(_counters, static_cast<std::size_t>(counter));
     current = (std::max)(current, value);
 }
 
 void Diagnostics::Observe(GcHistogram histogram, std::uint64_t duration) noexcept
 {
-    auto &value = _distributions[static_cast<std::size_t>(histogram)];
+    auto &value = Detail::CheckedAt(_distributions, static_cast<std::size_t>(histogram));
     value.Samples = SaturatingAdd(value.Samples, 1);
     value.TotalNanoseconds = SaturatingAdd(value.TotalNanoseconds, duration);
     value.MaximumNanoseconds = (std::max)(value.MaximumNanoseconds, duration);
     for (std::size_t index = 0; index < GcHistogramBounds.size(); ++index)
     {
-        if (duration <= GcHistogramBounds[index])
+        if (duration <= Detail::CheckedAt(GcHistogramBounds, index))
         {
-            value.Buckets[index] = SaturatingAdd(value.Buckets[index], 1);
+            Detail::CheckedAt(value.Buckets, index) = SaturatingAdd(Detail::CheckedAt(value.Buckets, index), 1);
             break;
         }
     }
@@ -166,7 +164,8 @@ GcDiagnosticSnapshot Diagnostics::Snapshot() const noexcept
     GcDiagnosticSnapshot result;
     result.Size = sizeof(result);
     result.Counters = _counters;
-    result.Counters[static_cast<std::size_t>(GcCounter::IdleBarriers)] = _idleBarriers.load(std::memory_order_relaxed);
+    Detail::CheckedAt(result.Counters, static_cast<std::size_t>(GcCounter::IdleBarriers)) = _idleBarriers.load(
+        std::memory_order_relaxed);
     result.Distributions = _distributions;
     result.FirstEvent = Events.First();
     result.NextEvent = Events.Next();
@@ -183,7 +182,7 @@ void Diagnostics::Reset() noexcept
     Events.Reset();
 }
 
-bool ReadEventSetting()
+bool ReadEventSetting() noexcept
 {
     char *text = nullptr;
     std::size_t length = 0;
@@ -200,7 +199,7 @@ bool ReadEventSetting()
     {
         return true;
     }
-    std::fprintf(stderr, "sol: invalid SOL_GC_DIAGNOSTICS; expected 0 or 1\n");
+    std::ignore = std::fprintf(stderr, "sol: invalid SOL_GC_DIAGNOSTICS; expected 0 or 1\n");
     std::_Exit(1);
 }
 }

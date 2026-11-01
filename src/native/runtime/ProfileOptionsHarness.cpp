@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcProfile.h"
+#include <tuple>
 #include <array>
 #include <cstdio>
 #include <string>
@@ -14,7 +15,7 @@ bool Parse(std::array<std::wstring, 6> values, ProfileOptions &options, int coun
     std::array<wchar_t *, 6> arguments{};
     for (unsigned index = 0; index < arguments.size(); ++index)
     {
-        arguments[index] = values[index].data();
+        arguments.at(index) = values.at(index).data();
     }
     return ParseProfileOptions(count, arguments.data(), options);
 }
@@ -55,7 +56,7 @@ bool InvalidNumbers()
                                     L"16MiB", L"18446744073709551616", L"999999999999999999999999999999999999999"})
         {
             auto values = baseline;
-            values[field] = invalid;
+            values.at(field) = invalid;
             ProfileOptions options;
             if (Parse(values, options))
             {
@@ -71,6 +72,7 @@ bool InvalidCombinations()
     struct Input final
     {
         unsigned Field;
+        // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
         const wchar_t *Value;
     };
     constexpr Input inputs[]{
@@ -80,7 +82,7 @@ bool InvalidCombinations()
     for (const auto &input : inputs)
     {
         std::array<std::wstring, 6> values{L"dense", L"100", L"2", L"7", L"1", L"42"};
-        values[input.Field] = input.Value;
+        values.at(input.Field) = input.Value;
         ProfileOptions options;
         if (Parse(values, options))
         {
@@ -136,19 +138,19 @@ bool AllocationRanks()
 }
 }
 
-int RunProfileOptionsTests()
+int RunProfileOptionsTests() noexcept(false)
 {
     unsigned index = 0;
     for (auto test : {ValidBounds, InvalidNumbers, InvalidCombinations, AllocationRanks})
     {
-        if (!test())
+        if (!test || !test())
         {
-            std::fprintf(stderr, "Profile option fixture failed: %u\n", index);
+            std::ignore = std::fprintf(stderr, "Profile option fixture failed: %u\n", index);
             return 234;
         }
         ++index;
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr, "Profile options: numeric grammar, workload combinations, operation caps and exact ranks passed.\n");
     return 0;
 }

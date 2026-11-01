@@ -25,6 +25,10 @@ namespace OpenDot::Sol::Fuzz
 {
 __declspec(noinline) int ReadProbe(const unsigned char *value) noexcept
 {
+    if (!value)
+    {
+        std::abort();
+    }
     return *value;
 }
 
@@ -34,8 +38,10 @@ std::array<unsigned char, 32> Hash(const Input &input)
     Require(BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) == 0,
             "Cannot initialize trace digest.");
     std::array<unsigned char, 32> digest{};
-    const auto status = BCryptHash(algorithm, nullptr, 0, const_cast<PUCHAR>(input.data()),
-                                   static_cast<ULONG>(input.size()), digest.data(), static_cast<ULONG>(digest.size()));
+    auto payload = input;
+    const auto status = BCryptHash(algorithm, nullptr, 0, payload.data(),
+                                   OpenDot::Sol::CheckedInteger<ULONG>(input.size()), digest.data(),
+                                   OpenDot::Sol::CheckedInteger<ULONG>(digest.size()));
     const auto closed = BCryptCloseAlgorithmProvider(algorithm, 0);
     Require(status == 0 && closed == 0, "Cannot hash native trace.");
     return digest;
@@ -62,20 +68,20 @@ unsigned ParseShard(const wchar_t *value)
 {
     wchar_t *end = nullptr;
     const auto shard = std::wcstoul(value, &end, 10);
-    Require(end != value && *end == L'\0' && shard < 40, "Native fuzz shard must be between 0 and 39.");
-    return static_cast<unsigned>(shard);
+    Require(end && end != value && *end == L'\0' && shard < 40, "Native fuzz shard must be between 0 and 39.");
+    return OpenDot::Sol::CheckedInteger<unsigned>(shard);
 }
 
 void Run(std::istream &source, std::ostream &output, unsigned expectedTarget, unsigned expectedShard)
 {
     std::array<char, 8> magic{};
     std::uint32_t count = 0, first = 0;
-    source.read(magic.data(), static_cast<std::streamsize>(magic.size()));
-    source.read(reinterpret_cast<char *>(&count), sizeof(count));
-    source.read(reinterpret_cast<char *>(&first), sizeof(first));
+    source.read(magic.data(), OpenDot::Sol::CheckedInteger<std::streamsize>(magic.size()));
+    source.read(Detail::StorageCast<char>(&count), sizeof(count));
+    source.read(Detail::StorageCast<char>(&first), sizeof(first));
     const auto shardFirst = expectedShard * 500U;
     Require(source.good() && std::memcmp(magic.data(), "SFZP0001", 8) == 0 && count > 0 && count <= 500 &&
-                first >= shardFirst && first <= shardFirst + 500U && count <= shardFirst + 500U - first,
+            first >= shardFirst && first <= shardFirst + 500U && count <= shardFirst + 500U - first,
             "Invalid bounded native trace pack.");
     std::unique_ptr<Roots> roots;
     unsigned target = 0;
@@ -83,33 +89,35 @@ void Run(std::istream &source, std::ostream &output, unsigned expectedTarget, un
     {
         Input input{};
         std::array<unsigned char, 32> expected{};
-        source.read(reinterpret_cast<char *>(input.data()), static_cast<std::streamsize>(input.size()));
-        source.read(reinterpret_cast<char *>(expected.data()), static_cast<std::streamsize>(expected.size()));
-        Require(source.good() && std::memcmp(input.data(), "SFZ1", 4) == 0 && input[4] == expectedTarget &&
-                    input[5] < 20 && input[6] == 1 && input[7] == 0 && Hash(input) == expected,
+        source.read(Detail::StorageCast<char>(input.data()),
+                    OpenDot::Sol::CheckedInteger<std::streamsize>(input.size()));
+        source.read(Detail::StorageCast<char>(expected.data()),
+                    OpenDot::Sol::CheckedInteger<std::streamsize>(expected.size()));
+        Require(source.good() && std::memcmp(input.data(), "SFZ1", 4) == 0 && input.at(4) == expectedTarget &&
+                input.at(5) < 20 && input.at(6) == 1 && input.at(7) == 0 && Hash(input) == expected,
                 "Corrupt native trace record.");
         if (index == 0)
         {
-            target = input[4];
+            target = input.at(4);
             if (target == 2)
             {
                 LoadBackend();
             }
             else
             {
-                roots = std::make_unique<Roots>();
+                roots = std::make_unique<Roots>(Roots::Capacity);
             }
         }
-        Require(input[4] == target && input[5] == expectedShard / 2,
+        Require(input.at(4) == target && input.at(5) == expectedShard / 2,
                 "Native trace target/family does not match its shard.");
         output << "case-";
         output.width(5);
         output.fill('0');
         output << first + index << ' ';
-        constexpr char Hex[] = "0123456789abcdef";
+        constexpr auto Hex = std::to_array("0123456789abcdef");
         for (auto byte : expected)
         {
-            output << Hex[byte >> 4] << Hex[byte & 15];
+            output << Hex.at(byte >> 4) << Hex.at(byte & 15);
         }
         output << '\n';
         output.flush();
@@ -135,7 +143,7 @@ void Run(std::istream &source, std::ostream &output, unsigned expectedTarget, un
     }
     UnloadBackend();
     output << "{\"schema_version\":1,\"status\":\"passed\",\"count\":" << count << ",\"first\":" << first
-           << ",\"target\":" << target << "}\n";
+        << ",\"target\":" << target << "}\n";
     output.flush();
     Require(output.good(), "Cannot write native fuzz completion report.");
 }
@@ -148,15 +156,20 @@ int wmain(int argc, wchar_t **argv)
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
     try
     {
-        if (argc == 2 && std::wcscmp(argv[1], L"--asan-probe") == 0)
+        if (argc < 1 || !argv)
         {
-            const auto probe = std::make_unique<unsigned char[]>(16);
-            __asan_poison_memory_region(probe.get(), 16);
-            OpenDot::Sol::Fuzz::Require(__asan_address_is_poisoned(probe.get()) != 0,
-                                        "ASan probe storage was not poisoned.");
-            return OpenDot::Sol::Fuzz::ReadProbe(probe.get());
+            throw std::invalid_argument("Missing native fuzz arguments.");
         }
-        if (argc != 4 || std::wcscmp(argv[1], L"--replay") != 0)
+        const std::span arguments(argv, argc);
+        if (argc == 2 && std::wcscmp(OpenDot::Sol::Runtime::Detail::CheckedAt(arguments, 1), L"--asan-probe") == 0)
+        {
+            alignas(8) std::array<unsigned char, 16> probe{};
+            __asan_poison_memory_region(probe.data(), 16);
+            OpenDot::Sol::Fuzz::Require(__asan_address_is_poisoned(probe.data()) != 0,
+                                        "ASan probe storage was not poisoned.");
+            return OpenDot::Sol::Fuzz::ReadProbe(probe.data());
+        }
+        if (argc != 4 || std::wcscmp(OpenDot::Sol::Runtime::Detail::CheckedAt(arguments, 1), L"--replay") != 0)
         {
             throw std::invalid_argument("Usage: NativeFuzz --replay <runtime|backend|gc> <shard-00..39>");
         }
@@ -164,8 +177,8 @@ int wmain(int argc, wchar_t **argv)
         {
             throw std::runtime_error("Cannot set binary mode for the native trace pipe.");
         }
-        const auto target = OpenDot::Sol::Fuzz::ParseTarget(argv[2]);
-        const auto shard = OpenDot::Sol::Fuzz::ParseShard(argv[3]);
+        const auto target = OpenDot::Sol::Fuzz::ParseTarget(OpenDot::Sol::Runtime::Detail::CheckedAt(arguments, 2));
+        const auto shard = OpenDot::Sol::Fuzz::ParseShard(OpenDot::Sol::Runtime::Detail::CheckedAt(arguments, 3));
         OpenDot::Sol::Fuzz::Run(std::cin, std::cout, target, shard);
         return 0;
     }

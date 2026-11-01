@@ -12,6 +12,12 @@ All notable changes to Sol are recorded here. Release names use `Sol X.Y.Z` and 
   constructed storage, and receiver safety through source helpers, accessors, and known callbacks.
   Missing evidence remains deferred; native construction and receiver ABI admission are unchanged.
 
+### Fixed
+
+- Check native ABI storage bounds, alignment, integer conversions and resource ownership while
+  preserving runtime layouts. Native analysis warnings now fail MSBuild and JetBrains checks.
+- Preserve native LLVM error reporting when exception diagnostics or their allocation fail.
+
 ## [0.1.0] - 2026-10-28
 
 First release with a restricted verified-FIR/native bootstrap. The complete language specification

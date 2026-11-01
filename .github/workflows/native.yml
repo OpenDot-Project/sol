@@ -74,6 +74,13 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
+          name: native-inspection-reports
+          path: out/jetbrains/native*.sarif.json
+          if-no-files-found: warn
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
           name: native-fuzz-reports
           path: out/fuzz/replay/
           if-no-files-found: warn

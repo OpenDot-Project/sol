@@ -1,18 +1,23 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "../runtime/Core.h"
+#include <tuple>
 #include "../llvm-native/Api.h"
+#include "../Checked.h"
+#include "../runtime/CheckedAccess.h"
+#include <bit>
+#include <span>
 #include <Windows.h>
 #include <array>
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
-#include <cstring>
 #include <cwchar>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier, clang-diagnostic-reserved-identifier): Required Windows stack-probe ABI symbol.
 extern "C" void __chkstk();
 
 namespace OpenDot::Sol::ExecHost
@@ -23,6 +28,15 @@ struct PipeCloser
 {
     HANDLE Value;
 
+    explicit PipeCloser(HANDLE value) noexcept : Value(value)
+    {
+    }
+
+    PipeCloser(const PipeCloser &) = delete;
+    PipeCloser &operator=(const PipeCloser &) = delete;
+    PipeCloser(PipeCloser &&) = delete;
+    PipeCloser &operator=(PipeCloser &&) = delete;
+
     ~PipeCloser() noexcept
     {
         CloseHandle(Value);
@@ -31,22 +45,26 @@ struct PipeCloser
 
 void ReadExact(HANDLE pipe, void *buffer, DWORD length)
 {
-    auto *next = static_cast<unsigned char *>(buffer);
-    while (length != 0)
+    if (!buffer && length)
+    {
+        throw std::invalid_argument("Missing LLVM bitcode read buffer.");
+    }
+    std::span pending(static_cast<unsigned char *>(buffer), length);
+    while (!pending.empty())
     {
         DWORD received = 0;
-        if (!ReadFile(pipe, next, length, &received, nullptr) || received == 0)
+        if (!ReadFile(pipe, pending.data(), CheckedInteger<DWORD>(pending.size()), &received, nullptr)
+            || received == 0 || received > pending.size())
         {
             throw std::runtime_error("Truncated LLVM bitcode pipe.");
         }
-        next += received;
-        length -= received;
+        pending = pending.subspan(received);
     }
 }
 
 std::vector<unsigned char> ReadBitcode(const wchar_t *argument)
 {
-    if (*argument == L'\0' || std::wcsspn(argument, L"0123456789") != std::wcslen(argument))
+    if (!argument || *argument == L'\0' || std::wcsspn(argument, L"0123456789") != std::wcslen(argument))
     {
         throw std::runtime_error("Invalid LLVM bitcode pipe handle.");
     }
@@ -56,17 +74,17 @@ std::vector<unsigned char> ReadBitcode(const wchar_t *argument)
     {
         throw std::runtime_error("Invalid LLVM bitcode pipe handle.");
     }
-    const auto pipe = reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(number));
+    const auto pipe = std::bit_cast<HANDLE>(CheckedInteger<std::uintptr_t>(number));
     if (GetFileType(pipe) != FILE_TYPE_PIPE)
     {
         throw std::runtime_error("LLVM bitcode requires an inherited pipe.");
     }
     const PipeCloser owner{pipe};
     std::array<unsigned char, 4> header{};
-    ReadExact(pipe, header.data(), static_cast<DWORD>(header.size()));
-    const DWORD length = static_cast<DWORD>(header[0]) | (static_cast<DWORD>(header[1]) << 8) |
-                         (static_cast<DWORD>(header[2]) << 16) | (static_cast<DWORD>(header[3]) << 24);
-    if (length < 4 || length > 64UL * 1024 * 1024)
+    ReadExact(pipe, header.data(), CheckedInteger<DWORD>(header.size()));
+    static_assert(std::endian::native == std::endian::little);
+    const DWORD length = std::bit_cast<DWORD>(header);
+    if (length < 4 || length > 64UL * 1024ULL * 1024)
     {
         throw std::runtime_error("LLVM bitcode pipe length is outside the supported bounds.");
     }
@@ -78,7 +96,7 @@ std::vector<unsigned char> ReadBitcode(const wchar_t *argument)
 std::vector<SolLlvmSymbol> Bindings()
 {
     std::vector<SolLlvmSymbol> symbols;
-#define SOL_BIND(name) symbols.push_back({#name, reinterpret_cast<std::uintptr_t>(&(name))})
+#define SOL_BIND(name) symbols.push_back({#name, std::bit_cast<std::uintptr_t>(&(name))})
     SOL_BIND(sol_rt_literal);
     SOL_BIND(sol_rt_arguments);
     SOL_BIND(sol_rt_shutdown);
@@ -106,29 +124,35 @@ std::vector<SolLlvmSymbol> Bindings()
     SOL_BIND(memset);
     SOL_BIND(__chkstk);
 #undef SOL_BIND
-    symbols.push_back({"fmod", reinterpret_cast<std::uintptr_t>(static_cast<double (*)(double, double)>(&std::fmod))});
-    symbols.push_back({"fmodf", reinterpret_cast<std::uintptr_t>(static_cast<float (*)(float, float)>(&std::fmod))});
+    symbols.push_back({"fmod", std::bit_cast<std::uintptr_t>(static_cast<double (*)(double, double)>(&std::fmod))});
+    symbols.push_back({"fmodf", std::bit_cast<std::uintptr_t>(static_cast<float (*)(float, float)>(&std::fmod))});
     return symbols;
 }
 }
 
 int Run(int argc, wchar_t **argv)
 {
-    if (argc < 4 || std::wcscmp(argv[1], L"--bitcode-pipe") != 0 || std::wcscmp(argv[3], L"--") != 0)
+    if (argc < 4 || !argv)
     {
         throw std::runtime_error("Usage: sol-exec-host --bitcode-pipe HANDLE -- [ARG...]");
     }
-    auto bytes = ReadBitcode(argv[2]);
-    std::vector<wchar_t *> arguments{argv[0]};
-    for (int index = 4; index < argc; ++index)
+    const std::span input(argv, argc);
+    if (std::wcscmp(Runtime::Detail::CheckedAt(input, 1), L"--bitcode-pipe") != 0
+        || std::wcscmp(Runtime::Detail::CheckedAt(input, 3), L"--") != 0)
     {
-        arguments.push_back(argv[index]);
+        throw std::runtime_error("Usage: sol-exec-host --bitcode-pipe HANDLE -- [ARG...]");
+    }
+    auto bytes = ReadBitcode(Runtime::Detail::CheckedAt(input, 2));
+    std::vector<wchar_t *> arguments{Runtime::Detail::CheckedAt(input, 0)};
+    for (auto *argument : input.subspan(4))
+    {
+        arguments.push_back(argument);
     }
     arguments.push_back(nullptr);
     auto symbols = Bindings();
     int exitCode = 0;
     if (!SolLlvmExecute(bytes.data(), bytes.size(), symbols.data(), symbols.size(),
-                        static_cast<int>(arguments.size() - 1), arguments.data(), &exitCode))
+                        CheckedInteger<int>(arguments.size() - 1), arguments.data(), &exitCode))
     {
         throw std::runtime_error(SolLlvmError());
     }
@@ -144,7 +168,7 @@ int wmain(int argc, wchar_t **argv)
     }
     catch (const std::exception &error)
     {
-        std::fprintf(stderr, "Sol ORC host: %s\n", error.what());
+        std::ignore = std::fprintf(stderr, "Sol ORC host: %s\n", error.what());
         return 1;
     }
 }

@@ -1,17 +1,20 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "SolRT.h"
+#include "CheckedAccess.h"
 #include "Gc.h"
 #include <windows.h>
 #include <charconv>
+#include <array>
 #include <atomic>
 #include <bit>
+// NOLINTNEXTLINE(CppUnusedIncludeDirective): Direct standard-library contract, including MSVC intrinsics.
 #include <cmath>
 #include <cstdlib>
+// NOLINTNEXTLINE(CppUnusedIncludeDirective): Direct standard-library contract, including MSVC intrinsics.
 #include <cstring>
 #include <limits>
 #include <mutex>
-#include <string_view>
 
 namespace OpenDot::Sol::Runtime
 {
@@ -23,10 +26,15 @@ std::mutex OutputLock;
 class NativeIo final
 {
 public:
-    NativeIo()
+    NativeIo() noexcept
     {
         sol_gc_enter_native();
     }
+
+    NativeIo(const NativeIo &) = delete;
+    NativeIo &operator=(const NativeIo &) = delete;
+    NativeIo(NativeIo &&) = delete;
+    NativeIo &operator=(NativeIo &&) = delete;
 
     ~NativeIo()
     {
@@ -34,23 +42,24 @@ public:
     }
 };
 
-const std::uint32_t ReferenceOffset = 0;
+constexpr std::uint32_t ReferenceOffset = 0;
 const ScanShape ReferenceElements{&ReferenceOffset, 1};
 
-void Write(const char *bytes, std::size_t length, int channel)
+void Write(const char *bytes, std::size_t length, int channel) noexcept
 {
     const auto handle = GetStdHandle(channel == 0 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
-    while (length != 0)
+    std::span pending(bytes, length);
+    while (!pending.empty())
     {
-        const auto chunk =
-            static_cast<DWORD>((std::min)(length, static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
+        const auto chunk = Detail::Integer<DWORD>((std::min)(pending.size(),
+                                                             Detail::Integer<std::size_t>(
+                                                                 (std::numeric_limits<DWORD>::max)())));
         DWORD written = 0;
-        if (!WriteFile(handle, bytes, chunk, &written, nullptr) || written == 0)
+        if (!WriteFile(handle, pending.data(), chunk, &written, nullptr) || written == 0 || written > chunk)
         {
             sol_rt_fail(5);
         }
-        bytes += written;
-        length -= written;
+        pending = pending.subspan(written);
     }
 }
 } // namespace
@@ -84,23 +93,24 @@ SOL_RT_API String *sol_rt_literal(String *value)
     const TypeDescriptor *expected = nullptr;
     type.compare_exchange_strong(expected, &sol_rt_string_type, std::memory_order_release,
                                  std::memory_order_acquire);
-    std::atomic_ref(value->Object.Flags).fetch_or(1U, std::memory_order_release);
+    std::ignore = std::atomic_ref(value->Object.Flags).fetch_or(1U, std::memory_order_release);
     return value;
 }
 
-SOL_RT_API StringArray *sol_rt_arguments(int argc, wchar_t **argv)
+SOL_RT_API StringArray *sol_rt_arguments(int argc, const wchar_t *const *argv)
 {
     sol_gc_attach();
     if (argc < 1 || !argv || Arguments)
     {
         sol_rt_fail(7);
     }
-    const auto count = static_cast<std::size_t>(argc) - 1;
+    const auto count = Detail::Integer<std::size_t>(argc) - 1;
     if (count > (std::numeric_limits<std::size_t>::max() - 32) / sizeof(String *))
     {
         sol_rt_fail(6);
     }
-    auto array = reinterpret_cast<StringArray *>(
+    const std::span arguments(argv, argc);
+    auto array = Detail::StorageCast<StringArray>(
         sol_gc_alloc(&sol_rt_string_array_type, 32 + count * sizeof(String *)));
     Arguments = sol_gc_create_handle(&array->Object, false);
     array->Length = argc - 1;
@@ -108,27 +118,33 @@ SOL_RT_API StringArray *sol_rt_arguments(int argc, wchar_t **argv)
     array->Element = &sol_rt_string_type;
     for (int index = 1; index < argc; ++index)
     {
-        const auto units = std::wcslen(argv[index]);
-        if (units > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+        const auto *argument = Detail::CheckedAt(arguments, index);
+        if (!argument)
+        {
+            sol_rt_fail(7);
+        }
+        const auto units = std::wcslen(argument);
+        if (units > Detail::Integer<std::size_t>(std::numeric_limits<int>::max()))
         {
             sol_rt_fail(6);
         }
-        const int length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, argv[index], static_cast<int>(units),
+        const int length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, argument, Detail::Integer<int>(units),
                                                nullptr, 0, nullptr, nullptr);
         if (units != 0 && length == 0)
         {
             sol_rt_fail(7);
         }
-        auto value = reinterpret_cast<String *>(
-            sol_gc_alloc(&sol_rt_string_type, 24 + static_cast<std::size_t>(length)));
+        auto value = Detail::StorageCast<String>(
+            sol_gc_alloc(&sol_rt_string_type, 24 + Detail::Integer<std::size_t>(length)));
         value->ByteLength = length;
         value->RuneCount = -1;
-        if (length != 0 && WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, argv[index], static_cast<int>(units),
+        if (length != 0 && WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, argument, Detail::Integer<int>(units),
                                                value->Data(), length, nullptr, nullptr) != length)
         {
             sol_rt_fail(7);
         }
-        sol_gc_store_ref(reinterpret_cast<Header **>(&array->Data()[index - 1]), &value->Object);
+        sol_gc_store_ref(Detail::StorageCast<Header *>(&Detail::CheckedAt(std::span{array->Data(), count}, index - 1)),
+                         &value->Object);
     }
     return array;
 }
@@ -162,7 +178,7 @@ SOL_RT_API void sol_rt_shutdown()
                               ? "SolRT runtime contract mismatch\n"
                               : "SolRT bootstrap invariant failed\n";
     DWORD ignored = 0;
-    WriteFile(GetStdHandle(STD_ERROR_HANDLE), message, static_cast<DWORD>(std::strlen(message)), &ignored, nullptr);
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), message, Detail::Integer<DWORD>(std::strlen(message)), &ignored, nullptr);
     // An invariant/OOM may be reported while holding a runtime lock. Static destruction would
     // reacquire that lock and deadlock; fail-stop paths deliberately skip language cleanup.
     std::_Exit(1);
@@ -188,15 +204,16 @@ SOL_RT_API void sol_rt_write_integer(std::uint64_t value, int kind, int channel)
         Write(value == 0 ? "false" : "true", value == 0 ? 5 : 4, channel);
         return;
     }
-    char buffer[32]{};
+    std::array<char, 32> buffer{};
+    const auto end = std::span{buffer}.subspan(buffer.size()).data();
     const auto result = kind == 0
-                            ? std::to_chars(buffer, buffer + sizeof(buffer), std::bit_cast<std::int64_t>(value))
-                            : std::to_chars(buffer, buffer + sizeof(buffer), value);
+                            ? std::to_chars(buffer.data(), end, std::bit_cast<std::int64_t>(value))
+                            : std::to_chars(buffer.data(), end, value);
     if (result.ec != std::errc{})
     {
         sol_rt_fail(7);
     }
-    Write(buffer, static_cast<std::size_t>(result.ptr - buffer), channel);
+    Write(buffer.data(), Detail::Integer<std::size_t>(result.ptr - buffer.data()), channel);
 }
 
 SOL_RT_API void sol_rt_write_float(double value, int width, int channel)
@@ -213,15 +230,16 @@ SOL_RT_API void sol_rt_write_float(double value, int width, int channel)
         Write(std::signbit(value) ? "-inf" : "inf", std::signbit(value) ? 4 : 3, channel);
         return;
     }
-    char buffer[64]{};
+    std::array<char, 64> buffer{};
+    const auto end = std::span{buffer}.subspan(buffer.size()).data();
     const auto result = width == 32
-                            ? std::to_chars(buffer, buffer + sizeof(buffer), static_cast<float>(value))
-                            : std::to_chars(buffer, buffer + sizeof(buffer), value);
+                            ? std::to_chars(buffer.data(), end, static_cast<float>(value))
+                            : std::to_chars(buffer.data(), end, value);
     if (result.ec != std::errc{})
     {
         sol_rt_fail(7);
     }
-    Write(buffer, static_cast<std::size_t>(result.ptr - buffer), channel);
+    Write(buffer.data(), Detail::Integer<std::size_t>(result.ptr - buffer.data()), channel);
 }
 
 SOL_RT_API void sol_rt_newline(int channel)

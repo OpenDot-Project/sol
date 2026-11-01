@@ -18,6 +18,7 @@
 
 namespace OpenDot::Sol::Runtime
 {
+// NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
 struct RuntimeHandle final
 {
     Header *Value = nullptr;
@@ -39,6 +40,7 @@ struct ThreadState final
 {
     RootFrame *Top = nullptr;
     ThreadMode Mode = ThreadMode::Running;
+    // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
     ThreadAllocationCache AllocationCache;
     AllocationDebt Debt;
 };
@@ -46,14 +48,15 @@ struct ThreadState final
 struct Allocation final
 {
     Block Storage;
-    Header *Object;
-    std::uint64_t Bytes;
+    Header *Object = nullptr;
+    std::uint64_t Bytes = 0;
     std::uint64_t Identity = 0;
     std::uint64_t Cursor = 0;
     std::unique_ptr<MarkRegion> DedicatedTracing;
     MarkRegion *Tracing = nullptr;
 };
 
+// NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
 struct State final
 {
     SpanAllocator Allocator;
@@ -72,6 +75,7 @@ struct State final
     ReadyWork Work;
     Diagnostics Cost;
     std::atomic<Phase> Current{Phase::Idle};
+    // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
     std::uint64_t Epoch = 0;
     std::uint64_t Requested = 0;
     std::uint64_t Completed = 0;
@@ -79,9 +83,14 @@ struct State final
     std::uint64_t Bytes = 0;
     std::uint64_t Live = 0;
     std::uint64_t Collections = 0;
-    std::uint64_t Threshold = 16 * 1024 * 1024;
+    std::uint64_t Threshold = 16ULL * 1024 * 1024;
     std::uint64_t Limit = 0;
     bool Stop = false;
+    State() = default;
+    State(const State &) = delete;
+    State &operator=(const State &) = delete;
+    State(State &&) = delete;
+    State &operator=(State &&) = delete;
     ~State();
 };
 
@@ -90,12 +99,17 @@ extern thread_local ThreadState *CurrentThread;
 void Run();
 void Shade(State &state, Header *value);
 void Roots(State &state);
-void RequireManaged();
-bool Handshake(Phase phase);
+void RequireManaged() noexcept;
+
+constexpr bool Handshake(Phase phase) noexcept
+{
+    return phase == Phase::Start || phase == Phase::Terminate;
+}
+
 void StartWorker(State &state);
-std::uint64_t ReadHeapLimit();
+std::uint64_t ReadHeapLimit() noexcept;
 TraceResult TraceBatch(State &state, TraceBudget budget, bool assist);
-PressureSnapshot Pressure(const State &state);
+PressureSnapshot Pressure(const State &state) noexcept;
 void AssistAllocation(State &state);
 }
 }

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
+#include "CheckedAccess.h"
 #include <algorithm>
 
 namespace OpenDot::Sol::Runtime::Heap
@@ -22,7 +23,7 @@ bool ScanObject(State &state, Allocation &entry, TraceBudget &budget, TraceResul
     {
         sol_rt_fail(7);
     }
-    const auto *array = object->Type->Kind == 2 ? reinterpret_cast<const StringArray *>(object) : nullptr;
+    const auto *array = object->Type->Kind == 2 ? Detail::StorageCast<const StringArray>(object) : nullptr;
     if (array && (array->Length < 0 || !array->Stride
                   || static_cast<std::uint64_t>(array->Length) > (entry.Bytes - sizeof(StringArray)) / array->Stride))
     {
@@ -30,25 +31,27 @@ bool ScanObject(State &state, Allocation &entry, TraceBudget &budget, TraceResul
     }
     const auto extent = array ? entry.Bytes : (std::min)(entry.Bytes, std::uint64_t{object->Type->Size});
     const auto count = array ? static_cast<std::uint64_t>(array->Length) * shape->Count : shape->Count;
+    const std::span offsets(shape->Offsets, shape->Count);
+    const std::span bytes(Detail::StorageCast<std::byte>(object), extent);
     while (entry.Cursor < count && budget.ReferenceSlots)
     {
         const auto index = entry.Cursor;
-        if (array && (shape->Offsets[index % shape->Count] > array->Stride
-                      || array->Stride - shape->Offsets[index % shape->Count] < sizeof(Header *)))
+        if (array && (Detail::CheckedAt(offsets, index % shape->Count) > array->Stride
+                      || array->Stride - Detail::CheckedAt(offsets, index % shape->Count) < sizeof(Header *)))
         {
             sol_rt_fail(7);
         }
         const auto offset = array
                                 ? sizeof(StringArray) + (index / shape->Count) * array->Stride
-                                  + shape->Offsets[index % shape->Count]
-                                : shape->Offsets[index];
+                                  + Detail::CheckedAt(offsets, index % shape->Count)
+                                : Detail::CheckedAt(offsets, index);
         if (extent < sizeof(Header) || offset < sizeof(Header)
             || offset > extent - sizeof(Header *) || offset % alignof(Header *) != 0)
         {
             sol_rt_fail(7);
         }
-        auto **slot = reinterpret_cast<Header **>(reinterpret_cast<char *>(object) + offset);
-        Shade(state, std::atomic_ref(*slot).load(std::memory_order_acquire));
+        auto &reference = *Detail::StorageSlot<Header *>(bytes, offset);
+        Shade(state, std::atomic_ref(reference).load(std::memory_order_acquire));
         ++entry.Cursor;
         --budget.ReferenceSlots;
         ++result.ReferenceSlots;
@@ -109,7 +112,7 @@ TraceResult TraceBatch(State &state, TraceBudget budget, bool assist)
     return result;
 }
 
-PressureSnapshot Pressure(const State &state)
+PressureSnapshot Pressure(const State &state) noexcept
 {
     return {state.Bytes, state.Threshold, state.Allocator.Stats().CommittedBytes,
             state.Allocator.PendingBytes(), state.Limit};

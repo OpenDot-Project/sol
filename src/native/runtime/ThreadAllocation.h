@@ -16,13 +16,14 @@ class ThreadAllocationCache final
 {
     std::array<Block, 8> _blocks{};
     std::atomic<std::uint32_t> _count{0};
+    // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
     std::uint64_t _bytes = 0, _epoch = 0;
     std::atomic<std::uint64_t> _hits{0}, _refills{0}, _returned{0}, _flushes{0}, _direct{0};
 
 public:
-    Block TryTake(std::uint64_t bytes, std::uint64_t epoch, bool hit = true);
+    Block TryTake(std::uint64_t bytes, std::uint64_t epoch, bool hit = true) noexcept;
     bool Fill(SpanAllocator &allocator, std::uint64_t bytes);
-    void Flush(SpanAllocator &allocator);
+    void Flush(SpanAllocator &allocator) noexcept;
 
     void Direct() noexcept
     {

@@ -49,8 +49,8 @@ Text MakeText(const Input &input, unsigned mode)
         }
         else
         {
-            const auto value = static_cast<char>('a' + byte % 26);
-            result.Append(std::string(1, value), static_cast<unsigned char>(value));
+            const auto value = std::bit_cast<char>(OpenDot::Sol::CheckedInteger<unsigned char>('a' + byte % 26));
+            result.Append(std::string(1, value), std::bit_cast<unsigned char>(value));
         }
     }
     return result;
@@ -58,48 +58,52 @@ Text MakeText(const Input &input, unsigned mode)
 
 void CheckString(String *value, const std::string &bytes, int runes)
 {
-    Require(value && value->ByteLength == static_cast<int>(bytes.size()) && sol_rt_string_length(value) == runes &&
-            std::memcmp(value->Data(), bytes.data(), bytes.size()) == 0,
-            "Runtime String differs from byte/rune model.");
+    Require(
+        value && value->ByteLength == OpenDot::Sol::CheckedInteger<int>(bytes.size()) && sol_rt_string_length(value) ==
+        runes &&
+        std::memcmp(value->Data(), bytes.data(), bytes.size()) == 0,
+        "Runtime String differs from byte/rune model.");
 }
 }
 
 void RuntimeCase(const Input &input, Roots &roots)
 {
-    const auto mode = input[5];
+    const auto mode = input.at(5);
     const auto model = MakeText(input, mode);
-    auto *first = sol_rt_string_create(model.Bytes.data(), static_cast<int>(model.Bytes.size()));
+    auto *first = sol_rt_string_create(model.Bytes.data(), OpenDot::Sol::CheckedInteger<int>(model.Bytes.size()));
     roots.Set(0, &first->Object);
-    CheckString(first, model.Bytes, static_cast<int>(model.Runes.size()));
+    CheckString(first, model.Bytes, OpenDot::Sol::CheckedInteger<int>(model.Runes.size()));
     for (std::size_t index = 0; index < model.Runes.size(); ++index)
     {
-        Require(sol_rt_string_rune_at(first, static_cast<int>(index)) == model.Runes[index],
+        Require(sol_rt_string_rune_at(first, OpenDot::Sol::CheckedInteger<int>(index)) == model.Runes.at(index),
                 "Runtime rune index mismatch.");
     }
     const std::string tail = mode == 5 || mode == 7 ? "" : std::to_string(Choice(input, 1)) + "tail";
-    auto *second = sol_rt_string_create(tail.data(), static_cast<int>(tail.size()));
+    auto *second = sol_rt_string_create(tail.data(), OpenDot::Sol::CheckedInteger<int>(tail.size()));
     roots.Set(1, &second->Object);
     auto *combined = sol_rt_string_concat(first, second);
     roots.Set(2, &combined->Object);
-    CheckString(combined, model.Bytes + tail, static_cast<int>(model.Runes.size() + tail.size()));
+    CheckString(combined, model.Bytes + tail, OpenDot::Sol::CheckedInteger<int>(model.Runes.size() + tail.size()));
     const auto start = mode == 9 ? 0 : Choice(input, 2) % (model.Runes.size() + 1);
     const auto length = mode == 8
                             ? 0
                             : mode == 9
                             ? model.Runes.size()
                             : Choice(input, 3) % (model.Runes.size() - start + 1);
-    auto *slice = sol_rt_string_substring(first, static_cast<int>(start), static_cast<int>(length));
+    auto *slice = sol_rt_string_substring(first, OpenDot::Sol::CheckedInteger<int>(start),
+                                          OpenDot::Sol::CheckedInteger<int>(length));
     roots.Set(3, &slice->Object);
-    CheckString(slice, model.Bytes.substr(model.Offsets[start], model.Offsets[start + length] - model.Offsets[start]),
-                static_cast<int>(length));
-    auto *copy = sol_rt_string_create(model.Bytes.data(), static_cast<int>(model.Bytes.size()));
+    CheckString(slice, model.Bytes.substr(model.Offsets.at(start),
+                                          model.Offsets.at(start + length) - model.Offsets.at(start)),
+                OpenDot::Sol::CheckedInteger<int>(length));
+    auto *copy = sol_rt_string_create(model.Bytes.data(), OpenDot::Sol::CheckedInteger<int>(model.Bytes.size()));
     roots.Set(4, &copy->Object);
     Require(sol_rt_string_compare(first, copy) == 0 && sol_rt_string_hash(first) == sol_rt_string_hash(copy),
             "Runtime String equality/hash contract failed.");
     std::uint32_t hash = 2166136261U;
     for (auto byte : model.Bytes)
     {
-        hash = (hash ^ static_cast<unsigned char>(byte)) * 16777619U;
+        hash = (hash ^ std::bit_cast<unsigned char>(byte)) * 16777619U;
     }
     Require(std::bit_cast<std::uint32_t>(sol_rt_string_hash(first)) == hash, "Runtime hash differs from FNV model.");
     const auto compared = model.Bytes.compare(tail);
@@ -108,26 +112,32 @@ void RuntimeCase(const Input &input, Roots &roots)
     const auto searchStart = mode == 11 && !model.Runes.empty() ? Choice(input, 4) % model.Runes.size() : 0;
     const std::string needleBytes = mode == 12
                                         ? "~missing~"
-                                        : model.Bytes.substr(model.Offsets[searchStart],
-                                                             model.Offsets[model.Runes.empty() ? 0 : searchStart + 1] -
-                                                             model.Offsets[searchStart]);
-    auto *needle = sol_rt_string_create(needleBytes.data(), static_cast<int>(needleBytes.size()));
+                                        : model.Bytes.substr(model.Offsets.at(searchStart),
+                                                             model.Offsets.at(model.Runes.empty() ? 0 : searchStart + 1)
+                                                             -
+                                                             model.Offsets.at(searchStart));
+    auto *needle = sol_rt_string_create(needleBytes.data(), OpenDot::Sol::CheckedInteger<int>(needleBytes.size()));
     roots.Set(5, &needle->Object);
-    Require(sol_rt_string_index_of(first, needle, static_cast<int>(searchStart)) ==
-            (mode == 12 ? -1 : static_cast<int>(searchStart)), "Runtime String search model mismatch.");
+    Require(sol_rt_string_index_of(first, needle, OpenDot::Sol::CheckedInteger<int>(searchStart)) ==
+            (mode == 12 ? -1 : OpenDot::Sol::CheckedInteger<int>(searchStart)),
+            "Runtime String search model mismatch.");
     const int count = mode == 14
                           ? 0
                           : mode == 15
                           ? 1
                           : mode == 16
-                          ? 2 + static_cast<int>(Choice(input, 5) % 30)
-                          : static_cast<int>(Choice(input, 5) % 32);
+                          ? 2 + OpenDot::Sol::CheckedInteger<int>(Choice(input, 5) % 30)
+                          : OpenDot::Sol::CheckedInteger<int>(Choice(input, 5) % 32);
     auto *array = sol_rt_array_create(count, sizeof(String *), &sol_rt_string_type, &sol_rt_string_array_type);
+    Require(array != nullptr, "Runtime allocation returned null.");
     roots.Set(6, &array->Object);
     Require(sol_rt_array_length(array) == count, "Runtime array length mismatch.");
     for (int index = 0; index < count; ++index)
     {
-        sol_gc_store_ref(reinterpret_cast<Header **>(&array->Data()[index]), &first->Object);
+        sol_gc_store_ref(
+            Detail::StorageCast<Header *>(
+                &Detail::CheckedAt(std::span(array->Data(), Detail::Integer<std::size_t>(array->Length)), index)),
+            &first->Object);
         Require(sol_rt_array_get(array, index) == first, "Runtime array storage mismatch.");
     }
     if (mode >= 17)
@@ -135,6 +145,7 @@ void RuntimeCase(const Input &input, Roots &roots)
         auto *cause = sol_rt_exception_create(&sol_rt_exception_type, first, nullptr);
         roots.Set(7, &cause->Object);
         auto *error = sol_rt_exception_create(&sol_rt_runtime_exception_type, second, cause);
+        Require(error != nullptr, "Runtime allocation returned null.");
         roots.Set(8, &error->Object);
         Require(error->Cause == cause && error->Message == second && sol_rt_is_instance(
                     &error->Object, &sol_rt_throwable_type),
@@ -145,7 +156,7 @@ void RuntimeCase(const Input &input, Roots &roots)
             roots.Set(9, &suppressed->Object);
             sol_rt_exception_add_suppressed(error, suppressed);
             Require(error->Suppressed && error->Suppressed->Length == 1 &&
-                    reinterpret_cast<Throwable *>(error->Suppressed->Data()[0]) == suppressed,
+                    Detail::StorageCast<Throwable>(sol_rt_array_get(error->Suppressed, 0)) == suppressed,
                     "Suppressed exception mismatch.");
         }
         if (mode == 19)

@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "SpanAllocator.h"
+#include <tuple>
 #include <Windows.h>
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <semaphore>
@@ -18,21 +20,29 @@ struct Probe;
 std::atomic<Probe *> Active{nullptr};
 bool Observe(RegionOperation operation, void *memory, std::uint64_t bytes) noexcept;
 
+// NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
 struct Probe final
 {
     RegionOperation Pause;
     bool Fail;
+    // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
     std::atomic<DWORD> Thread{0};
     std::atomic<bool> Claimed{false};
+    // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
     std::atomic<unsigned> Releases{0};
     std::atomic<bool> ReservedAtRelease{false};
     std::binary_semaphore Arrived{0}, Continue{0};
 
-    explicit Probe(RegionOperation pause, bool fail = false) : Pause(pause), Fail(fail)
+    explicit Probe(RegionOperation pause, bool fail = false) noexcept : Pause(pause), Fail(fail)
     {
         Active.store(this, std::memory_order_release);
         SetRegionHook(Observe);
     }
+
+    Probe(const Probe &) = delete;
+    Probe &operator=(const Probe &) = delete;
+    Probe(Probe &&) = delete;
+    Probe &operator=(Probe &&) = delete;
 
     ~Probe()
     {
@@ -78,7 +88,7 @@ int PendingGrowth(std::uint64_t bytes)
     SpanAllocator allocator;
     Probe probe(RegionOperation::Reserve);
     Block first;
-    std::thread allocating([&] {
+    std::thread allocating([&]() noexcept(false) {
         probe.Thread.store(GetCurrentThreadId(), std::memory_order_release);
         std::unique_lock guard(mutex);
         first = allocator.TryAllocate(bytes, SpanBytes, guard);
@@ -136,7 +146,7 @@ int FailedGrowth(RegionOperation operation, std::uint64_t bytes)
     SpanAllocator allocator;
     Probe probe(operation, true);
     Block failed;
-    std::thread allocating([&] {
+    std::thread allocating([&]() noexcept(false) {
         probe.Thread.store(GetCurrentThreadId(), std::memory_order_release);
         std::unique_lock guard(mutex);
         failed = allocator.TryAllocate(bytes, SpanBytes, guard);
@@ -193,7 +203,7 @@ int PendingRelease(bool small)
         }
     }
     Probe probe(RegionOperation::Release);
-    std::thread releasing([&] {
+    std::thread releasing([&]() noexcept(false) {
         probe.Thread.store(GetCurrentThreadId(), std::memory_order_release);
         std::unique_lock guard(mutex);
         allocator.Release(blocks[2], guard);
@@ -229,22 +239,22 @@ int PendingRelease(bool small)
 int CollectorDuringGrowth()
 {
     sol_gc_attach();
-    Header *roots[2]{sol_gc_alloc(&sol_rt_object_type, sizeof(Header)), nullptr};
-    RootFrame frame{nullptr, roots, 2, 0};
+    std::array<Header *, 2> roots{sol_gc_alloc(&sol_rt_object_type, sizeof(Header)), nullptr};
+    RootFrame frame{nullptr, roots.data(), 2, 0};
     sol_gc_push_frame(&frame);
     Probe probe(RegionOperation::Reserve);
     RuntimeHandle *retained = nullptr;
     std::binary_semaphore collected{0};
     sol_gc_enter_native();
-    std::thread allocating([&] {
+    std::thread allocating([&]() noexcept(false) {
         sol_gc_attach();
         probe.Thread.store(GetCurrentThreadId(), std::memory_order_release);
-        auto *value = sol_gc_alloc(&sol_rt_object_type, 4ULL * 1024 * 1024);
+        auto *value = sol_gc_alloc(&sol_rt_object_type, 4ULL * 1024ULL * 1024);
         retained = sol_gc_create_handle(value, false);
         sol_gc_detach();
     });
     const bool arrived = probe.Arrived.try_acquire_for(5s);
-    std::thread collecting([&] {
+    std::thread collecting([&]() noexcept(false) {
         sol_gc_attach();
         for (unsigned cycle = 0; cycle < 3; ++cycle)
         {
@@ -260,13 +270,13 @@ int CollectorDuringGrowth()
     collecting.join();
     sol_gc_leave_native();
     int result = 0;
-    if (!arrived || !progressed || !retained || roots[0]->Type != &sol_rt_object_type
-        || !sol_gc_resolve_handle(retained, &roots[1]) || !roots[1])
+    if (!arrived || !progressed || !retained || roots.at(0)->Type != &sol_rt_object_type
+        || !sol_gc_resolve_handle(retained, &roots.at(1)) || !roots.at(1))
     {
         result = 160;
     }
     sol_gc_collect();
-    if (roots[1] && roots[1]->Type != &sol_rt_object_type)
+    if (roots.at(1) && roots.at(1)->Type != &sol_rt_object_type)
     {
         result = 161;
     }
@@ -280,19 +290,19 @@ int CollectorDuringGrowth()
 int WeakDuringRelease()
 {
     sol_gc_attach();
-    auto *value = sol_gc_alloc(&sol_rt_object_type, 4ULL * 1024 * 1024);
+    auto *value = sol_gc_alloc(&sol_rt_object_type, 4ULL * 1024ULL * 1024);
     auto *weak = sol_gc_create_handle(value, true);
     Probe probe(RegionOperation::Release);
     std::binary_semaphore resolved{0};
     std::atomic<bool> cleared{false};
     sol_gc_enter_native();
-    std::thread collecting([] {
+    std::thread collecting([]() noexcept(false) {
         sol_gc_attach();
         sol_gc_collect();
         sol_gc_detach();
     });
     const bool arrived = probe.Arrived.try_acquire_for(5s);
-    std::thread resolving([&] {
+    std::thread resolving([&]() noexcept(false) {
         sol_gc_attach();
         Header *target = nullptr;
         RootFrame frame{nullptr, &target, 1, 0};
@@ -330,7 +340,7 @@ int RunRegionTests()
             }
         }
     }
-    for (bool small : {false, true})
+    for (const bool small : {false, true})
     {
         if (const auto code = PendingRelease(small))
         {
@@ -345,7 +355,7 @@ int RunRegionTests()
     {
         return code;
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr,
         "Region protocol: pending budgets, epoch publication, failed commits, unlocked release, GC progress and weak clearing passed\n");
     return 0;

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
+#include "CheckedAccess.h"
 #include "NativeScope.h"
 #include <algorithm>
 #include <cstring>
@@ -18,7 +19,7 @@ Block AcquireStorage(State &state, std::uint64_t bytes)
 {
     auto &cache = CurrentThread->AllocationCache;
     // The allocator epoch cannot change while this thread is ManagedRunning.
-    if (auto local = cache.TryTake(bytes, state.Allocator.Epoch()); local.Object)
+    if (const auto local = cache.TryTake(bytes, state.Allocator.Epoch()); local.Object)
     {
         return local;
     }
@@ -79,7 +80,7 @@ Block AcquireStorage(State &state, std::uint64_t bytes)
         if (storage.Object)
         {
             cache.Direct();
-            return storage;
+            return Block{storage};
         }
         if (small)
         {
@@ -134,7 +135,7 @@ Header *sol_gc_alloc(const TypeDescriptor *type, std::uint64_t totalBytes)
     {
         // Reserved but unpublished memory is not part of the traced graph yet.
         const NativeScope transition(bytes >= 65536);
-        std::memset(object, 0, static_cast<std::size_t>(bytes));
+        std::memset(object, 0, Detail::Integer<std::size_t>(bytes));
     }
     object->Type = type;
     const std::lock_guard guard(state.Mutex);

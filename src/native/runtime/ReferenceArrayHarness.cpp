@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "Core.h"
+#include <tuple>
+#include <bit>
+#include "CheckedAccess.h"
+#include <array>
 #include <cstring>
 #include <cwchar>
 
@@ -19,14 +23,19 @@ const TypeDescriptor ProbeType{sizeof(Probe), 16, 0x543, 0, 0, &sol_rt_object_ty
 
 class Frame final
 {
-    Header *_slots[4]{};
-    RootFrame _frame{nullptr, _slots, 4, 0};
+    std::array<Header *, 4> _slots{};
+    RootFrame _frame{nullptr, _slots.data(), 4, 0};
 
 public:
-    Frame()
+    Frame() noexcept
     {
         sol_gc_push_frame(&_frame);
     }
+
+    Frame(const Frame &) = delete;
+    Frame &operator=(const Frame &) = delete;
+    Frame(Frame &&) = delete;
+    Frame &operator=(Frame &&) = delete;
 
     ~Frame()
     {
@@ -35,23 +44,23 @@ public:
 
     void Store(unsigned slot, Header *value)
     {
-        sol_gc_store_ref(&_slots[slot], value);
+        sol_gc_store_ref(&_slots.at(slot), value);
     }
 };
 
-Probe *NewProbe(std::uint64_t value)
+Probe *NewProbe(std::uint64_t value) noexcept(false)
 {
-    auto *probe = reinterpret_cast<Probe *>(sol_gc_alloc(&ProbeType, sizeof(Probe)));
+    auto *probe = Detail::StorageCast<Probe>(sol_gc_alloc(&ProbeType, sizeof(Probe)));
     probe->Value = value;
     return probe;
 }
 
-Header **ReferenceSlot(StringArray *array, int index)
+Header **ReferenceSlot(StringArray *array, int index) noexcept
 {
-    return reinterpret_cast<Header **>(sol_rt_array_address(array, index, sizeof(Header *)));
+    return static_cast<Header **>(sol_rt_array_address(array, index, sizeof(Header *)));
 }
 
-bool HasReferenceArrayDescriptor(const StringArray *array)
+bool HasReferenceArrayDescriptor(const StringArray *array) noexcept
 {
     if (!array || array->Object.Type != &sol_rt_reference_array_type
         || array->Object.Type->Kind != 2 || array->Object.Type->Size != sizeof(StringArray)
@@ -60,13 +69,17 @@ bool HasReferenceArrayDescriptor(const StringArray *array)
         return false;
     }
     const auto *shape = static_cast<const ScanShape *>(array->Object.Type->ScanShape);
-    return shape && shape->Offsets && shape->Count == 1 && shape->Offsets[0] == 0;
+    return shape && shape->Offsets && shape->Count == 1 && *shape->Offsets == 0;
 }
 
 int VerifyReferenceArrays()
 {
     Frame roots;
     auto *references = sol_rt_array_new(2, 11);
+    if (!references)
+    {
+        sol_rt_fail(7);
+    }
     roots.Store(0, &references->Object);
     if (!HasReferenceArrayDescriptor(references))
     {
@@ -84,8 +97,8 @@ int VerifyReferenceArrays()
     roots.Store(1, nullptr);
 
     sol_gc_collect();
-    auto *firstValue = reinterpret_cast<Probe *>(references->Data()[0]);
-    auto *secondValue = reinterpret_cast<Probe *>(references->Data()[1]);
+    const auto *firstValue = Detail::StorageCast<Probe>(sol_rt_array_get(references, 0));
+    const auto *secondValue = Detail::StorageCast<Probe>(sol_rt_array_get(references, 1));
     if (sol_gc_stats().ObjectCount != 3 || firstValue->Value != 101 || secondValue->Value != 202)
     {
         return 2;
@@ -98,8 +111,8 @@ int VerifyReferenceArrays()
     roots.Store(1, nullptr);
     sol_gc_collect();
     if (sol_gc_stats().ObjectCount != 2
-        || reinterpret_cast<Header *>(references->Data()[0]) != &replacement->Object
-        || references->Data()[1] != nullptr || replacement->Value != 303)
+        || Detail::StorageCast<Header>(sol_rt_array_get(references, 0)) != &replacement->Object
+        || sol_rt_array_get(references, 1) != nullptr || replacement->Value != 303)
     {
         return 3;
     }
@@ -112,7 +125,7 @@ int VerifyReferenceArrays()
     }
     auto *lookalike = NewProbe(404);
     roots.Store(1, &lookalike->Object);
-    const auto addressBits = reinterpret_cast<std::uintptr_t>(&lookalike->Object);
+    const auto addressBits = std::bit_cast<std::uintptr_t>(&lookalike->Object);
     std::memcpy(sol_rt_array_address(scalar, 0, sizeof(addressBits)), &addressBits, sizeof(addressBits));
     roots.Store(1, nullptr);
     sol_gc_collect();
@@ -122,6 +135,10 @@ int VerifyReferenceArrays()
     }
 
     auto *strings = sol_rt_array_new(1, 10);
+    if (!strings)
+    {
+        sol_rt_fail(7);
+    }
     roots.Store(3, &strings->Object);
     auto *text = sol_rt_string_create("canonical", 9);
     roots.Store(1, &text->Object);
@@ -133,8 +150,8 @@ int VerifyReferenceArrays()
     sol_gc_store_ref(ReferenceSlot(strings, 0), &text->Object);
     roots.Store(1, nullptr);
     sol_gc_collect();
-    if (sol_gc_stats().ObjectCount != 5 || strings->Data()[0]->ByteLength != 9
-        || std::memcmp(strings->Data()[0]->Data(), "canonical", 9) != 0)
+    if (sol_gc_stats().ObjectCount != 5 || sol_rt_array_get(strings, 0)->ByteLength != 9
+        || std::memcmp(sol_rt_array_get(strings, 0)->Data(), "canonical", 9) != 0)
     {
         return 7; // Kind 10 retains its canonical String descriptor and traced layout.
     }
@@ -155,21 +172,21 @@ int RunReferenceArrayTests()
     return result;
 }
 
-int RunArrayAccessFailure(const wchar_t *mode)
+int RunArrayAccessFailure(const wchar_t *mode) noexcept(false)
 {
     sol_gc_attach();
     auto *array = sol_rt_array_new(1, 11);
     if (std::wcscmp(mode, L"bounds") == 0)
     {
-        (void)sol_rt_array_address(array, 1, sizeof(Header *));
+        std::ignore = sol_rt_array_address(array, 1, sizeof(Header *));
     }
     else if (std::wcscmp(mode, L"negative-index") == 0)
     {
-        (void)sol_rt_array_address(array, -1, sizeof(Header *));
+        std::ignore = sol_rt_array_address(array, -1, sizeof(Header *));
     }
     else if (std::wcscmp(mode, L"stride") == 0)
     {
-        (void)sol_rt_array_address(array, 0, sizeof(Header *) / 2);
+        std::ignore = sol_rt_array_address(array, 0, sizeof(Header *) / 2);
     }
     return 99; // Every invalid index/stride must fail before returning an address.
 }

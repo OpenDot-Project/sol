@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "TraceHarnessSupport.h"
+#include <tuple>
+#include <bit>
+#include "CheckedAccess.h"
 #include <array>
 #include <cstdio>
 #include <random>
@@ -15,26 +18,33 @@ bool CompositeArrayElements()
 {
     for (const unsigned stride : {16, 24, 32, 48, 64})
     {
-        TraceFixture fixture;
+        TraceFixture fixture(TestHeapLimit);
         std::array<std::uint32_t, 2> offsets{0, stride - 8};
         const ScanShape shape{offsets.data(), 2};
         TypeDescriptor type = ArrayType;
         type.ScanShape = &shape;
         constexpr unsigned count = 513;
-        auto *array = reinterpret_cast<StringArray *>(fixture.Allocate(
-            type, sizeof(StringArray) + count * std::uint64_t{stride}));
+        const std::uint64_t elementStride = stride;
+        auto *array = Detail::StorageCast<StringArray>(fixture.Allocate(
+            type, sizeof(StringArray) + count * elementStride));
+        if (!array)
+        {
+            sol_rt_fail(7);
+        }
         array->Length = count;
         array->Stride = stride;
         std::array<Node *, 17> nodes{};
         for (unsigned index = 0; index < nodes.size(); ++index)
         {
-            nodes[index] = fixture.NewNode(index);
+            nodes.at(index) = fixture.NewNode(index);
         }
+        const std::span bytes(Detail::StorageCast<std::byte>(array->Data()), count * elementStride);
         for (unsigned index = 0; index < count; ++index)
         {
-            auto *element = reinterpret_cast<char *>(array + 1) + index * std::uint64_t{stride};
-            *reinterpret_cast<Header **>(element) = &nodes[index % nodes.size()]->Object;
-            *reinterpret_cast<Header **>(element + stride - 8) = &nodes[(index + 7ULL) % nodes.size()]->Object;
+            const auto offset = index * elementStride;
+            *Detail::StorageSlot<Header *>(bytes, offset) = &nodes.at(index % nodes.size())->Object;
+            *Detail::StorageSlot<Header *>(bytes, offset + stride - 8) = &nodes.at((index + 7ULL) % nodes.size())->
+                Object;
         }
         fixture.Begin();
         fixture.Root(&array->Object);
@@ -47,7 +57,7 @@ bool CompositeArrayElements()
             }
         }
         const auto snapshot = fixture.State.Cost.Snapshot();
-        if (Counter(snapshot, GcCounter::MarkReferenceSlots) != count * 2 + nodes.size() * 2
+        if (Counter(snapshot, GcCounter::MarkReferenceSlots) != count * 2ULL + nodes.size() * 2
             || Counter(snapshot, GcCounter::MarkObjects) != nodes.size() + 1
             || Counter(snapshot, GcCounter::MarkMaxReferenceSlots) > 3)
         {
@@ -59,7 +69,7 @@ bool CompositeArrayElements()
 
 bool EmptyReferenceArrays()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     auto *array = fixture.NewArray(0);
     fixture.Begin();
     fixture.Root(&array->Object);
@@ -70,10 +80,10 @@ bool EmptyReferenceArrays()
 
 bool ScalarLookalikesRemainUnmarked()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     auto *hidden = fixture.NewNode(5);
     auto *visible = fixture.NewNode(6);
-    visible->Value = reinterpret_cast<std::uintptr_t>(&hidden->Object);
+    visible->Value = std::bit_cast<std::uintptr_t>(&hidden->Object);
     fixture.Begin();
     fixture.Root(&visible->Object);
     fixture.Drain();
@@ -82,24 +92,29 @@ bool ScalarLookalikesRemainUnmarked()
 
 bool ArrayPaddingIsNotAReference()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     constexpr unsigned count = 25;
-    const std::uint32_t offset = 0;
+    constexpr std::uint32_t offset = 0;
     const ScanShape shape{&offset, 1};
     auto type = ArrayType;
     type.ScanShape = &shape;
-    auto *array = reinterpret_cast<StringArray *>(fixture.Allocate(type, sizeof(StringArray) + count * 32));
+    auto *array = Detail::StorageCast<StringArray>(fixture.Allocate(type, sizeof(StringArray) + count * 32ULL));
+    if (!array)
+    {
+        sol_rt_fail(7);
+    }
     array->Length = count;
     array->Stride = 32;
     auto *visible = fixture.NewNode(1);
     auto *hidden = fixture.NewNode(2);
+    const std::span bytes(Detail::StorageCast<std::byte>(array->Data()), count * 32ULL);
     for (unsigned index = 0; index < count; ++index)
     {
-        auto **element = reinterpret_cast<Header **>(reinterpret_cast<char *>(array + 1) + index * 32ULL);
-        element[0] = &visible->Object;
-        element[1] = &hidden->Object;
-        element[2] = &hidden->Object;
-        element[3] = &hidden->Object;
+        const auto byteOffset = index * 32ULL;
+        *Detail::StorageSlot<Header *>(bytes, byteOffset) = &visible->Object;
+        *Detail::StorageSlot<Header *>(bytes, byteOffset + 8) = &hidden->Object;
+        *Detail::StorageSlot<Header *>(bytes, byteOffset + 16) = &hidden->Object;
+        *Detail::StorageSlot<Header *>(bytes, byteOffset + 24) = &hidden->Object;
     }
     fixture.Begin();
     fixture.Root(&array->Object);
@@ -110,7 +125,7 @@ bool ArrayPaddingIsNotAReference()
 
 bool NewBlackAllocationUsesInsertionWork()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     auto *white = fixture.NewNode(1);
     fixture.Begin();
     auto *black = fixture.NewNode(2);
@@ -130,12 +145,13 @@ bool NewBlackAllocationUsesInsertionWork()
 
 bool MultipleEpochGraphs()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     std::array<Node *, 257> nodes{};
     for (unsigned index = 0; index < nodes.size(); ++index)
     {
-        nodes[index] = fixture.NewNode(index);
+        nodes.at(index) = fixture.NewNode(index);
     }
+    // NOLINTNEXTLINE(bugprone-random-generator-seed, cert-msc51-cpp): Fixed seeds make the model regression reproducible.
     std::mt19937 random(0xE90C4U);
     for (unsigned epoch = 0; epoch < 30; ++epoch)
     {
@@ -144,38 +160,38 @@ bool MultipleEpochGraphs()
         {
             for (unsigned field = 0; field < 2; ++field)
             {
-                const auto target = random() % 3 ? static_cast<int>(random() % nodes.size()) : -1;
-                edges[index][field] = target;
-                auto *value = target < 0 ? nullptr : &nodes[static_cast<unsigned>(target)]->Object;
-                (field ? nodes[index]->Right : nodes[index]->Left) = value;
+                const auto target = random() % 3 ? Detail::Integer<int>(random() % nodes.size()) : -1;
+                edges.at(index).at(field) = target;
+                auto *value = target < 0 ? nullptr : &nodes.at(Detail::Integer<unsigned>(target))->Object;
+                (field ? nodes.at(index)->Right : nodes.at(index)->Left) = value;
             }
         }
-        const unsigned root = random() % static_cast<unsigned>(nodes.size());
+        const unsigned root = random() % Detail::Integer<unsigned>(nodes.size());
         std::array<bool, 257> expected{};
         std::vector<unsigned> pending{root};
         while (!pending.empty())
         {
             const auto index = pending.back();
             pending.pop_back();
-            if (expected[index])
+            if (expected.at(index))
             {
                 continue;
             }
-            expected[index] = true;
-            for (const auto target : edges[index])
+            expected.at(index) = true;
+            for (const auto target : edges.at(index))
             {
                 if (target >= 0)
                 {
-                    pending.push_back(static_cast<unsigned>(target));
+                    pending.push_back(Detail::Integer<unsigned>(target));
                 }
             }
         }
         fixture.Begin();
-        fixture.Root(&nodes[root]->Object);
+        fixture.Root(&nodes.at(root)->Object);
         fixture.Drain({1 + epoch % 13, 1 + epoch % 7});
         for (unsigned index = 0; index < nodes.size(); ++index)
         {
-            if (fixture.Marked(&nodes[index]->Object) != expected[index])
+            if (fixture.Marked(&nodes.at(index)->Object) != expected.at(index))
             {
                 return false;
             }
@@ -186,23 +202,23 @@ bool MultipleEpochGraphs()
 
 bool AlternatingEpochRoots()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     std::array<Node *, 130> nodes{};
     for (unsigned index = 0; index < nodes.size(); ++index)
     {
-        nodes[index] = fixture.NewNode(index);
+        nodes.at(index) = fixture.NewNode(index);
     }
     for (unsigned epoch = 0; epoch < 70; ++epoch)
     {
         fixture.Begin();
         for (unsigned index = epoch % 2; index < nodes.size(); index += 2)
         {
-            fixture.Root(&nodes[index]->Object);
+            fixture.Root(&nodes.at(index)->Object);
         }
         fixture.Drain({4, 2});
         for (unsigned index = 0; index < nodes.size(); ++index)
         {
-            if (fixture.Marked(&nodes[index]->Object) != (index % 2 == epoch % 2))
+            if (fixture.Marked(&nodes.at(index)->Object) != (index % 2 == epoch % 2))
             {
                 return false;
             }
@@ -212,21 +228,21 @@ bool AlternatingEpochRoots()
 }
 }
 
-int RunTraceLayoutTests()
+int RunTraceLayoutTests() noexcept(false)
 {
     unsigned index = 0;
     for (auto test : {CompositeArrayElements, EmptyReferenceArrays, ScalarLookalikesRemainUnmarked,
                       ArrayPaddingIsNotAReference, NewBlackAllocationUsesInsertionWork,
                       MultipleEpochGraphs, AlternatingEpochRoots})
     {
-        if (!test())
+        if (!test || !test())
         {
-            std::fprintf(stderr, "Trace layout fixture failed: %u\n", index);
+            std::ignore = std::fprintf(stderr, "Trace layout fixture failed: %u\n", index);
             return 233;
         }
         ++index;
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr,
         "Trace layouts: composite stride, padding, empty arrays, black insertion, changing epoch graphs passed.\n");
     return 0;

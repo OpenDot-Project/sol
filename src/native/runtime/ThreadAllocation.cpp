@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
+#include "CheckedAccess.h"
 
 namespace OpenDot::Sol::Runtime::Heap
 {
-Block ThreadAllocationCache::TryTake(std::uint64_t bytes, std::uint64_t epoch, bool hit)
+Block ThreadAllocationCache::TryTake(std::uint64_t bytes, std::uint64_t epoch, bool hit) noexcept
 {
     const auto count = _count.load(std::memory_order_relaxed);
     if (!count || _bytes != bytes)
@@ -15,7 +16,7 @@ Block ThreadAllocationCache::TryTake(std::uint64_t bytes, std::uint64_t epoch, b
     {
         sol_rt_fail(7);
     }
-    const auto result = _blocks[count - 1];
+    const auto result = Detail::CheckedAt(_blocks, count - 1);
     _count.store(count - 1, std::memory_order_relaxed);
     if (hit)
     {
@@ -30,7 +31,7 @@ bool ThreadAllocationCache::Fill(SpanAllocator &allocator, std::uint64_t bytes)
     {
         sol_rt_fail(7);
     }
-    const auto count = allocator.TakeBatch(bytes, _blocks.data(), static_cast<std::uint32_t>(_blocks.size()));
+    const auto count = allocator.TakeBatch(bytes, _blocks.data(), Detail::Integer<std::uint32_t>(_blocks.size()));
     if (!count)
     {
         return false;
@@ -42,12 +43,12 @@ bool ThreadAllocationCache::Fill(SpanAllocator &allocator, std::uint64_t bytes)
     return true;
 }
 
-void ThreadAllocationCache::Flush(SpanAllocator &allocator)
+void ThreadAllocationCache::Flush(SpanAllocator &allocator) noexcept
 {
     const auto count = _count.load(std::memory_order_relaxed);
     for (std::uint32_t index = 0; index < count; ++index)
     {
-        allocator.ReturnUnused(_blocks[index]);
+        allocator.ReturnUnused(Detail::CheckedAt(_blocks, index));
     }
     _count.store(0, std::memory_order_relaxed);
     _bytes = 0;

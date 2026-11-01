@@ -17,6 +17,7 @@ inline constexpr std::array<std::uint32_t, 44> SizeClasses{
 struct Span;
 class MarkRegion;
 
+// NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
 struct Block final
 {
     Header *Object = nullptr;
@@ -38,16 +39,18 @@ void SetRegionHook(RegionHook hook) noexcept;
 class SpanAllocator final
 {
 public:
-    SpanAllocator();
+    SpanAllocator() noexcept;
     ~SpanAllocator();
     SpanAllocator(const SpanAllocator &) = delete;
     SpanAllocator &operator=(const SpanAllocator &) = delete;
+    SpanAllocator(SpanAllocator &&) = delete;
+    SpanAllocator &operator=(SpanAllocator &&) = delete;
     Block TryReuse(std::uint64_t bytes);
     Block TryAllocate(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard);
     bool PrepareSmall(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard);
     std::uint32_t TakeBatch(std::uint64_t bytes, Block *blocks, std::uint32_t capacity);
-    void ReturnUnused(const Block &block);
-    MarkRegion &Tracing(const Block &block);
+    void ReturnUnused(const Block &block) noexcept;
+    MarkRegion &Tracing(const Block &block) noexcept;
 
     /// A ManagedRunning mutator may also read this: epoch advance waits for every mutator to park.
     std::uint64_t Epoch() const noexcept
@@ -80,8 +83,8 @@ private:
     void UnlinkAvailable(Span *span) noexcept;
     void Destroy(Span *span, std::unique_lock<std::mutex> &guard);
     void Recycle(Span *span, std::unique_lock<std::mutex> &guard);
-    void FreeSlot(const Block &block);
-    Block TakeSlot(Span *span, std::uint64_t bytes);
+    void FreeSlot(const Block &block) noexcept;
+    Block TakeSlot(Span *span, std::uint64_t bytes) noexcept;
     Block PrepareRegion(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard);
 };
 }

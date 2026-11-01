@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "Core.h"
+#include "CheckedAccess.h"
 #include "NativeScope.h"
 #include <atomic>
+#include <array>
 #include <algorithm>
 #include <bit>
 #include <cstring>
@@ -18,14 +20,14 @@ namespace
 const std::uint32_t ThrowableOffsets[]{offsetof(Throwable, Message), offsetof(Throwable, Cause),
                                        offsetof(Throwable, Suppressed)};
 const ScanShape ThrowableShape{ThrowableOffsets, 3};
-const std::uint32_t ReferenceOffset = 0;
+constexpr std::uint32_t ReferenceOffset = 0;
 const ScanShape ThrowableElements{&ReferenceOffset, 1};
 const TypeDescriptor ThrowableArrayType{32, 16, 6, 2, 0, &sol_rt_object_type, &ThrowableElements, nullptr, nullptr,
                                         nullptr};
 std::mutex SuppressedLock;
 
 // Returns the next scalar and advances a byte cursor; rejects overlong, surrogate and out-of-range encodings.
-std::uint32_t Decode(const char *bytes, int length, int &cursor)
+std::uint32_t Decode(const char *bytes, int length, int &cursor) noexcept(false)
 {
     // A valid scalar advances at most four bytes, so this window cannot be skipped by UTF-8 steps.
     if (cursor >= 4096 && (cursor & 4095) < 4)
@@ -36,7 +38,8 @@ std::uint32_t Decode(const char *bytes, int length, int &cursor)
     {
         sol_rt_fail(7);
     }
-    auto first = static_cast<unsigned char>(bytes[cursor++]);
+    const std::span input(bytes, length);
+    const auto first = std::bit_cast<unsigned char>(Detail::CheckedAt(input, cursor++));
     if (first < 0x80)
     {
         return first;
@@ -55,15 +58,15 @@ std::uint32_t Decode(const char *bytes, int length, int &cursor)
     std::uint32_t value = first & (0x7FU >> (trailing + 1));
     for (int index = 0; index < trailing; ++index)
     {
-        const auto part = static_cast<unsigned char>(bytes[cursor++]);
+        const auto part = std::bit_cast<unsigned char>(Detail::CheckedAt(input, cursor++));
         if ((part & 0xC0) != 0x80)
         {
             sol_rt_fail(7);
         }
         value = (value << 6) | (part & 0x3F);
     }
-    const std::uint32_t minimum[]{0, 0x80, 0x800, 0x10000};
-    if (value < minimum[trailing] || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF))
+    constexpr std::array<std::uint32_t, 4> minimum{0, 0x80, 0x800, 0x10000};
+    if (value < minimum.at(trailing) || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF))
     {
         sol_rt_fail(7);
     }
@@ -88,7 +91,7 @@ int Offset(String *value, int scalar)
     return cursor;
 }
 
-void RequireString(const String *value)
+void RequireString(const String *value) noexcept
 {
     if (!value || value->Object.Type != &sol_rt_string_type || value->ByteLength < 0)
     {
@@ -118,15 +121,15 @@ String *sol_rt_string_create(const char *bytes, int length)
         Decode(bytes, length, cursor);
         ++runes;
     }
-    auto *result = reinterpret_cast<String *>(sol_gc_alloc(&sol_rt_string_type,
-                                                           sizeof(String) + static_cast<std::uint64_t>(length)));
+    auto *result = Detail::StorageCast<String>(sol_gc_alloc(&sol_rt_string_type,
+                                                            sizeof(String) + Detail::Integer<std::uint64_t>(length)));
     result->ByteLength = length;
     result->RuneCount = runes;
     const TemporaryRoot root(&result->Object);
     const NativeScope transition(length >= 65536);
     if (length)
     {
-        std::memcpy(result->Data(), bytes, static_cast<std::size_t>(length));
+        std::memcpy(result->Data(), bytes, Detail::Integer<std::size_t>(length));
     }
     return result;
 }
@@ -134,7 +137,7 @@ String *sol_rt_string_create(const char *bytes, int length)
 int sol_rt_string_length(String *value)
 {
     RequireString(value);
-    auto cache = std::atomic_ref(value->RuneCount);
+    const auto cache = std::atomic_ref(value->RuneCount);
     const auto cached = cache.load(std::memory_order_acquire);
     if (cached >= 0)
     {
@@ -155,10 +158,10 @@ int sol_rt_string_compare(const String *left, const String *right)
     RequireString(left);
     RequireString(right);
     const auto common = (left->ByteLength < right->ByteLength ? left->ByteLength : right->ByteLength);
-    int compared = 0;
+    int compared;
     {
         const NativeScope transition(common >= 4096);
-        compared = std::memcmp(left->Data(), right->Data(), static_cast<std::size_t>(common));
+        compared = std::memcmp(left->Data(), right->Data(), Detail::Integer<std::size_t>(common));
     }
     return compared < 0
                ? -1
@@ -180,14 +183,14 @@ String *sol_rt_string_concat(String *left, String *right)
         sol_rt_fail(6);
     }
     const int length = left->ByteLength + right->ByteLength;
-    auto *result = reinterpret_cast<String *>(sol_gc_alloc(&sol_rt_string_type,
-                                                           sizeof(String) + static_cast<std::uint64_t>(length)));
+    auto *result = Detail::StorageCast<String>(sol_gc_alloc(&sol_rt_string_type,
+                                                            sizeof(String) + Detail::Integer<std::uint64_t>(length)));
     result->ByteLength = length;
     result->RuneCount = -1;
     const TemporaryRoot root(&result->Object);
     const NativeScope transition(length >= 65536);
-    std::memcpy(result->Data(), left->Data(), static_cast<std::size_t>(left->ByteLength));
-    std::memcpy(result->Data() + left->ByteLength, right->Data(), static_cast<std::size_t>(right->ByteLength));
+    std::memcpy(result->Data(), left->Data(), Detail::Integer<std::size_t>(left->ByteLength));
+    std::memcpy(result->Data() + left->ByteLength, right->Data(), Detail::Integer<std::size_t>(right->ByteLength));
     return result;
 }
 
@@ -209,11 +212,11 @@ int sol_rt_string_index_of(String *value, const String *needle, int start)
     int cursor = Offset(value, start), scalar = start;
     while (needle->ByteLength <= value->ByteLength - cursor)
     {
-        int comparison = 0;
+        int comparison;
         {
             const NativeScope transition(needle->ByteLength >= 4096);
             comparison = std::memcmp(value->Data() + cursor, needle->Data(),
-                                     static_cast<std::size_t>(needle->ByteLength));
+                                     Detail::Integer<std::size_t>(needle->ByteLength));
         }
         if (comparison == 0)
         {
@@ -250,7 +253,8 @@ int sol_rt_string_hash(const String *value)
         {
             sol_gc_poll();
         }
-        hash = (hash ^ static_cast<unsigned char>(value->Data()[index])) * 16777619U;
+        hash = (hash ^ std::bit_cast<unsigned char>(Detail::CheckedAt(
+                    std::span(value->Data(), Detail::Integer<std::size_t>(value->ByteLength)), index))) * 16777619U;
     }
     return std::bit_cast<std::int32_t>(hash);
 }
@@ -263,8 +267,8 @@ StringArray *sol_rt_array_create(int length, std::uint32_t stride, const TypeDes
     {
         sol_rt_fail(7);
     }
-    const auto bytes = sizeof(StringArray) + static_cast<std::uint64_t>(length) * stride;
-    auto *array = reinterpret_cast<StringArray *>(sol_gc_alloc(arrayType, bytes));
+    const auto bytes = sizeof(StringArray) + Detail::Integer<std::uint64_t>(length) * stride;
+    auto *array = Detail::StorageCast<StringArray>(sol_gc_alloc(arrayType, bytes));
     array->Length = length;
     array->Stride = stride;
     array->Element = element;
@@ -282,9 +286,9 @@ Throwable *sol_rt_exception_create(const TypeDescriptor *type, String *message, 
     {
         sol_rt_fail(7);
     }
-    auto *error = reinterpret_cast<Throwable *>(sol_gc_alloc(type, sizeof(Throwable)));
-    sol_gc_store_ref(reinterpret_cast<Header **>(&error->Message), reinterpret_cast<Header *>(message));
-    sol_gc_store_ref(reinterpret_cast<Header **>(&error->Cause), reinterpret_cast<Header *>(cause));
+    auto *error = Detail::StorageCast<Throwable>(sol_gc_alloc(type, sizeof(Throwable)));
+    sol_gc_store_ref(Detail::StorageCast<Header *>(&error->Message), Detail::StorageCast<Header>(message));
+    sol_gc_store_ref(Detail::StorageCast<Header *>(&error->Cause), Detail::StorageCast<Header>(cause));
     return error;
 }
 
@@ -295,8 +299,8 @@ bool sol_rt_is_instance(const Header *value, const TypeDescriptor *type)
 
 void sol_rt_exception_add_suppressed(Throwable *primary, Throwable *secondary)
 {
-    if (!IsInstance(reinterpret_cast<Header *>(primary), &sol_rt_throwable_type)
-        || !IsInstance(reinterpret_cast<Header *>(secondary), &sol_rt_throwable_type) || primary == secondary)
+    if (!IsInstance(Detail::StorageCast<Header>(primary), &sol_rt_throwable_type)
+        || !IsInstance(Detail::StorageCast<Header>(secondary), &sol_rt_throwable_type) || primary == secondary)
     {
         sol_rt_fail(9);
     }
@@ -335,7 +339,7 @@ void sol_rt_exception_add_suppressed(Throwable *primary, Throwable *secondary)
             {
                 for (int index = 0; index < suppressed->Length; ++index)
                 {
-                    pending.push_back(reinterpret_cast<Throwable *>(suppressed->Data()[index]));
+                    pending.push_back(Detail::StorageCast<Throwable>(suppressed->Data()[index]));
                 }
             }
         }
@@ -348,11 +352,11 @@ void sol_rt_exception_add_suppressed(Throwable *primary, Throwable *secondary)
         auto *array = sol_rt_array_create(length + 1, sizeof(Header *), &sol_rt_throwable_type, &ThrowableArrayType);
         for (int index = 0; index < length; ++index)
         {
-            sol_gc_store_ref(reinterpret_cast<Header **>(&array->Data()[index]),
-                             reinterpret_cast<Header *>(previous->Data()[index]));
+            sol_gc_store_ref(Detail::StorageCast<Header *>(&array->Data()[index]),
+                             Detail::StorageCast<Header>(previous->Data()[index]));
         }
-        sol_gc_store_ref(reinterpret_cast<Header **>(&array->Data()[length]), &secondary->Object);
-        sol_gc_store_ref(reinterpret_cast<Header **>(&primary->Suppressed), &array->Object);
+        sol_gc_store_ref(Detail::StorageCast<Header *>(&array->Data()[length]), &secondary->Object);
+        sol_gc_store_ref(Detail::StorageCast<Header *>(&primary->Suppressed), &array->Object);
     }
     catch (...)
     {
@@ -371,22 +375,24 @@ namespace OpenDot::Sol::Runtime
 struct ExceptionCarrier::RootControl final
 {
     std::atomic<unsigned> Owners{1};
+    // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
     RuntimeHandle *Handle;
 
-    explicit RootControl(RuntimeHandle *handle) : Handle(handle)
+    explicit RootControl(Throwable &value) noexcept(false)
+        : Handle(sol_gc_create_handle(&value.Object, false))
     {
     }
 };
 
 ExceptionCarrier::ExceptionCarrier(Throwable *value) : _value(value)
 {
-    if (!IsInstance(reinterpret_cast<Header *>(value), &sol_rt_throwable_type))
+    if (!value || !IsInstance(&value->Object, &sol_rt_throwable_type))
     {
         sol_rt_fail(7);
     }
     try
     {
-        _root = new RootControl(sol_gc_create_handle(&value->Object, false));
+        _root = std::make_unique<RootControl>(*value).release();
     }
     catch (...)
     {
@@ -403,8 +409,8 @@ ExceptionCarrier::~ExceptionCarrier()
 {
     if (_root->Owners.fetch_sub(1, std::memory_order_acq_rel) == 1)
     {
-        sol_gc_release_handle(_root->Handle);
-        delete _root;
+        const std::unique_ptr<RootControl> lastOwner{_root};
+        sol_gc_release_handle(lastOwner->Handle);
     }
 }
 

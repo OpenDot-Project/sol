@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "Session.h"
+#include "../Checked.h"
+#include <array>
+#include <string_view>
 // Upstream LLVM SDK templates trigger these MSVC diagnostics; first-party code keeps /W4 /WX.
 #pragma warning(push)
 #pragma warning(disable: 4244 4702)
-#include <llvm/ADT/APFloat.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Verifier.h>
@@ -47,8 +49,9 @@ void Initialize()
     });
 }
 
-Session::Session() : Module(std::make_unique<llvm::Module>("sol-module", Context)), Builder(Context),
-                     Identity(NextIdentity.fetch_add(1))
+Session::Session(std::string_view moduleName) : Module(std::make_unique<llvm::Module>(
+                                                    llvm::StringRef(moduleName), Context)), Builder(Context),
+                                                Identity(NextIdentity.fetch_add(1))
 {
     Require(Identity < 0x80000000U, "LLVM session identity limit exceeded.");
     Initialize();
@@ -76,10 +79,10 @@ void Session::CheckThread() const
 Entry &Session::Get(std::int64_t handle)
 {
     CheckThread();
-    const auto token = static_cast<std::uint64_t>(handle);
-    const auto index = static_cast<std::uint32_t>(token);
+    const auto token = std::bit_cast<std::uint64_t>(handle);
+    const auto index = CheckedInteger<std::uint32_t>(token & 0xFFFFFFFFULL);
     Require(token >> 32 == Identity && index > 0 && index < Entries.size(), "Foreign or stale LLVM handle.");
-    return Entries[index];
+    return Entries.at(index);
 }
 
 llvm::Type *Session::Type(std::int64_t handle)
@@ -107,10 +110,10 @@ std::int64_t Session::Add(Entry entry)
 {
     Require(Entries.size() < 10000000, "LLVM handle inventory limit exceeded.");
     Entries.push_back(entry);
-    return static_cast<std::int64_t>((std::uint64_t{Identity} << 32) | (Entries.size() - 1));
+    return CheckedInteger<std::int64_t>((std::uint64_t{Identity} << 32) | (Entries.size() - 1));
 }
 
-void Verify(llvm::Module &module)
+void Verify(const llvm::Module &module)
 {
     std::string error;
     llvm::raw_string_ostream output(error);
@@ -129,11 +132,11 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
     };
     auto val = [&](std::size_t i) {
         Require(i < args.size(), "Missing LLVM operand.");
-        return Value(args[i]);
+        return Value(args.at(i));
     };
     auto integerData = [&] {
         Require(data >= 0 && data <= 1000000, "Invalid LLVM size/index.");
-        return static_cast<unsigned>(data);
+        return CheckedInteger<unsigned>(data);
     };
     if ((op >= Operation::Alloca && op <= Operation::FPExt) || op == Operation::IndirectCall)
     {
@@ -236,7 +239,7 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
     case Operation::Parameter: {
         count(1);
         auto *function = llvm::dyn_cast<llvm::Function>(val(0));
-        Require(function && data >= 0 && static_cast<std::uint64_t>(data) < function->arg_size(),
+        Require(function && data >= 0 && CheckedInteger<std::uint64_t>(data) < function->arg_size(),
                 "Invalid LLVM parameter.");
         return Add({nullptr, function->getArg(integerData())});
     }
@@ -249,7 +252,7 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
     }
     case Operation::Position:
         count(1);
-        Builder.SetInsertPoint(Block(args[0]));
+        Builder.SetInsertPoint(Block(args.at(0)));
         return 0;
     case Operation::Alloca:
         count(0);
@@ -305,7 +308,7 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
         std::vector<llvm::Value *> inputs;
         for (std::size_t i = 1; i < args.size(); ++i)
         {
-            Require(val(i)->getType() == function->getFunctionType()->getParamType(static_cast<unsigned>(i - 1)),
+            Require(val(i)->getType() == function->getFunctionType()->getParamType(CheckedInteger<unsigned>(i - 1)),
                     "Call type mismatch.");
             inputs.push_back(val(i));
         }
@@ -315,13 +318,13 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
         Require(!args.empty(), "Missing indirect call target.");
         auto *signature = llvm::dyn_cast<llvm::FunctionType>(Type(type));
         Require(signature && val(0)->getType()->isPointerTy()
-                    && signature->getNumParams() == args.size() - 1,
+                && signature->getNumParams() == args.size() - 1,
                 "Indirect call signature or target mismatch.");
         std::vector<llvm::Value *> inputs;
         inputs.reserve(args.size() - 1);
         for (std::size_t i = 1; i < args.size(); ++i)
         {
-            Require(val(i)->getType() == signature->getParamType(static_cast<unsigned>(i - 1)),
+            Require(val(i)->getType() == signature->getParamType(CheckedInteger<unsigned>(i - 1)),
                     "Indirect call argument type mismatch.");
             inputs.push_back(val(i));
         }
@@ -332,21 +335,21 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
         return Add({nullptr, args.empty() ? Builder.CreateRetVoid() : Builder.CreateRet(val(0))});
     case Operation::Branch:
         count(1);
-        return Add({nullptr, Builder.CreateBr(Block(args[0]))});
+        return Add({nullptr, Builder.CreateBr(Block(args.at(0)))});
     case Operation::ConditionalBranch:
         count(3);
         Require(val(0)->getType()->isIntegerTy(1), "Invalid branch condition.");
-        return Add({nullptr, Builder.CreateCondBr(val(0), Block(args[1]), Block(args[2]))});
+        return Add({nullptr, Builder.CreateCondBr(val(0), Block(args.at(1)), Block(args.at(2)))});
     case Operation::Unreachable:
         count(0);
         return Add({nullptr, Builder.CreateUnreachable()});
     case Operation::Phi: {
         Require(args.size() % 2 == 0 && Type(type)->isFirstClassType(), "Invalid phi type or arity.");
-        auto *phi = Builder.CreatePHI(Type(type), static_cast<unsigned>(args.size() / 2));
+        auto *phi = Builder.CreatePHI(Type(type), CheckedInteger<unsigned>(args.size() / 2));
         for (std::size_t i = 0; i < args.size(); i += 2)
         {
             Require(val(i)->getType() == Type(type), "Invalid phi type.");
-            phi->addIncoming(val(i), Block(args[i + 1]));
+            phi->addIncoming(val(i), Block(args.at(i + 1)));
         }
         return Add({nullptr, phi});
     }
@@ -356,7 +359,31 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
         Require(structure && data >= 0 && data < structure->getNumElements(), "Invalid extraction.");
         return Add({nullptr, Builder.CreateExtractValue(val(0), integerData())});
     }
-    default:
+    case Operation::Add:
+    case Operation::Sub:
+    case Operation::Mul:
+    case Operation::SDiv:
+    case Operation::UDiv:
+    case Operation::SRem:
+    case Operation::URem:
+    case Operation::And:
+    case Operation::Or:
+    case Operation::Xor:
+    case Operation::Shl:
+    case Operation::LShr:
+    case Operation::AShr:
+    case Operation::FAdd:
+    case Operation::FSub:
+    case Operation::FMul:
+    case Operation::FDiv:
+    case Operation::FRem:
+    case Operation::FNeg:
+    case Operation::ICmp:
+    case Operation::FCmp:
+    case Operation::ZExt:
+    case Operation::SExt:
+    case Operation::Trunc:
+    case Operation::FPExt:
         break;
     }
     if (op == Operation::FNeg)
@@ -368,13 +395,13 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
     if (op >= Operation::ZExt && op <= Operation::FPExt)
     {
         count(1);
-        llvm::Instruction::CastOps cast = op == Operation::ZExt
-                                              ? llvm::Instruction::ZExt
-                                              : op == Operation::SExt
-                                              ? llvm::Instruction::SExt
-                                              : op == Operation::Trunc
-                                              ? llvm::Instruction::Trunc
-                                              : llvm::Instruction::FPExt;
+        const llvm::Instruction::CastOps cast = op == Operation::ZExt
+                                                    ? llvm::Instruction::ZExt
+                                                    : op == Operation::SExt
+                                                    ? llvm::Instruction::SExt
+                                                    : op == Operation::Trunc
+                                                    ? llvm::Instruction::Trunc
+                                                    : llvm::Instruction::FPExt;
         Require(llvm::CastInst::castIsValid(cast, val(0), Type(type)), "Invalid LLVM cast.");
         return Add({nullptr, Builder.CreateCast(cast, val(0), Type(type))});
     }
@@ -384,37 +411,37 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
     {
         if (op == Operation::ICmp)
         {
-            constexpr llvm::CmpInst::Predicate predicates[]{llvm::CmpInst::ICMP_EQ, llvm::CmpInst::ICMP_NE,
-                                                            llvm::CmpInst::ICMP_SLT, llvm::CmpInst::ICMP_SGT,
-                                                            llvm::CmpInst::ICMP_SLE, llvm::CmpInst::ICMP_SGE,
-                                                            llvm::CmpInst::ICMP_EQ, llvm::CmpInst::ICMP_NE,
-                                                            llvm::CmpInst::ICMP_ULT, llvm::CmpInst::ICMP_UGT,
-                                                            llvm::CmpInst::ICMP_ULE, llvm::CmpInst::ICMP_UGE};
+            constexpr std::array predicates{llvm::CmpInst::ICMP_EQ, llvm::CmpInst::ICMP_NE,
+                                            llvm::CmpInst::ICMP_SLT, llvm::CmpInst::ICMP_SGT,
+                                            llvm::CmpInst::ICMP_SLE, llvm::CmpInst::ICMP_SGE,
+                                            llvm::CmpInst::ICMP_EQ, llvm::CmpInst::ICMP_NE,
+                                            llvm::CmpInst::ICMP_ULT, llvm::CmpInst::ICMP_UGT,
+                                            llvm::CmpInst::ICMP_ULE, llvm::CmpInst::ICMP_UGE};
             const auto *operandType = val(0)->getType();
             const bool pointerEquality = operandType->isPointerTy() && data < 2;
             Require(data >= 0 && data < 12 && (operandType->isIntegerTy() || pointerEquality),
                     "Invalid integer or pointer-equality predicate.");
-            return Add({nullptr, Builder.CreateICmp(predicates[data], val(0), val(1))});
+            return Add({nullptr, Builder.CreateICmp(predicates.at(data), val(0), val(1))});
         }
-        constexpr llvm::CmpInst::Predicate predicates[]{llvm::CmpInst::FCMP_OEQ, llvm::CmpInst::FCMP_UNE,
-                                                        llvm::CmpInst::FCMP_OLT, llvm::CmpInst::FCMP_OGT,
-                                                        llvm::CmpInst::FCMP_OLE, llvm::CmpInst::FCMP_OGE};
+        constexpr std::array predicates{llvm::CmpInst::FCMP_OEQ, llvm::CmpInst::FCMP_UNE,
+                                        llvm::CmpInst::FCMP_OLT, llvm::CmpInst::FCMP_OGT,
+                                        llvm::CmpInst::FCMP_OLE, llvm::CmpInst::FCMP_OGE};
         Require(data >= 0 && data < 6 && val(0)->getType()->isFloatingPointTy(), "Invalid floating predicate.");
-        return Add({nullptr, Builder.CreateFCmp(predicates[data], val(0), val(1))});
+        return Add({nullptr, Builder.CreateFCmp(predicates.at(data), val(0), val(1))});
     }
-    constexpr llvm::Instruction::BinaryOps binary[]{llvm::Instruction::Add, llvm::Instruction::Sub,
-                                                    llvm::Instruction::Mul, llvm::Instruction::SDiv,
-                                                    llvm::Instruction::UDiv, llvm::Instruction::SRem,
-                                                    llvm::Instruction::URem, llvm::Instruction::And,
-                                                    llvm::Instruction::Or, llvm::Instruction::Xor,
-                                                    llvm::Instruction::Shl, llvm::Instruction::LShr,
-                                                    llvm::Instruction::AShr, llvm::Instruction::FAdd,
-                                                    llvm::Instruction::FSub, llvm::Instruction::FMul,
-                                                    llvm::Instruction::FDiv, llvm::Instruction::FRem};
+    constexpr std::array binary{llvm::Instruction::Add, llvm::Instruction::Sub,
+                                llvm::Instruction::Mul, llvm::Instruction::SDiv,
+                                llvm::Instruction::UDiv, llvm::Instruction::SRem,
+                                llvm::Instruction::URem, llvm::Instruction::And,
+                                llvm::Instruction::Or, llvm::Instruction::Xor,
+                                llvm::Instruction::Shl, llvm::Instruction::LShr,
+                                llvm::Instruction::AShr, llvm::Instruction::FAdd,
+                                llvm::Instruction::FSub, llvm::Instruction::FMul,
+                                llvm::Instruction::FDiv, llvm::Instruction::FRem};
     const auto index = static_cast<int>(op) - static_cast<int>(Operation::Add);
-    Require(index >= 0 && index < static_cast<int>(std::size(binary)), "Unsupported LLVM operation.");
+    Require(index >= 0 && index < CheckedInteger<int>(binary.size()), "Unsupported LLVM operation.");
     Require(index < 13 ? val(0)->getType()->isIntegerTy() : val(0)->getType()->isFloatingPointTy(),
             "Invalid LLVM binary operand category.");
-    return Add({nullptr, Builder.CreateBinOp(binary[index], val(0), val(1))});
+    return Add({nullptr, Builder.CreateBinOp(binary.at(index), val(0), val(1))});
 }
 }

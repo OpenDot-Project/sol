@@ -1,32 +1,35 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcProfile.h"
+#include <tuple>
+#include "CheckedAccess.h"
 #include "GcInternal.h"
 #include <windows.h>
 #include <algorithm>
 #include <cstdio>
 #include <cwchar>
+#include <string_view>
 #include <iterator>
 
 namespace OpenDot::Sol::Runtime::Test
 {
 namespace
 {
-bool Number(const wchar_t *text, unsigned minimum, unsigned maximum, unsigned &value)
+bool Number(const wchar_t *text, unsigned minimum, unsigned maximum, unsigned &value) noexcept
 {
     if (!text || !*text)
     {
         return false;
     }
     std::uint64_t parsed = 0;
-    for (const auto *cursor = text; *cursor; ++cursor)
+    for (const auto character : std::wstring_view(text))
     {
-        if (*cursor < L'0' || *cursor > L'9')
+        if (character < L'0' || character > L'9')
         {
             return false;
         }
-        const auto digit = static_cast<unsigned>(*cursor - L'0');
-        if (parsed > (static_cast<std::uint64_t>(maximum) - digit) / 10)
+        const auto digit = Detail::Integer<unsigned>(character - L'0');
+        if (parsed > (Detail::Integer<std::uint64_t>(maximum) - digit) / 10)
         {
             return false;
         }
@@ -36,12 +39,13 @@ bool Number(const wchar_t *text, unsigned minimum, unsigned maximum, unsigned &v
     {
         return false;
     }
-    value = static_cast<unsigned>(parsed);
+    value = Detail::Integer<unsigned>(parsed);
     return true;
 }
 
-bool Scenario(const wchar_t *text, ProfileScenario &scenario)
+bool Scenario(const wchar_t *text, ProfileScenario &scenario) noexcept
 {
+    // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
     struct Choice final
     {
         const wchar_t *Name;
@@ -63,7 +67,7 @@ bool Scenario(const wchar_t *text, ProfileScenario &scenario)
 }
 }
 
-const char *ScenarioName(ProfileScenario scenario)
+const char *ScenarioName(ProfileScenario scenario) noexcept
 {
     switch (scenario)
     {
@@ -83,14 +87,19 @@ const char *ScenarioName(ProfileScenario scenario)
     sol_rt_fail(7);
 }
 
-bool ParseProfileOptions(int count, wchar_t **arguments, ProfileOptions &options)
+bool ParseProfileOptions(int count, const wchar_t *const *arguments, ProfileOptions &options) noexcept
 {
-    if (count != 6 || !Scenario(arguments[0], options.Scenario)
-        || !Number(arguments[1], 16, 200000, options.Nodes)
-        || !Number(arguments[2], 1, 10, options.Cycles)
-        || !Number(arguments[3], 1, 4096, options.Roots)
-        || !Number(arguments[4], 1, 8, options.Threads)
-        || !Number(arguments[5], 0, UINT32_MAX, options.Seed))
+    if (count != 6 || !arguments)
+    {
+        return false;
+    }
+    const std::span input(arguments, count);
+    if (!Scenario(Detail::CheckedAt(input, 0), options.Scenario)
+        || !Number(Detail::CheckedAt(input, 1), 16, 200000, options.Nodes)
+        || !Number(Detail::CheckedAt(input, 2), 1, 10, options.Cycles)
+        || !Number(Detail::CheckedAt(input, 3), 1, 4096, options.Roots)
+        || !Number(Detail::CheckedAt(input, 4), 1, 8, options.Threads)
+        || !Number(Detail::CheckedAt(input, 5), 0, UINT32_MAX, options.Seed))
     {
         return false;
     }
@@ -100,7 +109,7 @@ bool ParseProfileOptions(int count, wchar_t **arguments, ProfileOptions &options
     {
         return false;
     }
-    return static_cast<std::uint64_t>(options.Nodes) * options.Cycles * options.Threads <= 2000000;
+    return Detail::Integer<std::uint64_t>(options.Nodes) * options.Cycles * options.Threads <= 2000000;
 }
 
 void AllocationTimings::Record(std::uint64_t duration)
@@ -110,7 +119,7 @@ void AllocationTimings::Record(std::uint64_t duration)
     Maximum = (std::max)(Maximum, duration);
 }
 
-void AllocationTimings::Merge(AllocationTimings &&other)
+void AllocationTimings::Merge(AllocationTimings other)
 {
     Total = Heap::SaturatingAdd(Total, other.Total);
     Maximum = (std::max)(Maximum, other.Maximum);
@@ -130,16 +139,16 @@ std::uint64_t AllocationTimings::Percentile(unsigned percentile) const
     }
     auto sorted = Nanoseconds;
     const auto rank = (sorted.size() * percentile + 99) / 100;
-    std::nth_element(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(rank - 1), sorted.end());
-    return sorted[rank - 1];
+    std::nth_element(sorted.begin(), sorted.begin() + Detail::Integer<std::ptrdiff_t>(rank - 1), sorted.end());
+    return sorted.at(rank - 1);
 }
 
-int RunGcProfile(int count, wchar_t **arguments)
+int RunGcProfile(int count, const wchar_t *const *arguments)
 {
     ProfileResult result;
     if (!ParseProfileOptions(count, arguments, result.Options))
     {
-        std::fprintf(
+        std::ignore = std::fprintf(
             stderr, "gc-profile expects: dense|sparse|wide|churn|roots|concurrent nodes cycles roots threads seed\n");
         return 64;
     }
@@ -160,7 +169,7 @@ int RunGcProfile(int count, wchar_t **arguments)
     result.ElapsedNanoseconds = Heap::ElapsedNanoseconds(started);
     if (!okay)
     {
-        std::fprintf(stderr, "GC profile failed its reachability/reclamation checkpoint.\n");
+        std::ignore = std::fprintf(stderr, "GC profile failed its reachability/reclamation checkpoint.\n");
         sol_gc_detach();
         sol_rt_shutdown();
         return 65;
@@ -173,7 +182,7 @@ int RunGcProfile(int count, wchar_t **arguments)
     result.Allocator = sol_gc_allocator_stats();
     result.Cache = sol_gc_thread_allocation_stats();
     result.Events.resize(4096);
-    const auto read = sol_gc_read_events(0, result.Events.data(), static_cast<std::uint32_t>(result.Events.size()));
+    const auto read = sol_gc_read_events(0, result.Events.data(), Detail::Integer<std::uint32_t>(result.Events.size()));
     result.Events.resize(read);
     sol_gc_detach();
     sol_rt_shutdown();

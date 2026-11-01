@@ -1,12 +1,15 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include <windows.h>
+#include <tuple>
 #include <shellapi.h>
 
 #include <cstdio>
+#include <bit>
 #include <exception>
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -19,7 +22,7 @@ namespace
 class Handle final
 {
 public:
-    explicit Handle(HANDLE value = nullptr) : value_(value)
+    explicit Handle(HANDLE value = nullptr) noexcept : value_(value)
     {
     }
 
@@ -49,7 +52,7 @@ std::wstring Quote(std::wstring_view value)
 {
     std::wstring result = L"\"";
     std::size_t slashes = 0;
-    for (wchar_t character : value)
+    for (const wchar_t character : value)
     {
         if (character == L'\\')
         {
@@ -72,7 +75,7 @@ std::wstring Quote(std::wstring_view value)
     return result;
 }
 
-BOOL WINAPI ControlHandler(DWORD event)
+constexpr BOOL WINAPI ControlHandler(DWORD event) noexcept
 {
     // The child shares the console and handles cancellation. Keep the owning job alive until it exits.
     return event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT;
@@ -82,8 +85,9 @@ BOOL WINAPI ControlHandler(DWORD event)
 
 int Run()
 {
-    std::vector<wchar_t> path(32768);
-    DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    constexpr DWORD PathCapacity = 32768;
+    std::vector<wchar_t> path(PathCapacity);
+    const DWORD length = GetModuleFileNameW(nullptr, path.data(), PathCapacity);
     if (length == 0 || length == path.size())
     {
         return 70;
@@ -93,21 +97,23 @@ int Run()
     const auto payload = root / L"managed" / L"OpenDot.Sol.Cli.dll";
     if (!std::filesystem::is_regular_file(runtime) || !std::filesystem::is_regular_file(payload))
     {
-        std::fputs("solc: incomplete component; private runtime or managed payload is missing.\n", stderr);
+        std::ignore = std::fputs("solc: incomplete component; private runtime or managed payload is missing.\n",
+                                 stderr);
         return 70;
     }
 
     int count = 0;
     std::unique_ptr<wchar_t *, decltype(&LocalFree)> arguments(CommandLineToArgvW(GetCommandLineW(), &count),
                                                                &LocalFree);
-    if (!arguments)
+    if (!arguments || count < 1)
     {
         return 70;
     }
     std::wstring command = Quote(runtime.wstring()) + L" " + Quote(payload.wstring());
-    for (int index = 1; index < count; ++index)
+    const std::span<wchar_t *> argumentView(arguments.get(), count);
+    for (const auto *argument : argumentView.subspan(1))
     {
-        command += L" " + Quote(arguments.get()[index]);
+        command += L" " + Quote(argument);
     }
 
     for (const auto *key : {L"DOTNET_ROOT", L"DOTNET_ROOT_X64", L"DOTNET_ADDITIONAL_DEPS", L"DOTNET_SHARED_STORE",
@@ -132,7 +138,8 @@ int Run()
     if (!CreateProcessW(runtime.c_str(), command.data(), nullptr, nullptr, TRUE, CREATE_SUSPENDED, nullptr, nullptr,
                         &startup, &process))
     {
-        std::fprintf(stderr, "solc: could not start private runtime (Windows error %lu).\n", GetLastError());
+        std::ignore = std::fprintf(stderr, "solc: could not start private runtime (Windows error %lu).\n",
+                                   GetLastError());
         return 70;
     }
     Handle child(process.hProcess);
@@ -142,7 +149,7 @@ int Run()
         TerminateProcess(child.Get(), 70);
         return 70;
     }
-    if (ResumeThread(thread.Get()) == static_cast<DWORD>(-1))
+    if (ResumeThread(thread.Get()) == MAXDWORD)
     {
         return 70;
     }
@@ -155,7 +162,8 @@ int Run()
     {
         return 70;
     }
-    return static_cast<int>(exitCode);
+    static_assert(sizeof(exitCode) == sizeof(int));
+    return std::bit_cast<int>(exitCode);
 }
 
 } // namespace OpenDot::Sol::Launcher
@@ -168,7 +176,7 @@ int wmain()
     }
     catch (const std::exception &error)
     {
-        std::fprintf(stderr, "solc: launcher failure: %s\n", error.what());
+        std::ignore = std::fprintf(stderr, "solc: launcher failure: %s\n", error.what());
         return 70;
     }
 }

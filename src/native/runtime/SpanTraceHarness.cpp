@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "TraceHarnessSupport.h"
-#include <algorithm>
+#include <tuple>
+#include "CheckedAccess.h"
 #include <cstdio>
 #include <random>
-#include <unordered_set>
 
 using namespace OpenDot::Sol::Runtime;
 using namespace OpenDot::Sol::Runtime::Heap;
@@ -14,18 +14,18 @@ namespace
 {
 int DenseSpan()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     std::vector<Node *> nodes;
     for (unsigned index = 0; index < 1000; ++index)
     {
         nodes.push_back(fixture.NewNode(index));
     }
-    for (unsigned index = 0; index + 1 < nodes.size(); ++index)
+    for (std::size_t index = 0; index + 1 < nodes.size(); ++index)
     {
-        nodes[index]->Left = &nodes[index + 1]->Object;
+        nodes.at(index)->Left = &nodes.at(index + 1)->Object;
     }
     fixture.Begin();
-    fixture.Root(&nodes[0]->Object);
+    fixture.Root(&nodes.at(0)->Object);
     fixture.Drain();
     for (auto *node : nodes)
     {
@@ -46,7 +46,7 @@ int DenseSpan()
 
 int DisconnectedAndCycles()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     std::vector<Node *> nodes;
     for (unsigned index = 0; index < 70; ++index)
     {
@@ -54,19 +54,19 @@ int DisconnectedAndCycles()
     }
     for (unsigned index = 0; index < 35; ++index)
     {
-        nodes[index]->Left = &nodes[(index + 1) % 35]->Object;
-        nodes[index]->Right = &nodes[(index + 7) % 35]->Object;
+        nodes.at(index)->Left = &nodes.at((index + 1) % 35)->Object;
+        nodes.at(index)->Right = &nodes.at((index + 7) % 35)->Object;
     }
     for (unsigned index = 35; index < 70; ++index)
     {
-        nodes[index]->Left = &nodes[35 + (index + 1) % 35]->Object;
+        nodes.at(index)->Left = &nodes.at(35ULL + (index + 1ULL) % 35)->Object;
     }
     fixture.Begin();
-    fixture.Root(&nodes[0]->Object);
+    fixture.Root(&nodes.at(0)->Object);
     fixture.Drain(TraceBudget{3, 2});
     for (unsigned index = 0; index < nodes.size(); ++index)
     {
-        if (fixture.Marked(&nodes[index]->Object) != (index < 35))
+        if (fixture.Marked(&nodes.at(index)->Object) != (index < 35))
         {
             return 231;
         }
@@ -76,9 +76,13 @@ int DisconnectedAndCycles()
 
 int LargeArrayResumption()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     auto *array = fixture.NewArray(10000);
-    auto **elements = reinterpret_cast<Header **>(array->Data());
+    if (!array)
+    {
+        sol_rt_fail(7);
+    }
+    const std::span elements(Detail::StorageCast<Header *>(array->Data()), Detail::Integer<std::size_t>(array->Length));
     std::vector<Node *> nodes;
     for (unsigned index = 0; index < 300; ++index)
     {
@@ -86,7 +90,7 @@ int LargeArrayResumption()
     }
     for (unsigned index = 0; index < 10000; ++index)
     {
-        elements[index] = &nodes[index % nodes.size()]->Object;
+        Detail::CheckedAt(elements, index) = &nodes.at(index % nodes.size())->Object;
     }
     fixture.Begin();
     fixture.Root(&array->Object);
@@ -119,7 +123,7 @@ int LargeArrayResumption()
 
 int ScalarBudget()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     std::vector<Header *> nodes;
     for (unsigned index = 0; index < 500; ++index)
     {
@@ -147,13 +151,17 @@ int ScalarBudget()
 
 int AssistActualWork()
 {
-    TraceFixture fixture;
+    TraceFixture fixture(TestHeapLimit);
     auto *array = fixture.NewArray(1000);
+    if (!array)
+    {
+        sol_rt_fail(7);
+    }
     auto *node = fixture.NewNode(100);
-    auto **elements = reinterpret_cast<Header **>(array->Data());
+    const std::span elements(Detail::StorageCast<Header *>(array->Data()), Detail::Integer<std::size_t>(array->Length));
     for (unsigned index = 0; index < 1000; ++index)
     {
-        elements[index] = &node->Object;
+        Detail::CheckedAt(elements, index) = &node->Object;
     }
     fixture.Begin();
     fixture.Root(&array->Object);
@@ -196,7 +204,7 @@ int RandomReachability()
 {
     for (unsigned seed = 0; seed < 24; ++seed)
     {
-        TraceFixture fixture;
+        TraceFixture fixture(TestHeapLimit);
         std::mt19937 random(seed + 0xB17U);
         std::vector<Node *> nodes;
         std::array<std::array<int, 2>, 180> edges{};
@@ -208,10 +216,10 @@ int RandomReachability()
         {
             for (unsigned field = 0; field < 2; ++field)
             {
-                const int target = random() % 5 == 0 ? -1 : static_cast<int>(random() % nodes.size());
-                edges[index][field] = target;
-                auto *value = target < 0 ? nullptr : &nodes[static_cast<unsigned>(target)]->Object;
-                (field ? nodes[index]->Right : nodes[index]->Left) = value;
+                const int target = random() % 5 == 0 ? -1 : Detail::Integer<int>(random() % nodes.size());
+                edges.at(index).at(field) = target;
+                auto *value = target < 0 ? nullptr : &nodes.at(Detail::Integer<unsigned>(target))->Object;
+                (field ? nodes.at(index)->Right : nodes.at(index)->Left) = value;
             }
         }
         std::array<bool, 180> reachable{};
@@ -220,26 +228,26 @@ int RandomReachability()
         {
             const auto current = pending.back();
             pending.pop_back();
-            if (reachable[current])
+            if (reachable.at(current))
             {
                 continue;
             }
-            reachable[current] = true;
-            for (const auto target : edges[current])
+            reachable.at(current) = true;
+            for (const auto target : edges.at(current))
             {
                 if (target >= 0)
                 {
-                    pending.push_back(static_cast<unsigned>(target));
+                    pending.push_back(Detail::Integer<unsigned>(target));
                 }
             }
         }
         fixture.Begin();
-        fixture.Root(&nodes[0]->Object);
-        fixture.Root(&nodes[17]->Object);
+        fixture.Root(&nodes.at(0)->Object);
+        fixture.Root(&nodes.at(17)->Object);
         fixture.Drain(TraceBudget{1 + seed % 9, 1 + seed % 5});
         for (unsigned index = 0; index < nodes.size(); ++index)
         {
-            if (fixture.Marked(&nodes[index]->Object) != reachable[index])
+            if (fixture.Marked(&nodes.at(index)->Object) != reachable.at(index))
             {
                 return 241;
             }
@@ -249,17 +257,17 @@ int RandomReachability()
 }
 }
 
-int RunSpanTraceTests()
+int RunSpanTraceTests() noexcept(false)
 {
     for (auto test : {DenseSpan, DisconnectedAndCycles, LargeArrayResumption,
                       ScalarBudget, AssistActualWork, RandomReachability})
     {
-        if (const int failure = test())
+        if (const int failure = test ? test() : 7)
         {
             return failure;
         }
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr,
         "Span tracing: dense/cyclic/random oracle, scalar budget, large-array cursors and actual assist work passed.\n");
     return 0;

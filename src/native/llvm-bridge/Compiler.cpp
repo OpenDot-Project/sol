@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "../llvm-native/Api.h"
 #include <msclr/lock.h>
-#include <vcclr.h>
 #include <string>
 #include <vector>
 using namespace System;
@@ -129,6 +128,7 @@ public:
     }
 };
 
+// ReSharper disable once CppClassNeverUsed // Public C++/CLI entrypoint consumed by the managed compiler.
 public ref class Compiler sealed : ILlvmCompiler, ILldLinker
 {
 public:

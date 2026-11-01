@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #pragma once
-#include <cstddef>
 #include <cstdint>
+#include <span>
 
 #if defined(SOL_RT_STATIC)
 #define SOL_RT_API
@@ -17,16 +17,16 @@ namespace OpenDot::Sol::Runtime
 /// Provisional descriptor prefix; all generated code must match this runtime build.
 struct alignas(16) TypeDescriptor final
 {
-    std::uint64_t Size;
-    std::uint64_t Alignment;
-    std::uint64_t TypeId;
-    std::uint32_t Kind;
-    std::uint32_t LayoutVersion;
-    const TypeDescriptor *Base;
-    const void *ScanShape;
-    const void *MethodTable;
-    const void *GenericIdentity;
-    const void *ExceptionMetadata;
+    std::uint64_t Size = 0;
+    std::uint64_t Alignment = 0;
+    std::uint64_t TypeId = 0;
+    std::uint32_t Kind = 0;
+    std::uint32_t LayoutVersion = 0;
+    const TypeDescriptor *Base = nullptr;
+    const void *ScanShape = nullptr;
+    const void *MethodTable = nullptr;
+    const void *GenericIdentity = nullptr;
+    const void *ExceptionMetadata = nullptr;
     std::uint64_t Reserved = 0;
 };
 
@@ -46,12 +46,14 @@ struct String final
 
     char *Data() noexcept
     {
-        return reinterpret_cast<char *>(this) + sizeof(String);
+        void *payload = std::span{this, 1}.subspan<1>().data();
+        return static_cast<char *>(payload);
     }
 
     const char *Data() const noexcept
     {
-        return reinterpret_cast<const char *>(this) + sizeof(String);
+        const void *payload = std::span{this, 1}.subspan<1>().data();
+        return static_cast<const char *>(payload);
     }
 };
 
@@ -64,12 +66,14 @@ struct StringArray final
 
     String **Data() noexcept
     {
-        return reinterpret_cast<String **>(reinterpret_cast<char *>(this) + sizeof(StringArray));
+        void *payload = std::span{this, 1}.subspan<1>().data();
+        return static_cast<String **>(payload);
     }
 
     String *const*Data() const noexcept
     {
-        return reinterpret_cast<String * const*>(reinterpret_cast<const char *>(this) + sizeof(StringArray));
+        const void *payload = std::span{this, 1}.subspan<1>().data();
+        return static_cast<String *const *>(payload);
     }
 };
 
@@ -86,7 +90,7 @@ SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_string_type
 SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_object_type;
 SOL_RT_API extern const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_string_array_type;
 SOL_RT_API OpenDot::Sol::Runtime::String *sol_rt_literal(OpenDot::Sol::Runtime::String *value);
-SOL_RT_API OpenDot::Sol::Runtime::StringArray *sol_rt_arguments(int argc, wchar_t **argv);
+SOL_RT_API OpenDot::Sol::Runtime::StringArray *sol_rt_arguments(int argc, const wchar_t *const *argv);
 SOL_RT_API void sol_rt_shutdown();
 [[noreturn]] SOL_RT_API void sol_rt_fail(int code);
 SOL_RT_API void sol_rt_write_string(const OpenDot::Sol::Runtime::String *value, int channel);

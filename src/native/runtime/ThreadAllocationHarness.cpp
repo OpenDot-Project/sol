@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "GcInternal.h"
+#include <tuple>
+#include "CheckedAccess.h"
 #include <chrono>
 #include <cstdio>
 #include <semaphore>
@@ -39,7 +41,7 @@ int PreparedAcrossEpochs()
     SetPreparedAllocationHook(PausePrepared);
     RuntimeHandle *retained = nullptr;
     sol_gc_enter_native();
-    std::thread worker([&] {
+    std::thread worker([&]() noexcept(false) {
         sol_gc_attach();
         retained = sol_gc_create_handle(sol_gc_alloc(&sol_rt_object_type, 64), false);
         sol_gc_detach();
@@ -92,7 +94,7 @@ int AllClasses()
     for (auto bytes : SizeClasses)
     {
         ThreadAllocationCache cache;
-        if (!allocator.PrepareSmall(bytes, 16ULL * 1024 * 1024, guard)
+        if (!allocator.PrepareSmall(bytes, 16ULL * 1024ULL * 1024, guard)
             || allocator.Stats().SmallObjectCount || !cache.Fill(allocator, bytes))
         {
             return 170;
@@ -120,12 +122,12 @@ int AllClasses()
 int RuntimeBatchAndSealing()
 {
     sol_gc_attach();
-    Header *roots[8]{};
-    RootFrame frame{nullptr, roots, 8, 0};
+    std::array<Header *, 8> roots{};
+    RootFrame frame{nullptr, roots.data(), 8, 0};
     sol_gc_push_frame(&frame);
     for (unsigned index = 0; index < 8; ++index)
     {
-        sol_gc_store_ref(&roots[index], sol_gc_alloc(&sol_rt_object_type, sizeof(Header)));
+        sol_gc_store_ref(&roots.at(index), sol_gc_alloc(&sol_rt_object_type, sizeof(Header)));
     }
     const auto full = sol_gc_thread_allocation_stats();
     if (full.CacheHits != 7 || full.BatchRefills != 1 || full.CachedSlots
@@ -134,8 +136,8 @@ int RuntimeBatchAndSealing()
         return 173;
     }
     // A new request size returns the unused slots of the previous batch.
-    (void)sol_gc_alloc(&sol_rt_object_type, 32);
-    (void)sol_gc_alloc(&sol_rt_object_type, 48);
+    std::ignore = sol_gc_alloc(&sol_rt_object_type, 32);
+    std::ignore = sol_gc_alloc(&sol_rt_object_type, 48);
     const auto changed = sol_gc_thread_allocation_stats();
     if (changed.ReturnedSlots != 7 || changed.CachedSlots != 7 || changed.BatchRefills != 3)
     {
@@ -148,7 +150,7 @@ int RuntimeBatchAndSealing()
     {
         return 175;
     }
-    for (auto *root : roots)
+    for (const auto *root : roots)
     {
         if (!root || root->Type != &sol_rt_object_type)
         {
@@ -158,14 +160,14 @@ int RuntimeBatchAndSealing()
     // Fresh cache allocations must remain visible through more than one epoch.
     for (unsigned cycle = 0; cycle < 4; ++cycle)
     {
-        sol_gc_store_ref(&roots[0], sol_gc_alloc(&sol_rt_object_type, 80));
+        sol_gc_store_ref(&roots.at(0), sol_gc_alloc(&sol_rt_object_type, 80));
         sol_gc_collect();
-        if (sol_gc_thread_allocation_stats().CachedSlots || roots[0]->Type != &sol_rt_object_type)
+        if (sol_gc_thread_allocation_stats().CachedSlots || roots.at(0)->Type != &sol_rt_object_type)
         {
             return 177;
         }
     }
-    (void)sol_gc_alloc(&sol_rt_object_type, 65536);
+    std::ignore = sol_gc_alloc(&sol_rt_object_type, 65536);
     if (sol_gc_thread_allocation_stats().DirectAllocations != 1)
     {
         return 178;
@@ -184,7 +186,7 @@ int DetachedOwnership()
     sol_gc_attach();
     RuntimeHandle *retained = nullptr;
     sol_gc_enter_native();
-    std::thread worker([&] {
+    std::thread worker([&]() noexcept(false) {
         sol_gc_attach();
         retained = sol_gc_create_handle(sol_gc_alloc(&sol_rt_object_type, sizeof(Header)), false);
         sol_gc_detach();
@@ -217,28 +219,29 @@ int NativeCachesDuringCollection()
     sol_gc_attach();
     std::counting_semaphore<4> ready{0}, resume{0};
     std::vector<std::thread> workers;
-    std::vector<Header *> addresses[4];
+    std::array<std::vector<Header *>, 4> addresses;
     sol_gc_enter_native();
     for (unsigned worker = 0; worker < 4; ++worker)
     {
         workers.emplace_back([&, worker] {
             sol_gc_attach();
-            Header *roots[18]{};
-            RootFrame frame{nullptr, roots, 18, 0};
+            std::array<Header *, 18> roots{};
+            RootFrame frame{nullptr, roots.data(), 18, 0};
             sol_gc_push_frame(&frame);
             for (unsigned index = 0; index < 17; ++index)
             {
                 auto *object = sol_gc_alloc(&sol_rt_object_type, 64);
-                sol_gc_store_ref(&roots[index], object);
-                addresses[worker].push_back(object);
+                sol_gc_store_ref(&roots.at(index), object);
+                // NOLINTNEXTLINE(clang-diagnostic-padded): Preserve natural ABI and compiler capture alignment.
+                addresses.at(worker).push_back(object);
             }
             sol_gc_enter_native();
             ready.release();
             resume.acquire();
             sol_gc_leave_native();
-            sol_gc_store_ref(&roots[17], sol_gc_alloc(&sol_rt_object_type, 64));
+            sol_gc_store_ref(&roots.at(17), sol_gc_alloc(&sol_rt_object_type, 64));
             sol_gc_collect();
-            for (auto *root : roots)
+            for (const auto *root : roots)
             {
                 if (!root || root->Type != &sol_rt_object_type)
                 {
@@ -290,17 +293,17 @@ int NativeCachesDuringCollection()
 }
 }
 
-int RunThreadAllocationTests()
+int RunThreadAllocationTests() noexcept(false)
 {
     for (auto test : {AllClasses, RuntimeBatchAndSealing, DetachedOwnership, NativeCachesDuringCollection,
                       PreparedAcrossEpochs})
     {
-        if (const int result = test())
+        if (const int result = test ? test() : 7)
         {
             return result;
         }
     }
-    std::fprintf(
+    std::ignore = std::fprintf(
         stderr,
         "Thread allocation: 44 classes, bounded batches, epoch sealing, detach and concurrent native caches passed.\n");
     return 0;
@@ -317,7 +320,15 @@ int RunThreadAllocationPoisonTest()
         return 99;
     }
     const auto first = cache.TryTake(16, allocator.Epoch(), false);
-    auto *unused = reinterpret_cast<volatile unsigned char *>(first.Object) - 16;
+#if defined(_MSC_VER) && !defined(__clang__)
+    [[gsl::suppress("bounds.1", justification:
+            "Intentional ASan returned-cache-slot probe; the harness requires this process to fail.")]]
+#endif
+        auto *unused = Detail::StorageCast<volatile unsigned char>(first.Object) - 16;
+    if (!unused)
+    {
+        return 99;
+    }
     cache.Flush(allocator);
     *unused = 1; // A returned, unconsumed cached slot must be poisoned.
     return 99;

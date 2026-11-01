@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #include "SpanAllocator.h"
+#include <tuple>
+#include "CheckedAccess.h"
 #include "MarkWork.h"
 #include <Windows.h>
 #include <algorithm>
@@ -37,9 +39,9 @@ bool Allow(RegionOperation operation, void *memory, std::uint64_t bytes) noexcep
     const auto hook = Observer.load(std::memory_order_acquire);
     return !hook || hook(operation, memory, bytes);
 #else
-    (void)operation;
-    (void)memory;
-    (void)bytes;
+    std::ignore = operation;
+    std::ignore = memory;
+    std::ignore = bytes;
     return true;
 #endif
 }
@@ -49,16 +51,16 @@ void Poison(void *memory, std::uint64_t bytes, bool inaccessible) noexcept
 #if defined(__SANITIZE_ADDRESS__)
     if (inaccessible)
     {
-        __asan_poison_memory_region(memory, static_cast<std::size_t>(bytes));
+        __asan_poison_memory_region(memory, Detail::Integer<std::size_t>(bytes));
     }
     else
     {
-        __asan_unpoison_memory_region(memory, static_cast<std::size_t>(bytes));
+        __asan_unpoison_memory_region(memory, Detail::Integer<std::size_t>(bytes));
     }
 #else
-    (void)memory;
-    (void)bytes;
-    (void)inaccessible;
+    std::ignore = memory;
+    std::ignore = bytes;
+    std::ignore = inaccessible;
 #endif
 }
 
@@ -92,19 +94,19 @@ Prepared Prepare(bool small, std::uint64_t bytes, std::uint64_t committed, std::
     if (metadata)
     {
         const auto slotSize = *std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes);
-        metadata->Tracing.Initialize(nullptr, static_cast<std::uint32_t>(SpanBytes / slotSize), slotSize);
+        metadata->Tracing.Initialize(nullptr, Detail::Integer<std::uint32_t>(SpanBytes / slotSize), slotSize);
     }
     if (!Allow(RegionOperation::Reserve, nullptr, reserved))
     {
         return {};
     }
-    auto *memory = VirtualAlloc(nullptr, static_cast<std::size_t>(reserved), MEM_RESERVE, PAGE_READWRITE);
+    auto *memory = VirtualAlloc(nullptr, Detail::Integer<std::size_t>(reserved), MEM_RESERVE, PAGE_READWRITE);
     if (!memory)
     {
         return {};
     }
     if (!Allow(RegionOperation::Commit, memory, committed)
-        || !VirtualAlloc(memory, static_cast<std::size_t>(committed), MEM_COMMIT, PAGE_READWRITE))
+        || !VirtualAlloc(memory, Detail::Integer<std::size_t>(committed), MEM_COMMIT, PAGE_READWRITE))
     {
         FreeRegion(memory, 0);
         return {};
@@ -125,7 +127,7 @@ void SetRegionHook(RegionHook hook) noexcept
 }
 #endif
 
-SpanAllocator::SpanAllocator()
+SpanAllocator::SpanAllocator() noexcept
 {
     SYSTEM_INFO info{};
     GetSystemInfo(&info);
@@ -165,7 +167,7 @@ void SpanAllocator::UnlinkAvailable(Span *span) noexcept
     }
     else
     {
-        _available[span->Class] = span->AvailableNext;
+        Detail::CheckedAt(_available, span->Class) = span->AvailableNext;
     }
     if (span->AvailableNext)
     {
@@ -181,12 +183,12 @@ void SpanAllocator::Publish(Span *span) noexcept
         return;
     }
     span->AvailablePrevious = nullptr;
-    span->AvailableNext = _available[span->Class];
+    span->AvailableNext = Detail::CheckedAt(_available, span->Class);
     if (span->AvailableNext)
     {
         span->AvailableNext->AvailablePrevious = span;
     }
-    _available[span->Class] = span;
+    Detail::CheckedAt(_available, span->Class) = span;
     span->AvailableEpoch = _epoch;
 }
 
@@ -197,9 +199,9 @@ void SpanAllocator::Destroy(Span *span, std::unique_lock<std::mutex> &guard)
         sol_rt_fail(7);
     }
     UnlinkAvailable(span);
-    if (_empty[span->Class] == span)
+    if (Detail::CheckedAt(_empty, span->Class) == span)
     {
-        _empty[span->Class] = nullptr;
+        Detail::CheckedAt(_empty, span->Class) = nullptr;
     }
     if (span->Previous)
     {
@@ -239,7 +241,7 @@ bool SpanAllocator::Budget(std::uint64_t bytes, std::uint64_t limit, std::unique
     // At most one empty region per class; trimming never walks the heap or object graph.
     for (std::size_t index = 0; index < _empty.size(); ++index)
     {
-        if (auto *span = _empty[index])
+        if (auto *span = Detail::CheckedAt(_empty, index))
         {
             Destroy(span, guard);
             if (fits())
@@ -268,10 +270,10 @@ bool SpanAllocator::PrepareSmall(std::uint64_t bytes, std::uint64_t limit, std::
         sol_rt_fail(7);
     }
     // PrepareRegion publishes empty storage only. No unregistered slot crosses a native transition.
-    (void)PrepareRegion(bytes, limit, guard);
-    const auto index = static_cast<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
-                                                - SizeClasses.begin());
-    return _available[index] != nullptr;
+    std::ignore = PrepareRegion(bytes, limit, guard);
+    const auto index = Detail::Integer<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
+                                                    - SizeClasses.begin());
+    return Detail::CheckedAt(_available, index) != nullptr;
 }
 
 Block SpanAllocator::PrepareRegion(std::uint64_t bytes, std::uint64_t limit, std::unique_lock<std::mutex> &guard)
@@ -282,10 +284,11 @@ Block SpanAllocator::PrepareRegion(std::uint64_t bytes, std::uint64_t limit, std
     }
     const bool small = bytes <= SizeClasses.back();
     const auto index = small
-                           ? static_cast<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
-                                                      - SizeClasses.begin())
+                           ? Detail::Integer<std::size_t>(
+                               std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
+                               - SizeClasses.begin())
                            : 0;
-    if (small && _available[index])
+    if (small && Detail::CheckedAt(_available, index))
     {
         return {};
     }
@@ -296,7 +299,7 @@ Block SpanAllocator::PrepareRegion(std::uint64_t bytes, std::uint64_t limit, std
         return {};
     }
     // Trimming can unlock and allow a sweep/refill to make an existing slot available.
-    if (small && _available[index])
+    if (small && Detail::CheckedAt(_available, index))
     {
         return {};
     }
@@ -330,8 +333,8 @@ Block SpanAllocator::PrepareRegion(std::uint64_t bytes, std::uint64_t limit, std
     auto *span = prepared.Small.release();
     span->Memory = prepared.Memory;
     span->Tracing.SetBase(static_cast<Header *>(prepared.Memory));
-    span->Class = static_cast<std::uint32_t>(index);
-    span->Count = static_cast<std::uint32_t>(SpanBytes / SizeClasses[index]);
+    span->Class = Detail::Integer<std::uint32_t>(index);
+    span->Count = Detail::Integer<std::uint32_t>(SpanBytes / Detail::CheckedAt(SizeClasses, index));
     span->Epoch = _epoch;
     span->Next = _all;
     if (_all)
@@ -354,9 +357,9 @@ Block SpanAllocator::TryReuse(std::uint64_t bytes)
     {
         return {};
     }
-    const auto index = static_cast<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
-                                                - SizeClasses.begin());
-    auto *span = _available[index];
+    const auto index = Detail::Integer<std::size_t>(std::lower_bound(SizeClasses.begin(), SizeClasses.end(), bytes)
+                                                    - SizeClasses.begin());
+    auto *span = Detail::CheckedAt(_available, index);
     if (!span)
     {
         return {};
@@ -364,47 +367,49 @@ Block SpanAllocator::TryReuse(std::uint64_t bytes)
     return TakeSlot(span, bytes);
 }
 
-Block SpanAllocator::TakeSlot(Span *span, std::uint64_t bytes)
+Block SpanAllocator::TakeSlot(Span *span, std::uint64_t bytes) noexcept
 {
     const auto index = span->Class;
     if (span->Epoch != _epoch)
     {
         sol_rt_fail(7);
     }
-    if (_empty[index] == span)
+    if (Detail::CheckedAt(_empty, index) == span)
     {
-        _empty[index] = nullptr;
+        Detail::CheckedAt(_empty, index) = nullptr;
     }
     for (std::uint32_t word = 0; word < span->Allocated.size(); ++word)
     {
-        auto free = ~span->Allocated[word];
+        auto free = ~Detail::CheckedAt(span->Allocated, word);
         if (!free)
         {
             continue;
         }
-        const auto bit = static_cast<unsigned>(std::countr_zero(free));
+        const auto bit = Detail::Integer<unsigned>(std::countr_zero(free));
         const auto slot = word * 64 + bit;
         if (slot >= span->Count)
         {
             sol_rt_fail(7);
         }
         const auto mask = std::uint64_t{1} << bit;
-        span->Allocated[word] |= mask;
-        if (span->Touched[word] & mask)
+        Detail::CheckedAt(span->Allocated, word) |= mask;
+        if (Detail::CheckedAt(span->Touched, word) & mask)
         {
             ++_reused;
         }
-        span->Touched[word] |= mask;
+        Detail::CheckedAt(span->Touched, word) |= mask;
         ++span->Used;
         ++_slots;
-        _capacity += SizeClasses[index];
+        _capacity += Detail::CheckedAt(SizeClasses, index);
         if (span->Used == span->Count)
         {
             UnlinkAvailable(span);
         }
-        auto *memory = static_cast<char *>(span->Memory) + static_cast<std::size_t>(slot) * SizeClasses[index];
+        const std::span region(static_cast<std::byte *>(span->Memory), SpanBytes);
+        auto *memory = Detail::StorageSlot<Header>(
+            region, Detail::Integer<std::size_t>(slot) * Detail::CheckedAt(SizeClasses, index));
         Poison(memory, bytes, false);
-        return {reinterpret_cast<Header *>(memory), span, SizeClasses[index], 0, slot};
+        return {memory, span, Detail::CheckedAt(SizeClasses, index), 0, slot};
     }
     sol_rt_fail(7);
 }
@@ -420,16 +425,17 @@ std::uint32_t SpanAllocator::TakeBatch(std::uint64_t bytes, Block *blocks, std::
     {
         return 0;
     }
-    blocks[0] = first;
+    const std::span output(blocks, capacity);
+    Detail::CheckedAt(output, 0) = first;
     std::uint32_t count = 1;
     while (count < capacity && first.Owner->Used < first.Owner->Count)
     {
-        blocks[count++] = TakeSlot(first.Owner, bytes);
+        Detail::CheckedAt(output, count++) = TakeSlot(first.Owner, bytes);
     }
     return count;
 }
 
-void SpanAllocator::ReturnUnused(const Block &block)
+void SpanAllocator::ReturnUnused(const Block &block) noexcept
 {
     if (!block.Owner || block.Owner->Epoch != _epoch)
     {
@@ -444,7 +450,7 @@ void SpanAllocator::ReturnUnused(const Block &block)
     Publish(block.Owner);
 }
 
-MarkRegion &SpanAllocator::Tracing(const Block &block)
+MarkRegion &SpanAllocator::Tracing(const Block &block) noexcept
 {
     if (!block.Owner)
     {
@@ -468,17 +474,17 @@ void SpanAllocator::BeginCycle() noexcept
     }
 }
 
-void SpanAllocator::FreeSlot(const Block &block)
+void SpanAllocator::FreeSlot(const Block &block) noexcept
 {
     auto *span = block.Owner;
     const auto word = block.Slot / 64;
     const auto mask = std::uint64_t{1} << (block.Slot % 64);
-    if (block.Slot >= span->Count || !(span->Allocated[word] & mask))
+    if (block.Slot >= span->Count || !(Detail::CheckedAt(span->Allocated, word) & mask))
     {
         sol_rt_fail(7);
     }
     Poison(block.Object, block.Capacity, true);
-    span->Allocated[word] &= ~mask;
+    Detail::CheckedAt(span->Allocated, word) &= ~mask;
     --span->Used;
     --_slots;
     _capacity -= block.Capacity;
@@ -488,12 +494,12 @@ void SpanAllocator::Recycle(Span *span, std::unique_lock<std::mutex> &guard)
 {
     if (!span->Used)
     {
-        if (_empty[span->Class] && _empty[span->Class] != span)
+        if (Detail::CheckedAt(_empty, span->Class) && Detail::CheckedAt(_empty, span->Class) != span)
         {
             Destroy(span, guard);
             return;
         }
-        _empty[span->Class] = span;
+        Detail::CheckedAt(_empty, span->Class) = span;
     }
     Publish(span);
 }
