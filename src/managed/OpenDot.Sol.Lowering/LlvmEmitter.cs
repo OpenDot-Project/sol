@@ -40,7 +40,12 @@ public sealed partial class LlvmEmitter
         cancellationToken.ThrowIfCancellationRequested();
         if (compiler.Version != "23.1.3") { throw new InvalidOperationException("LLVM 23.1.3 is required."); }
         var module = compiler.CreateModule();
-        try { new LlvmEmitter(program, module, cancellationToken).Build(cExports); module.Verify(); return module; }
+        try
+        {
+            module.Apply(LlvmOperation.ModuleFlag, 0, [], (long)RuntimeContract.Id, "sol.runtime.contract");
+            module.Apply(LlvmOperation.ModuleFlag, 0, [], 8, "sol.fir.schema");
+            new LlvmEmitter(program, module, cancellationToken).Build(cExports); module.Verify(); return module;
+        }
         catch { module.Dispose(); throw; }
     }
 

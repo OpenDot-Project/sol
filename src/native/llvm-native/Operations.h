@@ -15,5 +15,6 @@ enum class Operation
     TypeSize, TypeAlignment, ElementOffset,
     ExternalGlobal,
     Personality, Invoke, CatchSwitch, CatchPad, CleanupPad, CatchReturn, CleanupReturn, FuncletCall,
+    ModuleFlag,
 };
 }

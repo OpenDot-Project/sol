@@ -146,6 +146,14 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
     }
     switch (op)
     {
+    case Operation::ModuleFlag:
+        count(0);
+        Require(text && (std::string_view(text) == "sol.runtime.contract" || std::string_view(text) == "sol.fir.schema")
+                && data >= 0 && !Module->getModuleFlag(text), "Invalid or duplicate compiler module contract flag.");
+        Module->addModuleFlag(llvm::Module::Error, text,
+                              llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Context),
+                                  CheckedInteger<std::uint64_t>(data))));
+        return 0;
     case Operation::ExternalGlobal: {
         count(0);
         Require(Type(type)->isSized() && text && *text && Module->getNamedValue(text) == nullptr

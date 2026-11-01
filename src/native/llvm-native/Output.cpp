@@ -180,7 +180,7 @@ bool SolLlvmApply(void *pointer, int operation, std::int64_t type, const std::in
 {
     return Protect([&] {
         if (!result || !text || count > 1000000 || (count && !operands) || operation < 0 || operation > static_cast<int>
-            (OpenDot::Sol::LlvmNative::Operation::FuncletCall))
+            (OpenDot::Sol::LlvmNative::Operation::ModuleFlag))
         {
             throw std::invalid_argument("Malformed LLVM operation request.");
         }

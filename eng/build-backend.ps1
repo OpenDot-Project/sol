@@ -72,3 +72,11 @@ $binding = Get-NativeBuildBinding $output (Join-Path $root 'out/native/llvm-nati
     dependency_binding = $binding } | ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8NoBOM
 Write-Host "Qualified native backend: $output"
+foreach ($static in @('false', 'true')) {
+    & $msbuild (Join-Path $root 'src/native/jit-probe/jit-probe.vcxproj') @properties "/p:StaticRuntime=$static"
+    if ($LASTEXITCODE -ne 0) { throw 'Native JIT conformance probe build failed.' }
+    $flavor = if ($static -eq 'true') { 'static' } else { 'dynamic' }
+    $probe = Join-Path $root "out/native/jit-probe/$flavor"
+    Copy-Item -LiteralPath (Join-Path $output 'OpenDot.Sol.LlvmNative.dll') -Destination $probe
+    if ($static -eq 'false') { Copy-Item -LiteralPath (Join-Path $output 'SolRT.dll') -Destination $probe }
+}

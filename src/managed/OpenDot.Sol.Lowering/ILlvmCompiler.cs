@@ -17,6 +17,7 @@ public enum LlvmOperation
     TypeSize, TypeAlignment, ElementOffset,
     ExternalGlobal,
     Personality, Invoke, CatchSwitch, CatchPad, CleanupPad, CatchReturn, CleanupReturn, FuncletCall,
+    ModuleFlag,
 }
 
 /// <summary>Owns native LLVM objects. Handles are session-scoped opaque identities, never pointers.</summary>

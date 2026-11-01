@@ -31,6 +31,9 @@ $sourceFiles += ';runtime/MarkWork.h;runtime/GcDiagnostics.h;runtime/GcPacing.h;
 $arguments = @('src/native/Sol.Native.sln', '--no-build', '--no-updates', '--disable-settings-layers=GlobalAll;GlobalPerProduct;SolutionPersonal;ProjectPersonal', "--toolset-path=$(Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe')", "--properties=$properties", '--caches-home=out/jetbrains/cache', "--include=$sourceFiles")
 $sourceFiles += ';runtime/TraceLayoutHarness.cpp;runtime/ProfileOptionsHarness.cpp;runtime/ObjectAbi.h;runtime/AbiLayoutHarness.cpp'
 $sourceFiles += ';dependencies/DependencyHarness.cpp'
+$sourceFiles += ';llvm-native/JitUnwind.cpp;llvm-native/JitUnwind.h'
+$sourceFiles += ';llvm-native/JitEngine.cpp;llvm-native/JitEnvelope.cpp;llvm-native/JitEnvelope.h;llvm-native/JitApi.h'
+$sourceFiles += ';jit-probe/Main.cpp'
 $sourceFiles += ';llvm-native/Operations.h;Checked.h;runtime/CheckedAccess.h;runtime/ReferenceArrayHarness.cpp;runtime/FunctionArrayHarness.cpp'
 if ($Fuzz) { $sourceFiles = 'fuzz/Main.cpp;fuzz/CoverageMain.cpp;fuzz/Fuzz.h;fuzz/RuntimeCases.cpp;fuzz/GcCases.cpp;fuzz/BackendCases.cpp;llvm-native/Operations.h' }
 $arguments[-1] = "--include=$sourceFiles"

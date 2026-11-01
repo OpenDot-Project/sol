@@ -68,10 +68,12 @@ public sealed class NativeEhProbeTests
     }
 
     // Immediate LLVM API conformance probe; source FIR admission remains a separate gate.
-    private static void BuildProbe(ILlvmModule module, bool staticRuntime)
+    internal static void BuildProbe(ILlvmModule module, bool staticRuntime)
     {
         long Op(LlvmOperation op, long type = 0, long[]? args = null, long data = 0, string text = "")
             => module.Apply(op, type, args ?? [], data, text);
+        Op(LlvmOperation.ModuleFlag, data: (long)RuntimeContract.Id, text: "sol.runtime.contract");
+        Op(LlvmOperation.ModuleFlag, data: 8, text: "sol.fir.schema");
         long voidType = Op(LlvmOperation.VoidType), ptr = Op(LlvmOperation.PointerType);
         long i32 = Op(LlvmOperation.IntegerType, data: 32), i64 = Op(LlvmOperation.IntegerType, data: 64);
         long i1 = Op(LlvmOperation.IntegerType, data: 1);
@@ -92,7 +94,8 @@ public sealed class NativeEhProbeTests
         long throwing = Declare("sol_rt_throw", voidType, ptr);
         long current = Declare("sol_rt_current_exception", ptr);
         long isInstance = Declare("sol_rt_is_instance", i1, ptr, ptr);
-        long helper = Declare("sol_probe_throw", voidType, ptr, ptr);
+        long helper = Declare("sol_probe_throw", voidType, ptr, ptr, ptr);
+        long unused = Declare("sol_probe_unused", i32);
         long main = Declare("wmain", i32, i32, ptr);
         Op(LlvmOperation.Personality, args: [helper, personality]);
         Op(LlvmOperation.Personality, args: [main, personality]);
@@ -118,7 +121,9 @@ public sealed class NativeEhProbeTests
         Position(helperEntry);
         long errorParameter = Op(LlvmOperation.Parameter, args: [helper], data: 0);
         long counterParameter = Op(LlvmOperation.Parameter, args: [helper], data: 1);
+        long callerRootParameter = Op(LlvmOperation.Parameter, args: [helper], data: 2);
         long helperFrame = PushFrame(errorParameter);
+        Call(barrier, callerRootParameter, nullValue);
         Op(LlvmOperation.Invoke, args: [throwing, dead, cleanup, errorParameter]);
         Position(dead); Op(LlvmOperation.Unreachable);
         Position(cleanup);
@@ -135,11 +140,13 @@ public sealed class NativeEhProbeTests
         long dispatch = Block(main, "dispatch"), handler = Block(main, "handler"), done = Block(main, "done");
         long success = Block(main, "success"), failure = Block(main, "failure");
         Position(entry); Call(attach);
-        long callerFrame = PushFrame();
+        long callerFrame = PushFrame(nullValue);
+        long callerRoot = Op(LlvmOperation.Load, ptr, [Field(callerFrame, 1)]);
         long counter = Op(LlvmOperation.Alloca, i32, data: 8);
         Op(LlvmOperation.Store, args: [zero, counter]);
         long errorValue = Call(create, descriptor, nullValue, nullValue);
-        Op(LlvmOperation.Invoke, args: [helper, unexpected, dispatch, errorValue, counter]);
+        Call(barrier, callerRoot, errorValue);
+        Op(LlvmOperation.Invoke, args: [helper, unexpected, dispatch, errorValue, counter, callerRoot]);
         Position(unexpected); Op(LlvmOperation.Unreachable);
         Position(dispatch);
         long catchSwitch = Op(LlvmOperation.CatchSwitch, args: [0, handler]);
@@ -159,5 +166,6 @@ public sealed class NativeEhProbeTests
         Op(LlvmOperation.ConditionalBranch, args: [passed, success, failure]);
         Position(success); Op(LlvmOperation.Return, args: [zero]);
         Position(failure); Op(LlvmOperation.Return, args: [Integer(99)]);
+        Position(Block(unused, "unused")); Op(LlvmOperation.Return, args: [Integer(17)]);
     }
 }
