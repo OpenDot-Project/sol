@@ -39,7 +39,11 @@ Destination *StorageCast(Source *address) noexcept
         sol_rt_fail(7);
     }
     using Storage = std::conditional_t<std::is_const_v<Source>, const void, void>;
-    Storage *storage = address;
+#if defined(_MSC_VER) && !defined(__clang__)
+    [[gsl::suppress("type.1", justification:
+            "Explicit cv-preserving ABI storage erasure avoids multilevel implicit pointer conversion.")]]
+#endif
+        auto *storage = static_cast<Storage *>(address);
     return static_cast<Destination *>(storage);
 }
 

@@ -64,6 +64,10 @@ try {
             }
         }
     } else {
+        if ('llvm-bridge/Compiler.cpp' -cin $sourceFiles.Split(';') -and
+            -not (Test-Path -LiteralPath (Join-Path $root 'src/managed/OpenDot.Sol.Lowering/bin/Release/net10.0-windows/OpenDot.Sol.Lowering.dll') -PathType Leaf)) {
+            throw 'Build the managed Release backend with eng/build-backend.ps1 before inspecting C++/CLI sources.'
+        }
         $run = [guid]::NewGuid().ToString('N')
         $reportPath = Join-Path $root "out/jetbrains/native-$run.sarif.json"
         $latestPath = Join-Path $root 'out/jetbrains/native.sarif.json'
