@@ -55,7 +55,7 @@ public static class NativeCompiler
             else
             {
                 var configuration = WindowsLinkEnvironment.Resolve(root, Environment.GetEnvironmentVariable("LIB"));
-                arguments.AddRange(["/Brepro", runtime, "libcmt.lib", "libvcruntime.lib", "libucrt.lib", "oldnames.lib", "kernel32.lib"]);
+                arguments.AddRange(["/Brepro", runtime, "msvcrt.lib", "vcruntime.lib", "ucrt.lib", "oldnames.lib", "kernel32.lib"]);
                 if (kind == NativeArtifactKind.Cdylib) { arguments.AddRange(["/dll", "/implib:" + Path.Combine(scratch, "program.lib")]); }
                 else { arguments.Add("/subsystem:console"); }
                 arguments.AddRange(configuration.Select(path => "/libpath:" + path));
@@ -87,8 +87,13 @@ public static class NativeCompiler
         try
         {
             // Load the exact native LLVM C++ component before the mixed-mode adapter.
-            NativeLibrary.Load(llvm);
+            nint component = NativeLibrary.Load(llvm);
+            ValidateProtocol(component);
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(bridge);
+            string? adapterProtocol = assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+                .SingleOrDefault(attribute => attribute.Key == "SolBridgeProtocol")?.Value;
+            if (adapterProtocol != $"0x{NativeAbi.BridgeProtocol:X16}")
+            { throw new IOException("LLVM adapter protocol mismatch; rebuild/install the matching mixed-mode adapter."); }
             var type = assembly.GetType("OpenDot.Sol.LlvmBridge.Compiler", true)!;
             var compiler = Activator.CreateInstance(type) as ILlvmCompiler ?? throw new IOException("LLVM bridge contract mismatch.");
             if (compiler.Version != "23.1.3") { throw new IOException("LLVM backend version mismatch; 23.1.3 is required."); }
@@ -96,5 +101,17 @@ public static class NativeCompiler
         }
         catch (Exception error) when (error is BadImageFormatException or DllNotFoundException or FileLoadException or TypeLoadException or TargetInvocationException)
         { throw new IOException("The LLVM bridge could not be loaded: " + error.Message, error); }
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate ulong ReadProtocol();
+
+    private static void ValidateProtocol(nint component)
+    {
+        if (!NativeLibrary.TryGetExport(component, "SolLlvmProtocol", out nint address))
+        { throw new IOException("LLVM bridge protocol handshake is missing; rebuild/install the matching native backend."); }
+        ulong actual = Marshal.GetDelegateForFunctionPointer<ReadProtocol>(address)();
+        if (actual != NativeAbi.BridgeProtocol)
+        { throw new IOException($"LLVM bridge protocol mismatch: expected 0x{NativeAbi.BridgeProtocol:X16}, found 0x{actual:X16}."); }
     }
 }

@@ -170,12 +170,17 @@ const char *SolLlvmVersion() noexcept
     return LLVM_VERSION_STRING;
 }
 
+std::uint64_t SolLlvmProtocol() noexcept
+{
+    return 0x534F4C4C00000001ULL;
+}
+
 bool SolLlvmApply(void *pointer, int operation, std::int64_t type, const std::int64_t *operands, std::uint64_t count,
                   std::int64_t data, const char *text, std::int64_t *result) noexcept
 {
     return Protect([&] {
         if (!result || !text || count > 1000000 || (count && !operands) || operation < 0 || operation > static_cast<int>
-            (OpenDot::Sol::LlvmNative::Operation::IndirectCall))
+            (OpenDot::Sol::LlvmNative::Operation::FuncletCall))
         {
             throw std::invalid_argument("Malformed LLVM operation request.");
         }

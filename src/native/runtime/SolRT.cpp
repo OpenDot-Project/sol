@@ -71,7 +71,7 @@ extern "C"
 {
 SOL_RT_API void sol_rt_check_abi(std::uint64_t contract)
 {
-    if (contract != 0x534F4C0000000001ULL)
+    if (contract != 0x534F4C0000000002ULL)
     {
         sol_rt_fail(10);
     }

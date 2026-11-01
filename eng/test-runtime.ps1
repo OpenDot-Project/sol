@@ -18,6 +18,7 @@ if (-not $toolset) { throw 'MSVC platform toolset missing.' }
 & $msbuild (Join-Path $root 'src/native/runtime/runtime.vcxproj') /nologo /nodeReuse:false /p:Configuration=Release /p:Platform=x64 "/p:PlatformToolset=$($toolset.Name)" /p:StaticRuntime=true /p:TestHarness=true /p:EnableCppCoreCheck=true /p:RunCodeAnalysis=true /p:CodeAnalysisRuleSet=CppCoreCheckRules.ruleset
 if ($LASTEXITCODE -ne 0) { throw 'ASan runtime harness build failed.' }
 $exe = Join-Path $root 'out/native/runtime/asan-harness/SolRT-tests.exe'
+& (Join-Path $PSScriptRoot 'test-abi-layout.ps1') -Harness $exe
 $process = Start-Process -FilePath $exe -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root 'out/native/runtime/asan-harness/stdout.log') -RedirectStandardError (Join-Path $root 'out/native/runtime/asan-harness/stderr.log')
 try {
     if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'ASan runtime harness timed out.' }

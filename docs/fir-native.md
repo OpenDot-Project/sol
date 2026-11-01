@@ -6,6 +6,11 @@ The Sol 0.1.0 native component produces verified FIR, LLVM IR, and Windows x86-6
 for a restricted bootstrap subset. ORC executes the same admitted subset in a separate native
 guest process. The complete language, general object model, native exception unwinding, and full
 Yellow Tea qualification remain incomplete.
+
+The downloadable [ABI manifest](abi-manifest.xml) documents experimental ABI family 0,
+runtime contract revision 2. It is checked against compiler layouts, native layout probes,
+LLVM target data, and runtime C declarations; it is not an input to code generation.
+Entries marked `planned` do not extend the admitted native subset.
 ## Build and run
 
 Use the pinned .NET 10 SDK, MSVC C++/CLI tools, a Windows x64 SDK, and LLVM 23.1.3. `LLVM_ROOT` must

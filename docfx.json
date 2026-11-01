@@ -28,7 +28,8 @@
     ],
     "dest": "out/docfx/site",
     "resource": [
-      { "files": ["spec/**/*.sol", "spec/**/*.md"] }
+      { "files": ["spec/**/*.sol", "spec/**/*.md"] },
+      { "files": ["abi-manifest.xml"], "src": "docs" }
     ],
     "template": ["default", "modern"],
     "globalMetadata": {

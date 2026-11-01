@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Threading;
 using OpenDot.Sol.Cli;
 using OpenDot.Sol.Fir;
@@ -115,6 +116,27 @@ public sealed class RuntimeAndLibraryTests
         using (var zip = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
         { using var stream = zip.CreateEntry("manifest.json").Open(); stream.Write(Encoding.UTF8.GetBytes(manifest)); }
         Assert.Throws<InvalidDataException>(() => SolLibraryArchive.Read(bytes.ToArray()));
+    }
+
+    [Theory]
+    [InlineData("schema", 2UL)]
+    [InlineData("runtime_contract", RuntimeContract.Id - 1)]
+    public void PreviousLibrarySchemaAndRuntimeRevisionAreRejected(string field, ulong previous)
+    {
+        var program = Program("func add(a, b: int): int = a + b", library: true);
+        byte[] archive = SolLibraryArchive.Create(program, [0x42, 0x43, 0xC0, 0xDE], [0x64, 0x86, 0, 0], false);
+        using var bytes = new MemoryStream(); bytes.Write(archive);
+        using (var zip = new ZipArchive(bytes, ZipArchiveMode.Update, leaveOpen: true))
+        {
+            var entry = zip.GetEntry("manifest.json")!;
+            JsonNode manifest;
+            using (var input = entry.Open()) { manifest = JsonNode.Parse(input)!; }
+            entry.Delete(); manifest[field] = previous;
+            using var output = zip.CreateEntry("manifest.json").Open();
+            output.Write(Encoding.UTF8.GetBytes(manifest.ToJsonString()));
+        }
+        var error = Assert.Throws<InvalidDataException>(() => SolLibraryArchive.Read(bytes.ToArray()));
+        Assert.Contains("Incompatible", error.Message);
     }
 
     [Fact]

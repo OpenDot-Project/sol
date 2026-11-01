@@ -67,4 +67,7 @@ SOL_RT_API bool sol_rt_is_instance(const OpenDot::Sol::Runtime::Header *value,
 SOL_RT_API void sol_rt_exception_add_suppressed(OpenDot::Sol::Runtime::Throwable *primary,
                                                 OpenDot::Sol::Runtime::Throwable *secondary);
 [[noreturn]] SOL_RT_API void sol_rt_throw(OpenDot::Sol::Runtime::Throwable *value) noexcept(false);
+// Borrowed from the active native carrier; the catch owns the strong root until catchret.
+SOL_RT_API OpenDot::Sol::Runtime::Throwable *sol_rt_current_exception() noexcept;
+[[noreturn]] SOL_RT_API void sol_rt_rethrow() noexcept(false);
 }

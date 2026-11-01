@@ -34,7 +34,7 @@ public sealed class FirJsonFunctionValueTests
 
         using var json = JsonDocument.Parse(first);
         var root = json.RootElement;
-        Assert.Equal(7, root.GetProperty("schema").GetInt32());
+        Assert.Equal(8, root.GetProperty("schema").GetInt32());
         Assert.True(root.GetProperty("verified").GetBoolean());
 
         foreach (var function in program.Functions)

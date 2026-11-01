@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <mutex>
 #include <stdexcept>
+#include <tuple>
 
 namespace OpenDot::Sol::LlvmNative
 {
@@ -145,6 +146,52 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
     }
     switch (op)
     {
+    case Operation::ExternalGlobal: {
+        count(0);
+        Require(Type(type)->isSized() && text && *text && Module->getNamedValue(text) == nullptr
+                && (data == 0 || data == 1), "Invalid external global declaration.");
+        auto global = std::make_unique<llvm::GlobalVariable>(*Module, Type(type), true,
+                                                             llvm::GlobalValue::ExternalLinkage, nullptr, text);
+        if (data == 1)
+        {
+            global->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+        }
+        auto &registered = *global;
+        std::ignore = global.release();
+        return Add({nullptr, &registered});
+    }
+    case Operation::Personality:
+    case Operation::Invoke:
+    case Operation::CatchSwitch:
+    case Operation::CatchPad:
+    case Operation::CleanupPad:
+    case Operation::CatchReturn:
+    case Operation::CleanupReturn:
+    case Operation::FuncletCall:
+        return ApplyEh(op, args, data);
+    case Operation::TypeSize:
+    case Operation::TypeAlignment: {
+        count(0);
+        auto *value = Type(type);
+        Require(value->isSized(), "Unsized target-data query.");
+        const auto &layout = Module->getDataLayout();
+        if (op == Operation::TypeAlignment)
+        {
+            return CheckedInteger<std::int64_t>(layout.getABITypeAlign(value).value());
+        }
+        const auto size = layout.getTypeAllocSize(value);
+        Require(!size.isScalable(), "Scalable target-data query is unsupported.");
+        return CheckedInteger<std::int64_t>(size.getFixedValue());
+    }
+    case Operation::ElementOffset: {
+        count(0);
+        auto *structure = llvm::dyn_cast<llvm::StructType>(Type(type));
+        Require(structure && structure->isSized() && data >= 0 && data < structure->getNumElements(),
+                "Invalid target-data field query.");
+        const auto offset = Module->getDataLayout().getStructLayout(structure)->getElementOffset(integerData());
+        Require(!offset.isScalable(), "Scalable field offset is unsupported.");
+        return CheckedInteger<std::int64_t>(offset.getFixedValue());
+    }
     case Operation::VoidType:
         count(0);
         return Add({llvm::Type::getVoidTy(Context)});

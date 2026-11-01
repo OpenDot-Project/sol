@@ -18,7 +18,7 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <LanguageStandard>stdcpp20</LanguageStandard><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary><ExceptionHandling>Sync</ExceptionHandling><ConformanceMode>true</ConformanceMode>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary><ExceptionHandling>Sync</ExceptionHandling><ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(LLVMRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(StaticRuntime)' == 'true'">SOL_RT_STATIC;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(StaticRuntime)' != 'true'">NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>

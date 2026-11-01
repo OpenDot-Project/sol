@@ -57,6 +57,7 @@ Copy-Item -LiteralPath (Join-Path $root 'out/native/exec-host/dynamic/sol-exec-h
 Copy-Item -LiteralPath (Join-Path $root 'out/native/exec-host/static/sol-exec-host.exe') -Destination (Join-Path $output 'sol-exec-host-static.exe')
 foreach ($name in @('SolRT.dll', 'SolRT.lib')) { Copy-Item -LiteralPath (Join-Path $root "out/native/runtime/dynamic/$name") -Destination $output }
 Copy-Item -LiteralPath (Join-Path $root 'out/native/runtime/static/SolRT.lib') -Destination (Join-Path $output 'SolRT-static.lib')
+Copy-Item -LiteralPath (Join-Path $root 'docs/abi-manifest.xml') -Destination $output
 $toolsVersion = (Get-Content (Join-Path $vs 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
 $sdkRoot = (Get-ItemProperty 'HKLM:/SOFTWARE/Microsoft/Windows Kits/Installed Roots').KitsRoot10
 $sdk = Get-ChildItem (Join-Path $sdkRoot 'Lib') -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'um/x64/kernel32.lib') } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1

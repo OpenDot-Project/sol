@@ -48,7 +48,7 @@ public static class FirJson
         }
         return JsonSerializer.Serialize(new
         {
-            schema = 7, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
+            schema = 8, verified = true, entry = program.Program.Entry, library = program.Program.IsLibrary,
             functions = program.Program.Functions.Select(f => new { f.Id, f.Name, runtime = f.RuntimeFunction.ToString(),
                 specializationArguments = f.SpecializationArguments.Select(t => t.Id).ToArray(),
                 returnType = f.ReturnType.Id, effects = f.Effects.Select(effect => effect.Id).ToArray(),

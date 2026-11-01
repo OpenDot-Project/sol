@@ -18,7 +18,7 @@ internal static class WindowsLinkEnvironment
             .Select(path => Path.IsPathFullyQualified(path) ? Path.GetFullPath(path)
                 : throw new IOException("Windows library paths must be absolute."))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        string[] required = ["libcmt.lib", "libvcruntime.lib", "libucrt.lib", "oldnames.lib", "kernel32.lib"];
+        string[] required = ["msvcrt.lib", "vcruntime.lib", "ucrt.lib", "oldnames.lib", "kernel32.lib"];
         string[] missing = required.Where(name => !paths.Any(path => File.Exists(Path.Combine(path, name)))).ToArray();
         if (missing.Length != 0)
         {

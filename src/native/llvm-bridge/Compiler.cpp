@@ -9,6 +9,8 @@ using namespace System::Runtime::InteropServices;
 using namespace System::Text;
 using namespace OpenDot::Sol::Lowering;
 
+[assembly:System::Reflection::AssemblyMetadataAttribute("SolBridgeProtocol", "0x534F4C4C00000001")];
+
 namespace OpenDot::Sol::LlvmBridge
 {
 public ref class Module sealed : ILlvmModule
