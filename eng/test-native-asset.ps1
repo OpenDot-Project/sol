@@ -66,6 +66,15 @@ Assert-AssetCase @('invalid', 'failure', 'invalid') @('mirror.msys2.org', 'repo.
 Assert-AssetCase @('failure') @('example.invalid') $false -Url 'https://example.invalid/msys/x86_64/sample.pkg.tar.zst'
 Assert-AssetCase @() @() $false -Url 'http://mirror.msys2.org/msys/x86_64/sample.pkg.tar.zst'
 Assert-AssetCase @() @() $false -Hash 'not-a-sha512'
+
+# A cold vcpkg cache can request an asset before its parent directory exists.
+$state.Responses = @('valid')
+$state.Attempts.Clear()
+$nestedDestination = Join-Path $directory 'new cache/child/asset.bin'
+& $provider -Url 'https://example.invalid/pinned.zip' -Sha512 $digest -Destination $nestedDestination
+if ((Get-FileHash -LiteralPath $nestedDestination -Algorithm SHA512).Hash -ne $digest) {
+    throw 'Cold-cache asset publication failed.'
+}
 $githubCommit = 'a' * 40
 $githubArchive = "https://github.com/madler/zlib/archive/$githubCommit.tar.gz"
 $githubPaths = @("/madler/zlib/archive/$githubCommit.tar.gz", "/madler/zlib/tar.gz/$githubCommit")
@@ -86,4 +95,4 @@ Assert-AssetCase @('failure') @('github.com') $false `
 Assert-AssetCase @('failure') @('github.com') $false `
     -Url "https://user@github.com/madler/zlib/archive/$githubCommit.tar.gz" `
     -Paths @("/madler/zlib/archive/$githubCommit.tar.gz")
-Write-Host 'Native asset provider: 14 deterministic transport, integrity, path, and destination-preservation cases passed.'
+Write-Host 'Native asset provider: transport, integrity, path, destination-preservation, and missing-cache-directory cases passed.'
