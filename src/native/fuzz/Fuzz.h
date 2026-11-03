@@ -103,4 +103,5 @@ void GcCase(const Input &input, Roots &roots);
 void LoadBackend();
 void UnloadBackend() noexcept;
 void BackendCase(const Input &input);
+int ExecuteConstantCoff(std::span<const unsigned char> object);
 }

@@ -94,13 +94,13 @@ public sealed class CompilerApplicationTests : IDisposable
     }
 
     [Fact]
-    public void OrcExecutionRejectsAnExecutableOutputPath()
+    public void OrcRejectsRemovedCompilerExecutionMode()
     {
         string source = Write("main.sol", "module app\n");
         string output = Path.Combine(_directory, "main.exe");
-        var result = Run(source, "-o", output, "-Cllvm-compiler=orc");
+        var result = Run(source, "-o", output, "-Cllvm-compiler=orc", "--emit=jit");
         Assert.Equal(2, result.Exit);
-        Assert.Contains("no output path", result.Stderr);
+        Assert.Contains("--emit=jit was removed", result.Stderr);
         Assert.False(File.Exists(output));
     }
 

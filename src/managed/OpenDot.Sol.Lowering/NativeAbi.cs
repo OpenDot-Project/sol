@@ -8,7 +8,8 @@ namespace OpenDot.Sol.Lowering;
 /// <summary>Windows x64 target layout; this describes target storage, never CLR object layout.</summary>
 internal static class NativeAbi
 {
-    internal const ulong BridgeProtocol = 0x534F4C4C00000001;
+    internal const ulong BridgeProtocol = 0x534F4C4C00000003;
+    internal const ulong JitProtocol = 0x534F4C4A00000001;
     internal const int AllocationAlignment = 16;
 
     internal sealed record Field(string Name, int Offset, int Size, bool GcReference = false);

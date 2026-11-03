@@ -106,7 +106,7 @@ public sealed class NativeLambdaContextTests
 
             using var output = new MemoryStream();
             using var error = new MemoryStream();
-            int orcExitCode = OrcExecutor.Execute(program, [], backendDirectory: backend,
+            int orcExitCode = NativeOrcExecutable.Execute(program, [], backendDirectory: backend,
                 cancellationToken: TestContext.Current.CancellationToken,
                 standardOutput: output, standardError: error);
             Assert.Equal(0, orcExitCode);
@@ -226,7 +226,7 @@ public sealed class NativeLambdaContextTests
 
             using var output = new MemoryStream();
             using var error = new MemoryStream();
-            int orcExitCode = OrcExecutor.Execute(program, [], backendDirectory: backend,
+            int orcExitCode = NativeOrcExecutable.Execute(program, [], backendDirectory: backend,
                 cancellationToken: TestContext.Current.CancellationToken,
                 standardOutput: output, standardError: error);
             Assert.Equal(0, orcExitCode);
@@ -268,7 +268,7 @@ public sealed class NativeLambdaContextTests
 
             using var output = new MemoryStream();
             using var error = new MemoryStream();
-            int orcExitCode = OrcExecutor.Execute(program, [], backendDirectory: backend,
+            int orcExitCode = NativeOrcExecutable.Execute(program, [], backendDirectory: backend,
                 cancellationToken: TestContext.Current.CancellationToken,
                 standardOutput: output, standardError: error);
             Assert.Equal(0, orcExitCode);

@@ -10,7 +10,7 @@ production-readiness or measured pause guarantee follows from the implementation
 
 The managed compiler uses the host .NET GC. Its LLVM bridge produces compiler data and COFF objects;
 it does not run guest Sol code or link the guest collector into the CLR process. AOT programs run
-as native Windows executables. ORC runs in the separate native `sol-exec-host.exe` child process.
+as native Windows executables. ORC runs in the produced native executable with a plain-native `SolJit.dll` sidecar.
 Yellow Tea, SolRT descriptors, roots, handles, and guest objects belong to those guest processes.
 IR bytes, arguments, standard streams, and exit status cross the boundary; object references and
 collector callbacks do not. Process separation is not an OS security sandbox.

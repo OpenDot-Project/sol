@@ -149,7 +149,8 @@ internal sealed partial class BodyBindingBuilder
     private sealed record Value(ResolvedType? Type, bool Writable = false, bool Storage = false,
         LocalSymbol? Local = null, DeclarationSymbol? Symbol = null, ResolvedType? Receiver = null,
         string? Literal = null, bool IsType = false,
-        ImmutableArray<ResolvedType> FunctionValueTypeArguments = default, bool IsConstructionReceiver = false);
+        ImmutableArray<ResolvedType> FunctionValueTypeArguments = default, bool IsConstructionReceiver = false,
+        AstParameter? PrimaryProperty = null, AstProperty? BackingProperty = null);
     private sealed record LambdaReturnPath(AstReturn Return, bool Reachable, ResolvedType? Type);
     private sealed record Context(AstCallable? Callable, ResolvedType? Result, AstLambda? Lambda = null,
         ResolvedType? LambdaType = null, int LoopDepth = 0, bool Cleanup = false,
@@ -239,7 +240,7 @@ internal sealed partial class BodyBindingBuilder
     }
 
     /// <summary>
-    /// Rebinds a member body for one direct, closed generic owner and one closed method argument
+    /// Rebinds a member body for one direct, closed owner and one closed method argument
     /// vector. This is source-analysis evidence only; it does not admit the member to FIR.
     /// </summary>
     internal SpecializedBodyAnalysis BuildGenericMemberBody(AstFunction function,
@@ -260,14 +261,14 @@ internal sealed partial class BodyBindingBuilder
         { throw new ArgumentException("A generic member body requires a directly declared type member.", nameof(function)); }
 
         var ownerSymbol = Sources.Declarations.GetDeclaredSymbol(declaration);
-        if (ownerSymbol is null || ownerSymbol.Kind != SymbolKind.Type || ownerSymbol.Arity == 0
+        if (ownerSymbol is null || ownerSymbol.Kind != SymbolKind.Type
             || declaration.SyntaxKind is not (NodeKind.ClassDeclaration or NodeKind.StructDeclaration
-                or NodeKind.RefStructDeclaration or NodeKind.InterfaceDeclaration)
+                or NodeKind.RefStructDeclaration or NodeKind.InterfaceDeclaration or NodeKind.ObjectDeclaration)
             || ownerSymbol.Parts.IsEmpty || ownerSymbol.Parts.Any(part => part is not AstTypeDeclaration type
                 || type.SyntaxKind != declaration.SyntaxKind
                 || type.Arity != ownerSymbol.Arity
                 || !ReferenceEquals(Sources.Declarations.GetDeclaredSymbol(type), ownerSymbol)))
-        { throw new ArgumentException("The member owner is not one canonical generic type declaration.", nameof(function)); }
+        { throw new ArgumentException("The member owner is not one canonical type declaration.", nameof(function)); }
         for (var parent = file.GetParent(declaration); parent is not null; parent = file.GetParent(parent))
         {
             if (parent is AstTypeDeclaration)

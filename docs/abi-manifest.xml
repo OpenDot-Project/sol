@@ -2,7 +2,7 @@
 <!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 <!-- Validated contract documentation, not an input to code generation. Planned conventions do not grant native admission. Effect flags are conservative native effects, not source checked-effect budgets. -->
-<sol-abi schema="1" family="0" revision="2" contract="0x534F4C0000000002" fir="8" solib="3" bridgeProtocol="0x534F4C4C00000001">
+<sol-abi schema="1" family="0" revision="2" contract="0x534F4C0000000002" fir="8" solib="3" bridgeProtocol="0x534F4C4C00000003">
   <target triple="x86_64-pc-windows-msvc" endianness="little" pointerSize="8" allocationAlignment="16" callingConvention="win64" />
   <layouts>
     <layout name="Header" size="16" alignment="8" naturalAlignment="8">
@@ -46,7 +46,7 @@
       <field name="CallerRoot" offset="24" size="8" gcReference="false" />
     </layout>
   </layouts>
-  <orc-envelope schema="1" headerSize="88" maximumPayloadSize="67108864" magic="SOLJIT01" checksum="SHA-256-payload" loaderStatus="planned">
+  <orc-envelope schema="1" headerSize="88" maximumPayloadSize="67108864" magic="SOLJIT01" checksum="SHA-256-payload" loaderStatus="implemented" jitProtocol="0x534F4C4A00000001">
     <field name="Magic" offset="0" size="8" />
     <field name="Schema" offset="8" size="4" />
     <field name="HeaderSize" offset="12" size="4" />
@@ -70,7 +70,7 @@
     <convention name="barriers" status="implemented">Heap reference writes use sol_gc_store_ref; metadata and scalar pointers are not traced.</convention>
     <convention name="crt" status="implemented">Generated code and both SolRT linkage variants use the qualified dynamic CRT (/MD). LLVM components isolate their static CRT behind the C ABI.</convention>
     <convention name="windows-eh" status="planned">Windows funclets and matching vcruntime carrier; no source unwind through the LLVM compilation DLL.</convention>
-    <convention name="orc-executable" status="planned">Native bootstrap plus embedded verified bitcode, SolJit.dll, stable per-function lazy stubs and registered Windows unwind tables.</convention>
+    <convention name="orc-executable" status="implemented">Native bootstrap plus embedded verified bitcode, SHA-256-matched SolJit.dll and dynamic SolRT.dll, stable per-function lazy stubs and registered Windows unwind tables. Solc produces the executable without running it; source admission remains independently verified.</convention>
   </conventions>
   <runtime-exports callingConvention="win64" ownership="borrowed-unless-stated" threading="attached-runtime-thread-unless-stated">
     <export name="sol_rt_throwable_type" kind="data" header="Core.h" signature="const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_throwable_type" status="implemented" />

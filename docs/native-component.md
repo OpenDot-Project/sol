@@ -2,11 +2,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Native component packaging
 
-This page documents the optional native component shipped with Sol 0.1.0. It complements the frontend-only component with the LLVM backend and guest runtime. The provisional ABI and supported source subset remain experimental.
+This page documents the development native component. It complements the frontend-only component with the LLVM backend and application runtime. The provisional ABI and supported source subset remain experimental.
 
 After `eng/build-backend.ps1`, run
 `eng/package.ps1 -IncludeNative -OutputDirectory out/packages/native` to assemble Solc with its
-private .NET 10 runtime, managed frontend, LLVM/LLD component, ORC hosts and SolRT. The ordinary
+private .NET 10 runtime, managed frontend, LLVM/LLD component, ORC bootstrap libraries and SolRT. The ordinary
 package command still produces the smaller frontend component. Native Windows CI qualifies and
 uploads the additional archive.
 
@@ -23,8 +23,8 @@ private .NET runtime lives under `runtime`. The native package adds `managed/nat
 | `OpenDot.Sol.LlvmBridge.dll` | Thin C++/CLI adapter. |
 | `OpenDot.Sol.LlvmNative.dll` | LLVM 23.1.3 C++ API with embedded LLD.COFF/LLD.Common. |
 | `ijwhost.dll` | .NET mixed-mode hosting support. |
-| `sol-exec-host.exe` | Isolated ORC guest using dynamic SolRT. |
-| `sol-exec-host-static.exe` | Isolated ORC guest using static SolRT. |
+| `SolOrcBootstrap.lib` | Native executable bootstrap with dynamic SolRT. |
+| `SolOrcBootstrap-static.lib` | Native executable bootstrap with static SolRT. |
 | `SolRT.dll`, `SolRT.lib` | Guest runtime DLL and import library. |
 | `SolRT-static.lib` | Static guest runtime. |
 | `backend.json` | LLVM/runtime ABI, build toolset, dependencies and prerequisites. |
@@ -47,8 +47,8 @@ MSVC toolset used to build the adapter. Follow Microsoft's
 [supported Redistributable guidance](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist).
 The current package does not install that prerequisite automatically.
 
-ORC, static archives and Sol containers do not require Windows SDK search paths or installed LLVM
-tools. AOT EXE/DLL linking additionally requires MSVC x64 C++ build libraries and the Windows SDK.
+Static archives and Sol containers do not require Windows SDK search paths or installed LLVM
+tools. AOT EXE/DLL and ORC executable linking require MSVC x64 C++ build libraries and the Windows SDK.
 Run Solc from an x64 Visual Studio developer shell whose `LIB` environment names those installed
 directories. Missing libraries produce an explanatory error before an output is committed.
 Embedded LLD performs the link; no linker executable is launched.

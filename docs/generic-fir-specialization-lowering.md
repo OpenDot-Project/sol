@@ -328,8 +328,9 @@ still need exact writable local storage and control-flow proof.
 
 The ordinary LLVM emitter declares all non-runtime FIR functions before emitting their bodies.
 Therefore a generic call can refer to a later queue entry, a mutual recursion target, or the same
-function ID without requiring declaration order to mirror call order. Its target symbol is the
-compiler-private `sol_fn_<id>` form. That symbol is not a stable external ABI name.
+function ID without requiring declaration order to mirror call order. Lowering maps that index to a
+compiler-private `sol_v0_` symbol derived from the logical module, declaration, formal signature,
+and closed specialization. Lifted function values include their lexical ordinal.
 
 ## Independent FIR verification
 
@@ -402,8 +403,8 @@ check. Do not fix an inspection snapshot by removing the type arguments field.
 `LlvmEmitter.Build` receives only `VerifiedFirProgram`. It declares runtime helpers, declares every
 ordinary and specialized `FirFunction` using the existing closed `Type(ResolvedType)` mapping, then
 emits each function body. A `FirCall` indexes the program's function table and invokes the matching
-`sol_fn_<id>` declaration. Generic parameters do not appear in LLVM types or symbol names after FIR
-verification.
+native declaration through the callable symbol map. The emitter checks symbol uniqueness before
+declaring functions.
 
 The generic body uses the same lowering paths as a handwritten nongeneric body after substitution:
 
@@ -468,7 +469,7 @@ specialization:
 - unimplemented source body forms such as unsupported defaults, varargs, member storage, cleanup,
   exception propagation, and operations not represented by verified FIR;
 - nested or ambiguous generic effect-set patterns that source analysis still defers;
-- a persistent cross-build specialization cache or stable symbol mangling scheme.
+- a persistent cross-build specialization cache or a public Sol symbol ABI.
 
 When adding one of these, define its source typing, lifetime and layout, verifier invariants, GC
 root behavior, ABI and artifact rules first. A successful `TypeSpecialization.Substitute` call by
@@ -549,7 +550,7 @@ For two direct calls `identity(1)` and `identity(2)`:
 4. The second lookup finds the key and reuses the ID.
 5. The pending queue contains one body; the FIR tree contains two calls with distinct origins.
 6. The verifier checks both calls against the same specialized signature.
-7. LLVM declares one private `sol_fn_<id>` and emits two call instructions.
+7. LLVM declares one compiler-private callable symbol and emits two calls to it.
 
 If two bodies appear, compare `AstFunction` identity and the `ResolvedType` identities. If no body
 appears, check whether the selected source calls actually reached `FirBuilder` and whether a

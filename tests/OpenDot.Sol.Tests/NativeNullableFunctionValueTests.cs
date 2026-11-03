@@ -129,7 +129,7 @@ public sealed class NativeNullableFunctionValueTests
 
             using var output = new MemoryStream();
             using var error = new MemoryStream();
-            int exitCode = OrcExecutor.Execute(program, [], backendDirectory: backend,
+            int exitCode = NativeOrcExecutable.Execute(program, [], backendDirectory: backend,
                 cancellationToken: TestContext.Current.CancellationToken,
                 standardOutput: output, standardError: error);
             Assert.Equal(0, exitCode);

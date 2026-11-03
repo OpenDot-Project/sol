@@ -98,17 +98,27 @@ std::int64_t Session::ApplyEh(Operation op, const std::vector<std::int64_t> &arg
         Require(value != nullptr, "Cleanup return requires a cleanup pad.");
         return Add({nullptr, Builder.CreateCleanupRet(value, args.at(1) ? block(args.at(1)) : nullptr)});
     }
-    if (op == Operation::Invoke || op == Operation::FuncletCall)
+    if (op == Operation::Invoke || op == Operation::IndirectInvoke || op == Operation::FuncletCall)
     {
-        const std::size_t prefix = op == Operation::Invoke ? 3 : 1;
+        const bool indirect = op == Operation::IndirectInvoke;
+        const bool invoke = op != Operation::FuncletCall;
+        const std::size_t prefix = indirect ? 4 : invoke ? 3 : 1;
         Require(args.size() >= prefix, "Missing EH call operands.");
-        auto *callee = llvm::dyn_cast<llvm::Function>(Value(args.at(0)));
-        Require(callee && callee->arg_size() == args.size() - prefix, "EH call signature arity mismatch.");
+        auto &callee = *Value(args.at(indirect ? 1 : 0));
+        auto *direct = llvm::dyn_cast<llvm::Function>(&callee);
+        auto *signature = indirect
+                              ? llvm::dyn_cast<llvm::FunctionType>(Type(args.at(0)))
+                              : direct
+                              ? direct->getFunctionType()
+                              : nullptr;
+        Require(signature && callee.getType()->isPointerTy() && !signature->isVarArg()
+                && signature->getNumParams() == args.size() - prefix,
+                "EH call signature arity mismatch.");
         std::vector<llvm::Value *> inputs;
         for (std::size_t i = prefix; i < args.size(); ++i)
         {
             auto &value = *Value(args.at(i));
-            Require(value.getType() == callee->getFunctionType()->getParamType(CheckedInteger<unsigned>(i - prefix)),
+            Require(value.getType() == signature->getParamType(CheckedInteger<unsigned>(i - prefix)),
                     "EH call argument type mismatch.");
             inputs.push_back(&value);
         }
@@ -117,12 +127,14 @@ std::int64_t Session::ApplyEh(Operation op, const std::vector<std::int64_t> &arg
         {
             bundles.emplace_back("funclet", std::vector<llvm::Value *>{pad(data)});
         }
-        if (op == Operation::Invoke)
+        if (invoke)
         {
-            return Add({nullptr, Builder.CreateInvoke(callee, block(args.at(1)), block(args.at(2)), inputs, bundles)});
+            const std::size_t destinations = indirect ? 2 : 1;
+            return Add({nullptr, Builder.CreateInvoke(signature, &callee, block(args.at(destinations)),
+                                                      block(args.at(destinations + 1)), inputs, bundles)});
         }
         Require(data != 0, "Funclet call requires a funclet token.");
-        return Add({nullptr, Builder.CreateCall(callee, inputs, bundles)});
+        return Add({nullptr, Builder.CreateCall(signature, &callee, inputs, bundles)});
     }
     throw std::invalid_argument("Unsupported Windows EH operation.");
 }

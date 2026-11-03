@@ -29,6 +29,8 @@ internal sealed partial class BodyBindingBuilder
         var delegateValues = _interfaceDelegateValues.ToArray();
         var interfaceActive = _interfaceResolutionActive.ToArray();
         var constructions = ConstructionProofs.ToArray();
+        var constructorDefaults = ConstructionDefaults.ToArray();
+        var constructorEdges = ConstructionEdges.ToArray();
         var constructionAliases = _constructionReceiverValues.ToArray();
         bool returnsConstruction = _constructionReturnsReceiver;
         var constructionSession = _constructionSession;
@@ -76,6 +78,8 @@ internal sealed partial class BodyBindingBuilder
             Restore(_interfaceDelegateValues, delegateValues);
             Restore(_interfaceResolutionActive, interfaceActive);
             Restore(ConstructionProofs, constructions);
+            Restore(ConstructionDefaults, constructorDefaults);
+            Restore(ConstructionEdges, constructorEdges);
             Restore(_constructionReceiverValues, constructionAliases);
             _constructionReturnsReceiver = returnsConstruction;
             if (constructionSession is not null)

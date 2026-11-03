@@ -82,9 +82,12 @@ foreach ($case in $cases) {
         if (($text -match 'Name: SolRT.dll') -eq $static) { throw 'SolRT import mode mismatch.' }
         if ($text -match '(?i)mscoree|hostfxr|coreclr') { throw 'Native application depends on CLR.' }
         $count++
-        $jitArguments = @($cli, $built.Source, '-Cllvm-compiler=orc')
+        $orcExe = Join-Path $built.Directory 'Orc.exe'
+        $jitArguments = @($cli, $built.Source, '-Cllvm-compiler=orc', '-o', $orcExe)
         if ($static) { $jitArguments += '--static-solrt-lib' }
-        $jit = RunProcess (Get-Command dotnet).Source ($jitArguments + @('--') + $case.Args)
+        $compiled = RunProcess (Get-Command dotnet).Source $jitArguments
+        if ($compiled.Code -ne 0 -or $compiled.Out -or $compiled.Error) { throw "ORC compilation failed ($name): $($compiled.Error)" }
+        $jit = RunProcess $orcExe $case.Args
         if ($jit.Code -ne 0 -or $jit.Out -cne $case.Expected -or $jit.Error.Length -ne 0) { throw "ORC parity mismatch ($name): code=$($jit.Code), out=$($jit.Out), err=$($jit.Error)" }
         $count++
     }
@@ -104,7 +107,10 @@ foreach ($case in $failures) {
     $run = RunProcess $built.Exe @()
     if ($run.Code -ne 1 -or $run.Error -notmatch $case.Error) { throw "Expected native failure ($($case.Name)): $($run.Error)" }
     $count++
-    $jit = RunProcess (Get-Command dotnet).Source @($cli, $built.Source, '-Cllvm-compiler=orc')
+    $orcExe = Join-Path $built.Directory 'Orc.exe'
+    $compiled = RunProcess (Get-Command dotnet).Source @($cli, $built.Source, '-Cllvm-compiler=orc', '-o', $orcExe)
+    if ($compiled.Code -ne 0 -or $compiled.Out -or $compiled.Error) { throw "ORC compilation failed ($($case.Name)): $($compiled.Error)" }
+    $jit = RunProcess $orcExe @()
     if ($jit.Code -ne 1 -or $jit.Error -notmatch $case.Error) { throw "Expected ORC failure ($($case.Name)): $($jit.Error)" }
     $count++
 }

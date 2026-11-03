@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Sol native implementation
 
-This tree owns the Windows launcher, LLVM C++ component/bridge, ORC execution host, and native SolRT. All projects
+This tree owns the Windows launcher, LLVM C++ component/bridge, ORC executable bootstrap, and native SolRT. All projects
 use MSBuild and C++20. The implementation namespace is `OpenDot::Sol`; it is separate from Sol
 source-language naming.
 
@@ -15,7 +15,8 @@ Sol semantics remain in C# lowering. The adapter requires .NET 10 in the compile
 `llvm-native/Session.cpp` owns LLVM 23.1.3 C++ contexts, modules, IRBuilder operations, and target
 machines. Handles carry session identities and reject wrong-kind, foreign, cross-thread and disposed
 access. `Output.cpp` verifies modules, optimizes a clone and emits COFF or writes binary bitcode.
-`Orc.cpp` reads bitcode and owns LLJIT inside the native guest. There is no textual assembly parser
+`JitEngine.cpp` reads enveloped bitcode and owns a per-function lazy JIT in the native application.
+`JitUnwind.cpp` registers validated Windows function tables before code publication. There is no textual assembly parser
 in the compilation path; LLVM's printer is used only for explicit inspection.
 
 `Linker.cpp` embeds LLD.COFF (`lldCOFF.lib`) and LLD.Common (`lldCommon.lib`) from the same 23.1.3 SDK.
@@ -45,13 +46,14 @@ boundary so new allocations cannot indefinitely extend a cycle. `GcConfig.cpp` v
 `Arrays.cpp` supplies typed scalar/reference arrays. The allocator is individually aligned storage,
 not the planned span allocator. Source class construction and EH lowering remain incomplete.
 
-## ORC guest process
+## ORC executable
 
-`exec-host/Main.cpp` supplies the guest runtime and symbol allowlist to the native LLVM component.
-It accepts binary bitcode; the component verifies its target and executes the entry with LLJIT. It is plain C++20 and
-does not import CLR or C++/CLI hosting. The C# compiler launches it as a separate child: host .NET
-GC and guest Yellow Tea do not share a process or object references. This is not an OS sandbox.
-The current source subset does not establish generated Windows/ORC exception-unwind qualification.
+`orc-bootstrap/Main.cpp` loads the matching plain-native SolJit.dll, verifies sidecar hashes and
+opens the embedded bitcode envelope. `Bindings.cpp` supplies typed runtime imports. The executable
+invokes the lazy entry outside the LLVM DLL. Solc emits the executable without running it; compiler
+CLR and application Yellow Tea remain in separate processes. This is not an OS sandbox.
+The generated-frame Windows EH probe covers roots and cleanup in both AOT and lazy ORC; broad
+source-level exception admission requires the independent FIR and source lowering checks.
 
 ## Launcher
 

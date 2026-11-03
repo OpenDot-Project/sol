@@ -289,7 +289,7 @@ internal sealed partial class BodyBindingBuilder
                     accessible = false;
                 }
                 return new(member.IsSafe ? Types.GetNullable(primaryType) : primaryType,
-                    primary.IsMutable && accessible, false, Receiver: type);
+                    primary.IsMutable && accessible, false, Receiver: type, PrimaryProperty: primary);
             }
             Report("SOL2215", "No such member: " + member.Name, member); return new(null);
         }

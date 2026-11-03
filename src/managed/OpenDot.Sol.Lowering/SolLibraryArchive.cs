@@ -37,6 +37,7 @@ public static class SolLibraryArchive
     {
         ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(llvmBitcode); ArgumentNullException.ThrowIfNull(objectBytes);
         if (!program.Program.IsLibrary) { throw new ArgumentException("A Sol library cannot contain a program entry.", nameof(program)); }
+        var symbols = NativeCallableSymbols.Build(program.Program);
         var entries = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
         byte[] fir = Encoding.UTF8.GetBytes(FirJson.Serialize(program));
         string firPath = "fir/" + Digest(fir) + ".bin", objectPath = "objects/" + Target + "/" + Digest(objectBytes) + ".obj";
@@ -53,7 +54,7 @@ public static class SolLibraryArchive
             {
                 module = id,
                 exports = program.Program.Functions.Where(f => f.ExportName is not null && module.Any(s => s.Root.Origin.Source == f.Origin.Source))
-                    .Select(f => new { name = f.ExportName, native_symbol = "sol_fn_" + f.Id, result = f.ReturnType.Name, parameters = f.Parameters.Select(p => new { p.Name, type = p.Type.Name, mode = p.Mode.ToString() }) })
+                    .Select(f => new { name = f.ExportName, native_symbol = symbols[f.Id], result = f.ReturnType.Name, parameters = f.Parameters.Select(p => new { p.Name, type = p.Type.Name, mode = p.Mode.ToString() }) })
                     .OrderBy(e => e.name, StringComparer.Ordinal),
             }));
         }

@@ -16,5 +16,6 @@ enum class Operation
     ExternalGlobal,
     Personality, Invoke, CatchSwitch, CatchPad, CleanupPad, CatchReturn, CleanupReturn, FuncletCall,
     ModuleFlag,
+    IndirectInvoke,
 };
 }

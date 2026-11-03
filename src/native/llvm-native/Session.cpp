@@ -170,6 +170,7 @@ std::int64_t Session::Apply(Operation op, std::int64_t type, const std::vector<s
     }
     case Operation::Personality:
     case Operation::Invoke:
+    case Operation::IndirectInvoke:
     case Operation::CatchSwitch:
     case Operation::CatchPad:
     case Operation::CleanupPad:

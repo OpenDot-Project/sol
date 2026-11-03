@@ -59,7 +59,7 @@
   </ItemGroup>
   <ItemGroup Condition="'$(FuzzHarness)' == 'true'">
     <ClCompile Include="..\fuzz\Main.cpp" /><ClCompile Include="..\fuzz\RuntimeCases.cpp" />
-    <ClCompile Include="..\fuzz\GcCases.cpp" /><ClCompile Include="..\fuzz\BackendCases.cpp" />
+    <ClCompile Include="..\fuzz\GcCases.cpp" /><ClCompile Include="..\fuzz\BackendCases.cpp" /><ClCompile Include="..\fuzz\CoffExecution.cpp" />
     <ClInclude Include="..\fuzz\Fuzz.h" />
   </ItemGroup>
   <ItemGroup Condition="'$(CoverageSourceIndex)' == 'true'">

@@ -82,7 +82,12 @@ foreach ($static in @($false, $true)) {
     $exe = Join-Path $directory 'Main.exe'
     $null = InvokeChecked $dotnet (@($cli, $program, '-o', $exe) + $flags)
     $aot = InvokeChecked $exe @('İa')
-    $orc = InvokeChecked $dotnet (@($cli, $program, '-Cllvm-compiler=orc') + $flags + @('--', 'İa'))
+    $orcDirectory = Join-Path $scratch "orc-$static"
+    New-Item -ItemType Directory $orcDirectory -Force | Out-Null
+    $orcExe = Join-Path $orcDirectory 'Main.exe'
+    $compiled = InvokeChecked $dotnet (@($cli, $program, '-Cllvm-compiler=orc', '-o', $orcExe) + $flags)
+    if ($compiled.Out -or $compiled.Error) { throw 'ORC compilation executed observable program code.' }
+    $orc = InvokeChecked $orcExe @('İa')
     if ($aot.Out -cne $expected -or $orc.Out -cne $aot.Out -or $aot.Error -or $orc.Error) { throw "AOT/ORC String/array/GC parity failed: $($aot.Out) / $($orc.Out) / $($orc.Error)" }
     $count += 2
     Write-Host "AOT/ORC collectible String/array parity passed (static runtime: $static)."
@@ -121,9 +126,9 @@ foreach ($kind in @('cdylib', 'staticlib', 'solib')) {
     }
 }
 
-foreach ($file in @('sol-exec-host.exe', 'sol-exec-host-static.exe', 'OpenDot.Sol.LlvmBridge.dll', 'OpenDot.Sol.LlvmNative.dll')) {
+foreach ($file in @('OpenDot.Sol.LlvmBridge.dll', 'OpenDot.Sol.LlvmNative.dll')) {
     $imports = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/llvm-readobj.exe') @('--coff-imports', (Join-Path $backend $file))
-    if (($file -like 'sol-exec-host*' -or $file -eq 'OpenDot.Sol.LlvmNative.dll') -and $imports.Out -match '(?i)mscoree|hostfxr|coreclr|ijwhost') { throw 'Guest ORC host imports the managed runtime.' }
+    if (($file -eq 'OpenDot.Sol.LlvmNative.dll') -and $imports.Out -match '(?i)mscoree|hostfxr|coreclr|ijwhost') { throw 'Guest ORC host imports the managed runtime.' }
     if ($file -like 'OpenDot.Sol.Llvm*' -and $imports.Out -match '(?i)Name: SolRT.dll') { throw 'Host compiler bridge imports the guest runtime.' }
     [IO.File]::WriteAllText((Join-Path $scratch "$file.imports.txt"), $imports.Out)
 }

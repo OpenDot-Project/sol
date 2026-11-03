@@ -119,10 +119,16 @@ internal sealed partial class BodyBindingBuilder
             false, Symbol: operation.Member.Symbol, Receiver: operation.Owner);
     }
 
-    private void ValidateInterfaceAccess(InterfaceImplementation selected, AstNode location, bool qualified)
+    private void ValidateInterfaceAccess(InterfaceImplementation selected, AstNode location, bool qualified,
+        ArgumentMapping? mapping = null)
     {
         var operation = selected.Implementation ?? selected.Contracts[0];
-        InterfaceUses[(location, operation.Kind)] = new(selected, qualified);
+        if (mapping is null && _interfaceIndexArguments.TryGetValue(location, out var index)) { mapping = index.Mapping; }
+        InterfaceUses[(location, operation.Kind)] = new(selected, qualified)
+        {
+            Arguments = mapping?.Arguments ?? [], DefaultParameters = mapping?.Defaults ?? [],
+            EmptyVarargParameters = mapping?.EmptyVarargs ?? [],
+        };
         if (qualified && (selected.Implementation is null || operation.DelegateExpression is not null))
         { Report("SOL2238", "Qualified super requires a concrete interface body.", location); Defer(location); }
         if (!Accessible(operation.Member.Symbol, location))

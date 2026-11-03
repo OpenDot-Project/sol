@@ -38,7 +38,10 @@ internal sealed partial class BodyBindingBuilder
         if (constructors.Length == 0)
         {
             if (!arguments.IsEmpty) { Report("SOL2274", "An implicit constructor has no parameters.", site); return; }
-            ExecuteSelectedConstructionEdge(owner, null, site, state, depth, isThis);
+            var effects = ExecuteSelectedConstructionEdge(owner, null, site, state, depth, isThis);
+            ConstructionEdges[(site, owner.Id, null)] = new(new(site, owner, null, [], [], isThis),
+                Diagnostics.Count != 0 ? BodyBindingStatus.Invalid : _deferred.Count != 0 ? BodyBindingStatus.Deferred : BodyBindingStatus.Bound,
+                state.Reachable, state.Construction.Slots, [], effects, null);
             return;
         }
         if (implicitBase) { constructors = constructors.Where(constructor => constructor.Parameters.IsEmpty).ToArray(); }
@@ -74,6 +77,7 @@ internal sealed partial class BodyBindingBuilder
             new(site, owner, constructorTarget, selected.Mapping.Arguments, selected.Mapping.Defaults, isThis),
             Diagnostics.Count != 0 ? BodyBindingStatus.Invalid : _deferred.Count != 0 ? BodyBindingStatus.Deferred : BodyBindingStatus.Bound,
             state.Reachable, state.Construction.Slots, [], selected.Effects, null);
+        ConstructionEdges[(site, owner.Id, constructorTarget)] = ConstructionProofs[(site, owner.Id, constructorTarget)];
     }
 
     private bool ConstructionConstructorAccessible(AstConstructor constructor, ResolvedType owner, AstNode site, bool delegation)
@@ -87,16 +91,18 @@ internal sealed partial class BodyBindingBuilder
         return true;
     }
 
-    private void ExecuteSelectedConstructionEdge(ResolvedType owner, AstConstructor? constructor, AstNode site,
+    private ImmutableArray<ResolvedType> ExecuteSelectedConstructionEdge(ResolvedType owner, AstConstructor? constructor, AstNode site,
         State state, int depth, bool isThis)
     {
         var worker = ConstructionWorker(owner, new(owner, constructor, _constructionFrame!.Receiver), _constructionSession!);
         var priorEffects = state.Effects.ToArray();
         state.Effects.Clear();
         worker.ExecuteConstructor(owner, constructor, site, state, depth + 1);
+        var effects = state.Effects.ToImmutableArray();
         ReplayConstruction(worker);
         ConstructionOriginAt(site, isThis ? "this delegation" : "base constructor", state);
         state.Effects.UnionWith(priorEffects);
+        return effects;
     }
 
     private void EvaluateConstructionArguments(AstNode site, ImmutableArray<AstArgument> arguments,
@@ -176,8 +182,12 @@ internal sealed partial class BodyBindingBuilder
             foreach (var edge in defaultState.ExceptionSink ?? []) { state.RecordExceptionalEdge(edge.Type, state, edge.Origin); }
             state.Effects.UnionWith(defaultState.Effects);
             state.Reachable &= defaultState.Reachable;
-            return worker._errorGeneration != 0 ? BodyBindingStatus.Invalid
+            var status = worker._errorGeneration != 0 ? BodyBindingStatus.Invalid
                 : worker._deferred.Count != 0 ? BodyBindingStatus.Deferred : BodyBindingStatus.Bound;
+            var constructor = (AstConstructor)selected.Target.Callable;
+            ConstructionDefaults[(site, owner.Id, constructor)] = new(worker, site, owner, constructor,
+                selected.Mapping.Defaults, status, defaultState.Reachable, defaultState.Effects.ToImmutableArray());
+            return status;
         }
         finally { session.ActiveDefaults.Remove(key); }
     }

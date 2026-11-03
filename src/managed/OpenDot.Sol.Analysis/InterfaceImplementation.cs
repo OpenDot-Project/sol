@@ -25,4 +25,9 @@ internal sealed record InterfaceOperation(ResolvedMemberCandidate Member, Interf
 internal sealed record InterfaceImplementation(ResolvedType Receiver, string Signature,
     ImmutableArray<InterfaceOperation> Contracts, InterfaceOperation? Implementation,
     BodyBindingStatus Status, string? Reason);
-internal sealed record InterfaceOperationUse(InterfaceImplementation Selection, bool IsQualifiedSuper);
+internal sealed record InterfaceOperationUse(InterfaceImplementation Selection, bool IsQualifiedSuper)
+{
+    internal ImmutableArray<CallArgumentBinding> Arguments { get; init; } = [];
+    internal ImmutableArray<int> DefaultParameters { get; init; } = [];
+    internal ImmutableArray<int> EmptyVarargParameters { get; init; } = [];
+}

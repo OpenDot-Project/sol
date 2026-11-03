@@ -18,6 +18,7 @@ public enum LlvmOperation
     ExternalGlobal,
     Personality, Invoke, CatchSwitch, CatchPad, CleanupPad, CatchReturn, CleanupReturn, FuncletCall,
     ModuleFlag,
+    IndirectInvoke,
 }
 
 /// <summary>Owns native LLVM objects. Handles are session-scoped opaque identities, never pointers.</summary>
@@ -25,6 +26,7 @@ public interface ILlvmModule : IDisposable
 {
     long Apply(LlvmOperation operation, long type, long[] operands, long data, string text);
     long CreateString(byte[] utf8);
+    long CreateData(byte[] bytes, string name);
     void Verify();
     string Print();
     byte[] Bitcode();

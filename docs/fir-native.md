@@ -37,14 +37,16 @@ applications; their import tables have no CLR dependency. Solc itself remains a 
 Dynamic linking is the default and places `SolRT.dll` beside the executable. `--static-solrt-lib`
 links the static runtime and does not copy or import that DLL. Artifact type is a separate option:
 development builds also produce scalar C-ABI `cdylib`/`staticlib` artifacts and a closed-subset `solib`
-container. ORC executes in a separate native guest process:
+container. ORC produces a separate native executable:
 
 ```powershell
-dotnet $solc spec/examples/native/FirstProgram.sol -C llvm-compiler=orc -- Alice 20
+dotnet $solc spec/examples/native/FirstProgram.sol -C llvm-compiler=orc -o out/HelloOrc.exe
+.\out\HelloOrc.exe Alice 20
 ```
 
-ORC defaults to `--emit=jit` and accepts application arguments after `--`. It does not create an
-executable with `-o`; `--emit=llvm-ir` remains an inspection operation. Both runtime linkage modes
+ORC defaults to `--emit=link`; `--emit=jit` is rejected. The executable embeds validated bitcode
+and loads the matching plain-native `SolJit.dll`. Each function compiles on first call; unused
+bodies remain bitcode. `--emit=llvm-ir` remains an inspection operation. Both runtime linkage modes
 are available. The compiler's CLR GC and guest Yellow Tea never share a process or object reference.
 See [library artifacts](library-artifacts.md) for native library restrictions and container boundaries.
 

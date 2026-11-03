@@ -409,7 +409,7 @@ public sealed class FunctionValueOverloadTests
 
         string lowering = LoweringTrace.Inspect(compilation.Program, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Contains("FunctionType", lowering, System.StringComparison.Ordinal);
-        Assert.Contains("IndirectCall", lowering, System.StringComparison.Ordinal);
+        Assert.Contains("IndirectInvoke", lowering, System.StringComparison.Ordinal);
     }
 
     [Fact]
@@ -625,7 +625,7 @@ public sealed class FunctionValueOverloadTests
         var call = Assert.IsType<FirIndirectCall>(returned.Value);
         Assert.Equal(ResolvedTypeKind.Bottom, call.Type.Kind);
         string trace = LoweringTrace.Inspect(verified, cancellationToken: TestContext.Current.CancellationToken);
-        Assert.Contains("IndirectCall", trace, System.StringComparison.Ordinal);
+        Assert.Contains("IndirectInvoke", trace, System.StringComparison.Ordinal);
         Assert.Contains("Unreachable", trace, System.StringComparison.Ordinal);
     }
 }

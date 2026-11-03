@@ -59,6 +59,10 @@ public sealed class RuntimeAndLibraryTests
         Assert.Contains("\"text\":\"add\"", ir);
         Assert.Contains("\"callee\":\"sol_gc_enter_export\"", ir);
         Assert.Contains("\"callee\":\"sol_gc_leave_export\"", ir);
+        using var trace = System.Text.Json.JsonDocument.Parse(ir);
+        Assert.Contains(trace.RootElement.EnumerateArray(), operation =>
+            operation.GetProperty("operation").GetString() == "FuncletCall"
+            && operation.GetProperty("callee").GetString() == "sol_gc_leave_export");
         Assert.Contains("sol_library_shutdown", ir);
     }
 
@@ -153,13 +157,14 @@ public sealed class RuntimeAndLibraryTests
     }
 
     [Fact]
-    public void OrcOwnsOnlyArgumentsAfterSeparatorAndDoesNotProduceLinkedArtifacts()
+    public void OrcProducesExecutablesAndRejectsLegacyExecutionEmission()
     {
-        var options = CompilerOptions.Parse(["Main.sol", "-Cllvm-compiler=orc", "--", "Alice", "20", "@literal", "--help"]);
-        Assert.Equal(EmitKind.Jit, options.Emit);
-        Assert.Equal(["Alice", "20", "@literal", "--help"], options.ProgramArguments);
+        var options = CompilerOptions.Parse(["Main.sol", "-Cllvm-compiler=orc", "-o", "app.exe"]);
+        Assert.Equal(EmitKind.Link, options.Emit);
+        Assert.Equal("app.exe", options.Output);
         Assert.Equal("Main.sol", Assert.Single(options.Sources));
         Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["Main.sol", "--emit=jit"]));
+        Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["Main.sol", "-Cllvm-compiler=orc", "--emit=jit"]));
         Assert.Throws<CommandLineException>(() => CompilerOptions.Parse(["Main.sol", "-Cllvm-compiler=orc", "--artifact-type=solib"]));
         Assert.Equal(EmitKind.LlvmIr, CompilerOptions.Parse(["Main.sol", "-Cllvm-compiler=orc", "--emit=llvm-ir"]).Emit);
     }

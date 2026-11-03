@@ -14,7 +14,7 @@ public sealed class CommandLineException(string message) : Exception(message);
 public enum CompilerCommand { Compile, Help, Version, Print, Explain }
 public enum CompilerBackend { Aot, Orc }
 public enum ArtifactType { Bin, Cdylib, Staticlib, Solib }
-public enum EmitKind { Cst, Link, Ast, Fir, LlvmIr, Jit }
+public enum EmitKind { Cst, Link, Ast, Fir, LlvmIr }
 public enum SolrtLinkage { Dynamic, Static }
 
 public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<string> Sources,
@@ -22,7 +22,6 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
     string OutputDirectory, bool JsonErrors, int ErrorLimit, string? Query, bool Verbose, string Color)
 {
     public SolrtLinkage RuntimeLinkage { get; init; } = SolrtLinkage.Dynamic;
-    public ImmutableArray<string> ProgramArguments { get; init; } = [];
 
     public static CompilerOptions Parse(IEnumerable<string> arguments)
     {
@@ -104,10 +103,12 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
         }
 
         string backend = Get("llvm-compiler", "aot");
-        string emit = Get("--emit", backend == "orc" ? "jit" : "link");
-        if (emit != "jit") { sources.AddRange(tail); }
-        if (emit == "jit" && (backend != "orc" || Get("--artifact-type", "bin") != "bin" || scalars.ContainsKey("-o") || scalars.ContainsKey("--out-dir")))
-        { throw new CommandLineException("JIT execution requires the ORC bin backend and has no output path."); }
+        string emit = Get("--emit", "link");
+        sources.AddRange(tail);
+        if (emit == "jit")
+        { throw new CommandLineException("--emit=jit was removed. ORC produces an executable; pass application arguments to that executable."); }
+        if (backend == "orc" && emit == "link" && Get("--artifact-type", "bin") != "bin")
+        { throw new CommandLineException("ORC supports bin executable artifacts only."); }
         if (command == CompilerCommand.Compile && sources.Count == 0)
         {
             throw new CommandLineException("No source files were provided. Use --help for usage.");
@@ -137,7 +138,6 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
             "fir" => EmitKind.Fir,
             "llvm-ir" => EmitKind.LlvmIr,
             "link" => EmitKind.Link,
-            "jit" => EmitKind.Jit,
             _ => throw new CommandLineException($"Emission '{emit}' is not available in this build."),
         }, backend switch
         {
@@ -155,7 +155,6 @@ public sealed record CompilerOptions(CompilerCommand Command, ImmutableArray<str
             errorFormat == "json", limit, query, verbose, Get("--color", "auto"))
         {
             RuntimeLinkage = scalars.ContainsKey("--static-solrt-lib") ? SolrtLinkage.Static : SolrtLinkage.Dynamic,
-            ProgramArguments = emit == "jit" ? tail.ToImmutable() : [],
         };
 
         void SetCommand(CompilerCommand next)

@@ -22,11 +22,12 @@ internal sealed class LoweringTrace : ILlvmCompiler, ILlvmModule
     {
         long result = ++_next;
         if (operation == LlvmOperation.Function) { _functions.Add(result, text); }
-        string? callee = operation == LlvmOperation.Call ? _functions[operands[0]] : null;
+        string? callee = operation is LlvmOperation.Call or LlvmOperation.Invoke or LlvmOperation.FuncletCall ? _functions[operands[0]] : null;
         _operations.Add(new { operation = operation.ToString(), result, type, operands, data, text, callee }); return result;
     }
     public long CreateString(byte[] utf8) { long result = ++_next; _operations.Add(new { operation = "StringBytes", result, utf8 }); return result; }
     public void Verify() { }
+    public long CreateData(byte[] bytes, string name) => throw new NotSupportedException("A recording bridge cannot embed executable data.");
     public void Dispose() { }
     public string Print() => throw new NotSupportedException("A recording bridge cannot print LLVM.");
     public byte[] Bitcode() => throw new NotSupportedException("A recording bridge cannot emit bitcode.");

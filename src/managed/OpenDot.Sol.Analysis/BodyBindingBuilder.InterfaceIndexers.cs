@@ -90,7 +90,7 @@ internal sealed partial class BodyBindingBuilder
             if (entry.IsArrayArgument || entry.IsSpread) { expected = Types.GetArray(expected); }
             values[entry.ArgumentIndex] = Expression(argument.Value as AstExpression, state, context, expected);
         }
-        ValidateInterfaceAccess(selected.Record, expression, IsQualifiedSuperUse(expression));
+        ValidateInterfaceAccess(selected.Record, expression, IsQualifiedSuperUse(expression), selected.Mapping);
         if (IsQualifiedSuperUse(expression) && selected.Record.Implementation is null)
         { Report("SOL2238", "Qualified super requires a concrete indexer accessor.", expression); Defer(expression); }
         if (selected.Record.Status != BodyBindingStatus.Bound)

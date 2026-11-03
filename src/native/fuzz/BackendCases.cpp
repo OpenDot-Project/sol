@@ -26,11 +26,11 @@ struct Functions final
     decltype(&SolLlvmDestroy) Destroy{};
     decltype(&SolLlvmError) Error{};
     decltype(&SolLlvmVersion) Version{};
+    decltype(&SolLlvmProtocol) Protocol{};
     decltype(&SolLlvmApply) Apply{};
     decltype(&SolLlvmVerify) Verify{};
     decltype(&SolLlvmOutput) Output{};
     decltype(&SolLlvmFree) Free{};
-    decltype(&SolLlvmExecute) Execute{};
 } Api;
 
 template <class T> T Function(const char *name)
@@ -112,12 +112,13 @@ void LoadBackend()
     Api.Destroy = Function<decltype(Api.Destroy)>("SolLlvmDestroy");
     Api.Error = Function<decltype(Api.Error)>("SolLlvmError");
     Api.Version = Function<decltype(Api.Version)>("SolLlvmVersion");
+    Api.Protocol = Function<decltype(Api.Protocol)>("SolLlvmProtocol");
     Api.Apply = Function<decltype(Api.Apply)>("SolLlvmApply");
     Api.Verify = Function<decltype(Api.Verify)>("SolLlvmVerify");
     Api.Output = Function<decltype(Api.Output)>("SolLlvmOutput");
     Api.Free = Function<decltype(Api.Free)>("SolLlvmFree");
-    Api.Execute = Function<decltype(Api.Execute)>("SolLlvmExecute");
     Require(std::strcmp(Api.Version(), "23.1.3") == 0, "LLVM fuzz backend must be exactly 23.1.3.");
+    Require(Api.Protocol() == 0x534F4C4C00000003ULL, "LLVM fuzz backend protocol mismatch.");
 }
 
 void UnloadBackend() noexcept
@@ -278,14 +279,7 @@ void BackendCase(const Input &input)
     Buffer object(session.Value, 2);
     const std::span coff(static_cast<const unsigned char *>(object.Bytes), object.Size);
     Require(CheckedElement(coff, 0) == 0x64 && CheckedElement(coff, 1) == 0x86, "LLVM output is not x64 COFF.");
-    const std::array<SolLlvmSymbol, 1> symbols{{{nullptr, 0}}};
-    auto name = std::to_array(L"sol-fuzz");
-    std::array arguments{name.data()};
-    int actual = 0;
-    if (!Api.Execute(bytes.data(), bitcode.Size, symbols.data(), 0, 1, arguments.data(), &actual))
-    {
-        throw std::runtime_error(Api.Error());
-    }
-    Require(actual == expected, "Native ORC execution differs from the independent integer/branch model.");
+    Require(ExecuteConstantCoff(coff) == expected,
+            "Native COFF execution differs from the independent integer/branch model.");
 }
 }

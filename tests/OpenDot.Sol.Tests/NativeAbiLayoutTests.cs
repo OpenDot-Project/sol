@@ -64,6 +64,11 @@ public sealed class NativeAbiLayoutTests
         Assert.Throws<InvalidOperationException>(() => Op(LlvmOperation.FuncletCall, args: [external]));
         Assert.Throws<InvalidOperationException>(() => Op(LlvmOperation.FuncletCall, args: [external], data: caller));
         Assert.Throws<InvalidOperationException>(() => Op(LlvmOperation.Personality, args: [caller, external]));
+        long signature = Op(LlvmOperation.FunctionType, voidType);
+        long pointer = Op(LlvmOperation.PointerType);
+        Assert.Throws<InvalidOperationException>(() => Op(LlvmOperation.IndirectInvoke, args: [pointer, external, done, done]));
+        Assert.Throws<InvalidOperationException>(() => Op(LlvmOperation.IndirectInvoke, args: [signature, external, foreign, done]));
+        Assert.Throws<InvalidOperationException>(() => Op(LlvmOperation.IndirectInvoke, args: [signature, external, done, done, external]));
         Op(LlvmOperation.Return);
         Op(LlvmOperation.Position, args: [done]); Op(LlvmOperation.Return);
         Op(LlvmOperation.Position, args: [foreign]); Op(LlvmOperation.Return);

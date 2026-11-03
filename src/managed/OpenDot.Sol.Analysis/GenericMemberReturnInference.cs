@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -19,11 +20,13 @@ public sealed partial class BodyAnalysis
         CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
+        if (!_nodes.Contains(function)) { throw new ArgumentException("The function belongs to another source analysis.", nameof(function)); }
+        Types.ValidateOwnership(owner);
         if (Sources.HasErrors || owner.IsError || ContainsTypeParameter(owner)) { return null; }
         var declaration = GenericMethodSourcePolicy.DirectOwner(function, Sources);
         if (declaration is null || function.Body.Kind == AstBodyKind.Missing
             || declaration.SyntaxKind is not (NodeKind.ClassDeclaration or NodeKind.StructDeclaration
-                or NodeKind.RefStructDeclaration or NodeKind.InterfaceDeclaration)) { return null; }
+                or NodeKind.RefStructDeclaration or NodeKind.InterfaceDeclaration or NodeKind.ObjectDeclaration)) { return null; }
         var file = BodySourceIndex.Get(Sources).Files[declaration];
         for (var parent = file.GetParent(declaration); parent is not null; parent = file.GetParent(parent))
         { if (parent is AstTypeDeclaration) { return null; } }
@@ -60,11 +63,15 @@ public sealed partial class BodyAnalysis
         ImmutableArray<ResolvedType> arguments, CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
-        if (Sources.HasErrors || owner.IsError || arguments.Any(type => type.IsError)) { return null; }
+        if (!_nodes.Contains(function)) { throw new ArgumentException("The function belongs to another source analysis.", nameof(function)); }
+        Types.ValidateOwnership(owner);
+        foreach (var argument in arguments) { Types.ValidateOwnership(argument); }
+        if (Sources.HasErrors || owner.IsError || ContainsTypeParameter(owner)
+            || arguments.Any(type => type.IsError || ContainsTypeParameter(type))) { return null; }
         var declaration = GenericMethodSourcePolicy.DirectOwner(function, Sources);
         if (declaration is null || function.Body.Kind == AstBodyKind.Missing
             || declaration.SyntaxKind is not (NodeKind.ClassDeclaration or NodeKind.StructDeclaration
-                or NodeKind.RefStructDeclaration or NodeKind.InterfaceDeclaration)) { return null; }
+                or NodeKind.RefStructDeclaration or NodeKind.InterfaceDeclaration or NodeKind.ObjectDeclaration)) { return null; }
         var file = BodySourceIndex.Get(Sources).Files[declaration];
         for (var parent = file.GetParent(declaration); parent is not null; parent = file.GetParent(parent))
         { if (parent is AstTypeDeclaration) { return null; } }
@@ -73,7 +80,7 @@ public sealed partial class BodyAnalysis
         try
         {
             cancellation.ThrowIfCancellationRequested();
-            if (_genericBodies.TryGetValue(key, out var prior)) { return prior.Summary.ReturnType; }
+            if (_genericMemberBodies.TryGetValue(key, out var prior)) { return prior.Summary.ReturnType; }
             if (_memberReturnInferenceSteps >= 1024 || _activeMemberReturns.Count + _activeLexicalReturns.Count >= 128
                 || !_activeMemberReturns.Add(key)) { return null; }
             _memberReturnInferenceSteps++;

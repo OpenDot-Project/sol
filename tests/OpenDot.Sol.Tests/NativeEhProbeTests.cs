@@ -17,14 +17,16 @@ public sealed class NativeEhProbeTests
     public static bool Enabled => NativeRuntimeIntegrationTests.Enabled;
 
     [Theory(Skip = "Runs in the required native-backend test job.", SkipUnless = nameof(Enabled), Timeout = 60000)]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task GeneratedWindowsFuncletsPreserveCarrierIdentityThroughCleanupAndGc(bool staticRuntime)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task GeneratedWindowsFuncletsPreserveCarrierIdentityThroughCleanupAndGc(bool staticRuntime, bool indirect)
     {
         string backend = Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT")!;
         var compiler = NativeCompiler.LoadBridge(backend);
         using var module = compiler.CreateModule();
-        BuildProbe(module, staticRuntime);
+        BuildProbe(module, staticRuntime, indirect);
         module.Verify();
         string printed = module.Print();
         Assert.Contains("catchswitch", printed);
@@ -68,7 +70,7 @@ public sealed class NativeEhProbeTests
     }
 
     // Immediate LLVM API conformance probe; source FIR admission remains a separate gate.
-    internal static void BuildProbe(ILlvmModule module, bool staticRuntime)
+    internal static void BuildProbe(ILlvmModule module, bool staticRuntime, bool indirect = false)
     {
         long Op(LlvmOperation op, long type = 0, long[]? args = null, long data = 0, string text = "")
             => module.Apply(op, type, args ?? [], data, text);
@@ -146,7 +148,15 @@ public sealed class NativeEhProbeTests
         Op(LlvmOperation.Store, args: [zero, counter]);
         long errorValue = Call(create, descriptor, nullValue, nullValue);
         Call(barrier, callerRoot, errorValue);
-        Op(LlvmOperation.Invoke, args: [helper, unexpected, dispatch, errorValue, counter, callerRoot]);
+        if (indirect)
+        {
+            long signature = Op(LlvmOperation.FunctionType, voidType, [ptr, ptr, ptr]);
+            long slot = Op(LlvmOperation.Alloca, ptr, data: 8);
+            Op(LlvmOperation.Store, args: [helper, slot]);
+            long target = Op(LlvmOperation.Load, ptr, [slot]);
+            Op(LlvmOperation.IndirectInvoke, args: [signature, target, unexpected, dispatch, errorValue, counter, callerRoot]);
+        }
+        else { Op(LlvmOperation.Invoke, args: [helper, unexpected, dispatch, errorValue, counter, callerRoot]); }
         Position(unexpected); Op(LlvmOperation.Unreachable);
         Position(dispatch);
         long catchSwitch = Op(LlvmOperation.CatchSwitch, args: [0, handler]);

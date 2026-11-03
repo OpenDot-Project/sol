@@ -57,6 +57,9 @@ internal sealed partial class BodyBindingBuilder
                 FunctionValueTypeArguments = value.Type?.Kind == ResolvedTypeKind.Function
                     && !value.FunctionValueTypeArguments.IsDefault
                     ? value.FunctionValueTypeArguments : [],
+                ValueSymbol = value.Symbol, ValueOwner = value.Receiver, ValueLocal = value.Local,
+                PrimaryProperty = value.PrimaryProperty, BackingProperty = value.BackingProperty,
+                IsTypeReference = value.IsType,
             };
             if (value.Type?.Kind == ResolvedTypeKind.Bottom) { state.Reachable = false; }
             return value;
@@ -104,7 +107,8 @@ internal sealed partial class BodyBindingBuilder
         if (atom.Spelling == "field" && context.Callable is AstAccessor accessor && ParentProperty(accessor) is { Type: not null } property)
         {
             if (read && _constructionFrame is not null) { ReadConstructionSlot(PropertySlot(property, ContainingType(property)!), atom, state); }
-            return new(Written(property.Type), accessor.Name is "set" or "init", true);
+            return new(Written(property.Type), accessor.Name is "set" or "init", true,
+                Receiver: ContainingType(property), BackingProperty: property);
         }
         if (atom.Spelling is "this" or "super")
         {

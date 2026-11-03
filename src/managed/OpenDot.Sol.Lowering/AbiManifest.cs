@@ -89,7 +89,8 @@ internal static class AbiManifest
         Attribute(envelope, "schema", "1"); Attribute(envelope, "magic", "SOLJIT01");
         Attribute(envelope, "headerSize", OrcEnvelope.HeaderSize);
         Attribute(envelope, "maximumPayloadSize", OrcEnvelope.MaximumPayloadSize);
-        Attribute(envelope, "checksum", "SHA-256-payload"); Attribute(envelope, "loaderStatus", "planned");
+        Attribute(envelope, "checksum", "SHA-256-payload"); Attribute(envelope, "loaderStatus", "implemented");
+        Attribute(envelope, "jitProtocol", $"0x{NativeAbi.JitProtocol:X16}");
         (string Name, int Offset, int Size)[] envelopeFields =
         [
             ("Magic", 0, 8), ("Schema", 8, 4), ("HeaderSize", 12, 4), ("PayloadLength", 16, 8),

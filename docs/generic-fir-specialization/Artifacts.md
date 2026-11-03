@@ -15,7 +15,7 @@ only a development subset. Sol 0.0.1 remains the initial frontend component.
 Development builds currently include:
 
 - Windows x86-64 AOT output for the verified bootstrap subset;
-- ORC execution of eligible bin programs in a separate native guest process;
+- ORC executable production with embedded bitcode and first-call native compilation;
 - scalar C ABI cdylib and staticlib output;
 - a closed-subset solib container and reader;
 - bounded specialization of selected module-level generic free-function calls in FIR.
@@ -43,7 +43,7 @@ The relevant command-line selections are:
 | Decision | Solc option | Default | What it changes |
 |---|---|---|---|
 | Artifact | --artifact-type=bin\|cdylib\|staticlib\|solib | bin | Output and root contract |
-| LLVM backend | -C llvm-compiler=aot\|orc | aot | Native link or guest execution |
+| LLVM backend | -C llvm-compiler=aot\|orc | aot | Ahead-of-time code or an executable with lazy compilation |
 | SolRT linkage | --static-solrt-lib | dynamic | Runtime deployment and link closure |
 
 Artifact selection does not alter source parsing, name resolution, overload ranking, generic
@@ -60,7 +60,7 @@ the instance.
 
 | Artifact | AOT behavior | ORC behavior | Generic boundary |
 |---|---|---|---|
-| bin | Links a Windows executable | Runs eligible bin in a guest; no output path | Closed instances may be private reachable helpers |
+| bin | Links a Windows executable | Links a bootstrap, bitcode and native sidecars | Closed instances may be private reachable helpers |
 | cdylib | Links DLL and import library | Rejected as an ORC output | A concrete C wrapper may call a private closed helper |
 | staticlib | Builds COFF archive | Rejected as an ORC output | Archive may contain private helper objects |
 | solib | Writes the versioned Sol container | Rejected as an ORC output | No consumer-requested generic instantiation |
@@ -156,18 +156,18 @@ must keep extraction within the selected destination.
 ## AOT and ORC
 
 The LLVM selection is -C llvm-compiler=aot|orc. AOT is the default and produces linked artifacts
-when requested and supported. ORC defaults to --emit=jit and runs only an eligible bin in a
-separate native process. Arguments after -- are program arguments. JIT mode has no output path;
--o and --out-dir are invalid. ORC cannot produce a DLL, archive, or solib.
+when requested and supported. ORC defaults to --emit=link and emits a bin executable with embedded
+bitcode and a matching SolJit.dll sidecar. Functions compile on first call. Application arguments
+are passed to that executable. --emit=jit is rejected. ORC cannot produce a DLL, archive, or solib.
 
 Both paths consume the same verified FIR semantics. AOT emits Windows AMD64 COFF and links via the
 embedded LLD.COFF and LLD.Common components. ORC receives binary bitcode from the constructed LLVM
-module, verifies it, then owns its LLJIT context and code in the native guest. Solc does not invoke
+module, verifies it, then owns its lazy JIT context and code in the native application. Solc does not invoke
 guest function pointers in its CLR process.
 
 The CLR host heap and guest Yellow Tea heap are process-isolated. They do not exchange object
 references or roots. Process isolation is an execution boundary; it is not by itself an operating
-system sandbox. The guest import allowlist and IPC validation remain required.
+system sandbox. The runtime symbol allowlist and embedded-envelope validation remain required.
 
 ## SolRT linkage
 
@@ -234,10 +234,10 @@ Some command combinations are intentionally invalid:
 | AOT with cdylib | DLL and import library if wrappers pass C ABI admission |
 | AOT with staticlib | COFF archive if wrappers and dependencies pass |
 | AOT with solib | Versioned container if its payload set passes validation |
-| ORC with bin and emit=jit | Execute through the native guest process |
-| ORC with cdylib, staticlib, or solib | Reject; ORC is an execution mode |
-| ORC with emit=link | Reject; it does not create a persistent linked artifact |
-| ORC JIT with -o or --out-dir | Reject; JIT has no output path |
+| ORC with bin and emit=link | Emit an executable with embedded bitcode and lazy native compilation |
+| ORC with cdylib, staticlib, or solib | Reject; ORC produces only bin artifacts |
+| ORC with emit=jit | Reject the removed compiler-run mode |
+| ORC with -o or --out-dir | Select the executable output path |
 
 The command parser validates incompatible option combinations before output creation. A request
 for ORC plus a library does not invoke AOT behind the user's back. A target mismatch, missing

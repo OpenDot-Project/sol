@@ -41,7 +41,14 @@ public sealed partial class LlvmEmitter
                 operands[index + 1] = Expression(argument.Value).Operand;
             }
         }
-        long result = Op(LlvmOperation.IndirectCall, signature, operands);
+        long result;
+        if (_unwind == 0) { result = Op(LlvmOperation.IndirectCall, signature, operands); }
+        else
+        {
+            long normal = NewBlock("indirect.continue");
+            result = Op(LlvmOperation.IndirectInvoke, args: [signature, operands[0], normal, _unwind, .. operands.Skip(1)]);
+            Start(normal);
+        }
         if (call.Type.Kind == ResolvedTypeKind.Bottom)
         { Op(LlvmOperation.Unreachable); _terminated = true; }
         return new(Type(call.Type), result, call.Type);

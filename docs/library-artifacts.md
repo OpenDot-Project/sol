@@ -37,8 +37,9 @@ from a successfully emitted scalar library. Fail-stop arithmetic/bounds errors c
 foreign C caller as an uncontrolled native exception.
 
 Wrappers attach an unregistered caller, retain an existing managed registration, or transition a
-registered native-safe caller back into guest execution. They restore that state on normal return.
-Internal functions remain private symbols, avoiding cross-library `sol_fn_N` collisions.
+registered native-safe caller back into guest execution. They restore that state on normal return
+and during native unwind. Compiler-private function symbols use a `sol_v0_` digest of the logical
+callable identity. Public C export names retain their declared spelling.
 Call the exported `sol_library_shutdown()` after all guest calls/threads finish and before unloading
 the library. Unloading active guest code or a runtime worker is unsupported.
 Current qualification covers one generated library per native consumer. Composing multiple generated
@@ -69,7 +70,7 @@ emission and validation do not imply `--extern` consumption is implemented.
 
 ## ORC boundary
 
-ORC bin execution uses native `sol-exec-host.exe`; Solc does not execute a guest function pointer in
+ORC bin output is a native executable with embedded bitcode and `SolJit.dll`; Solc does not execute a guest function pointer in
 the CLR process. The host checks LLVM version/target, verifies binary bitcode, binds an explicit runtime symbol
 allowlist, and owns the LLJIT context/module/code lifetime. Standard streams and exit status propagate
 through the child. Cancellation terminates its process tree. The guest import table must contain no

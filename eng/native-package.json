@@ -32,6 +32,6 @@
   ],
   "files": [
     "OpenDot.Sol.LlvmBridge.dll", "OpenDot.Sol.LlvmNative.dll", "ijwhost.dll",
-    "sol-exec-host.exe", "sol-exec-host-static.exe", "SolRT.dll", "SolRT.lib", "SolRT-static.lib", "abi-manifest.xml"
+    "SolOrcBootstrap.lib", "SolOrcBootstrap-static.lib", "SolRT.dll", "SolRT.lib", "SolRT-static.lib", "abi-manifest.xml"
   ]
 }

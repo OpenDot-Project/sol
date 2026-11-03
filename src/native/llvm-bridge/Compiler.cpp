@@ -9,7 +9,7 @@ using namespace System::Runtime::InteropServices;
 using namespace System::Text;
 using namespace OpenDot::Sol::Lowering;
 
-[assembly:System::Reflection::AssemblyMetadataAttribute("SolBridgeProtocol", "0x534F4C4C00000001")];
+[assembly:System::Reflection::AssemblyMetadataAttribute("SolBridgeProtocol", "0x534F4C4C00000003")];
 
 namespace OpenDot::Sol::LlvmBridge
 {
@@ -104,6 +104,24 @@ public:
         pin_ptr<Byte> bytes = utf8->Length ? &utf8[0] : nullptr;
         std::int64_t result = 0;
         CheckResult(SolLlvmString(_session, bytes, utf8->Length, &result));
+        return result;
+    }
+
+    virtual Int64 CreateData(array<Byte> ^data, String ^name)
+    {
+        ArgumentNullException::ThrowIfNull(data, "data");
+        ArgumentNullException::ThrowIfNull(name, "name");
+        if (String::IsNullOrEmpty(name) || name->IndexOf(L'\0') >= 0)
+        {
+            throw gcnew ArgumentException("LLVM data requires a nonempty symbol name without NUL.");
+        }
+        msclr::lock guard(_gate);
+        Check();
+        auto encoded = Encoding::UTF8->GetBytes(name + "\0");
+        pin_ptr<Byte> symbol = &encoded[0];
+        pin_ptr<Byte> bytes = data->Length ? &data[0] : nullptr;
+        std::int64_t result = 0;
+        CheckResult(SolLlvmData(_session, bytes, data->Length, reinterpret_cast<char *>(symbol), &result));
         return result;
     }
 

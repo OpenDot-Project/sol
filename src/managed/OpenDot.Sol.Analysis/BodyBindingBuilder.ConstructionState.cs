@@ -43,21 +43,16 @@ internal sealed partial class BodyBindingBuilder
         property.Name ?? "", property.Delegate is null ? ConstructionSlotKind.BackingField : ConstructionSlotKind.PropertyDelegate,
         property.IsMutable);
 
-    private IEnumerable<ConstructionSlot> ConstructionSlots(ResolvedType owner)
+    private readonly Dictionary<ResolvedType, ImmutableArray<ConstructionSlot>> _constructionStorage = [];
+
+    private ImmutableArray<ConstructionSlot> ConstructionSlots(ResolvedType owner)
     {
-        foreach (var part in owner.Declaration?.Parts.OfType<AstTypeDeclaration>() ?? [])
-        {
-            foreach (var property in part.Members.OfType<AstProperty>().Where(property =>
-                !property.Modifiers.Contains("abstract") && (property.Delegate is not null || !property.Accessors.Any()
-                || property.Accessors.All(accessor => accessor.Body.Kind == AstBodyKind.Missing)
-                || property.Accessors.Any(accessor => accessor.Body.Node is { } body
-                    && body.Descendants().Prepend(body).OfType<AstAtom>().Any(atom => atom.Spelling == "field")))))
-            { yield return PropertySlot(property, owner); }
-            foreach (var parameter in part.PrimaryConstructor?.Parameters.Where(parameter => parameter.IsProperty) ?? [])
-            { yield return new(part.PrimaryConstructor!, owner, parameter.Name, ConstructionSlotKind.PrimaryProperty, parameter.IsMutable); }
-            foreach (var entry in part.Bases.Where(entry => entry.Children.Any(child => child.SyntaxKind == OpenDot.Sol.Cst.NodeKind.Delegation)))
-            { yield return new(entry, owner, entry.Origin.Text, ConstructionSlotKind.InterfaceDelegate, false); }
-        }
+        _cancellation.ThrowIfCancellationRequested();
+        Types.ValidateOwnership(owner);
+        if (_constructionStorage.TryGetValue(owner, out var cached)) { return cached; }
+        var slots = ConstructionStorage.ForOwner(owner, _cancellation);
+        _constructionStorage.Add(owner, slots);
+        return slots;
     }
 
     private bool ConstructionReceiver(AstNode? expression, State state)

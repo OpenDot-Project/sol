@@ -17,6 +17,7 @@ public sealed record NativeArtifact(byte[] Executable, byte[]? RuntimeDll)
 {
     public byte[]? ImportLibrary { get; init; }
     public byte[]? RuntimeLibrary { get; init; }
+    public byte[]? JitDll { get; init; }
 }
 
 /// <summary>LLVM object production and embedded LLD COFF linking for the qualified Windows bootstrap.</summary>
