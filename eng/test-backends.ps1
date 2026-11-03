@@ -98,7 +98,7 @@ $library = Join-Path $scratch 'Library.sol'
 $consumer = Join-Path $scratch 'Consumer.c'
 [IO.File]::WriteAllText($consumer, 'extern int add(int, int); extern void sol_library_shutdown(void); int main(void) { int result = add(20, 22); sol_library_shutdown(); return result == 42 ? 0 : 99; }')
 $object = Join-Path $scratch 'Consumer.obj'
-$null = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/clang-cl.exe') @('/nologo', '/c', '/MT', '/TC', $consumer, "/Fo$object")
+$null = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/clang-cl.exe') @('/nologo', '/c', '/MD', '/TC', $consumer, "/Fo$object")
 $paths = Get-Content (Join-Path $backend 'link-paths.txt') | ForEach-Object { "/libpath:$_" }
 foreach ($kind in @('cdylib', 'staticlib', 'solib')) {
     foreach ($static in @($false, $true)) {
@@ -116,7 +116,7 @@ foreach ($kind in @('cdylib', 'staticlib', 'solib')) {
             $exe = Join-Path $directory 'Consumer.exe'
             $link = @('/nologo', '/machine:x64', '/subsystem:console', "/out:$exe", $object, (Join-Path $directory 'Library.lib'))
             if ($kind -eq 'staticlib' -and -not $static) { $link += Join-Path $directory 'SolRT.lib' }
-            $link += @('libcmt.lib', 'libcpmt.lib', 'libvcruntime.lib', 'libucrt.lib', 'oldnames.lib', 'kernel32.lib')
+            $link += @('msvcrt.lib', 'msvcprt.lib', 'vcruntime.lib', 'ucrt.lib', 'oldnames.lib', 'kernel32.lib')
             # This is an independent C/C++ consumer toolchain, not Solc's embedded linker.
             $null = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/lld-link.exe') ($link + $paths)
             $null = InvokeChecked $exe @()

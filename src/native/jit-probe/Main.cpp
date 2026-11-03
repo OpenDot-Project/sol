@@ -8,8 +8,8 @@
 #include <bit>
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
+#include <fcntl.h>
+#include <io.h>
 #include <limits>
 #include <span>
 #include <stdexcept>
@@ -89,6 +89,41 @@ std::vector<SolJitSymbol> Symbols()
          std::numeric_limits<std::uint64_t>::max()},
     };
 }
+
+std::vector<unsigned char> ReadPayload()
+{
+    constexpr std::size_t headerSize = 88;
+    constexpr std::size_t maximumSize = 64 * 1024 * 1024 + headerSize;
+    if (_setmode(_fileno(stdin), _O_BINARY) == -1)
+    {
+        throw std::runtime_error("Cannot configure binary probe input.");
+    }
+    std::vector<unsigned char> payload;
+    std::array<unsigned char, 8192> buffer{};
+    for (;;)
+    {
+        const auto count = std::fread(buffer.data(), 1, buffer.size(), stdin);
+        if (count > maximumSize - payload.size())
+        {
+            throw std::runtime_error("Invalid probe payload size.");
+        }
+        const auto bytes = std::span{buffer}.first(count);
+        payload.insert(payload.end(), bytes.begin(), bytes.end());
+        if (count != buffer.size())
+        {
+            if (std::ferror(stdin))
+            {
+                throw std::runtime_error("Cannot read probe payload.");
+            }
+            break;
+        }
+    }
+    if (payload.size() < headerSize)
+    {
+        throw std::runtime_error("Invalid probe payload size.");
+    }
+    return payload;
+}
 }
 
 int wmain(int argc, wchar_t **argv)
@@ -96,24 +131,11 @@ int wmain(int argc, wchar_t **argv)
     using namespace OpenDot::Sol::Runtime;
     try
     {
-        if (argc != 2 || !argv)
+        if (argc != 1 || !argv)
         {
             return 2;
         }
-        const auto command = std::span{argv, Detail::Integer<std::size_t>(argc)};
-        std::ifstream file(std::filesystem::path(Detail::CheckedAt(command, 1)), std::ios::binary | std::ios::ate);
-        const auto length = file.tellg();
-        if (length < 88 || length > 64LL * 1024 * 1024 + 88)
-        {
-            throw std::runtime_error("Invalid probe payload size.");
-        }
-        std::vector<unsigned char> payload(Detail::Integer<std::size_t>(static_cast<std::streamoff>(length)));
-        file.seekg(0);
-        void *bytes = payload.data();
-        if (!file.read(static_cast<char *>(bytes), Detail::Integer<std::streamsize>(payload.size())))
-        {
-            throw std::runtime_error("Cannot read probe payload.");
-        }
+        const auto payload = ReadPayload();
         auto symbols = Symbols();
 #ifdef SOL_RT_STATIC
         constexpr std::uint32_t flags = 1;

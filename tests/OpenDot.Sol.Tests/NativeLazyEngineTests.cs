@@ -50,31 +50,30 @@ public sealed class NativeLazyEngineTests
         NativeEhProbeTests.BuildProbe(module, staticRuntime); module.Verify();
         byte[] envelope = OrcEnvelope.Create(module.Bitcode(), staticRuntime);
         if (corrupt) { envelope[^1] ^= 0x40; }
-        string directory = Path.Combine(Path.GetTempPath(), "sol-lazy-probe-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
+        var start = new ProcessStartInfo(probe)
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        using var child = Process.Start(start)!;
+        var output = child.StandardOutput.ReadToEndAsync(cancellationToken);
+        var error = child.StandardError.ReadToEndAsync(cancellationToken);
         try
         {
-            string payload = Path.Combine(directory, "program.bin"); File.WriteAllBytes(payload, envelope);
-            var start = new ProcessStartInfo(probe)
-            {
-                UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
-                WorkingDirectory = directory,
-            };
-            start.ArgumentList.Add(payload);
-            using var child = Process.Start(start)!;
-            var output = child.StandardOutput.ReadToEndAsync(cancellationToken);
-            var error = child.StandardError.ReadToEndAsync(cancellationToken);
-            try
-            {
-                await child.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(90), cancellationToken);
-            }
-            catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
-            {
-                if (!child.HasExited) { child.Kill(entireProcessTree: true); }
-                throw;
-            }
-            return (child.ExitCode, await output, await error);
+            await Task.WhenAll(SendPayload(), child.WaitForExitAsync(cancellationToken))
+                .WaitAsync(TimeSpan.FromSeconds(90), cancellationToken);
         }
-        finally { Directory.Delete(directory, recursive: true); }
+        catch
+        {
+            if (!child.HasExited) { child.Kill(entireProcessTree: true); }
+            throw;
+        }
+        return (child.ExitCode, await output, await error);
+
+        async Task SendPayload()
+        {
+            await using var input = child.StandardInput.BaseStream;
+            await input.WriteAsync(envelope, cancellationToken);
+        }
     }
 }
