@@ -82,7 +82,12 @@ foreach ($static in @($false, $true)) {
     $exe = Join-Path $directory 'Main.exe'
     $null = InvokeChecked $dotnet (@($cli, $program, '-o', $exe) + $flags)
     $aot = InvokeChecked $exe @('İa')
-    $orc = InvokeChecked $dotnet (@($cli, $program, '-Cllvm-compiler=orc') + $flags + @('--', 'İa'))
+    $orcDirectory = Join-Path $scratch "orc-$static"
+    New-Item -ItemType Directory $orcDirectory -Force | Out-Null
+    $orcExe = Join-Path $orcDirectory 'Main.exe'
+    $compiled = InvokeChecked $dotnet (@($cli, $program, '-Cllvm-compiler=orc', '-o', $orcExe) + $flags)
+    if ($compiled.Out -or $compiled.Error) { throw 'ORC compilation executed observable program code.' }
+    $orc = InvokeChecked $orcExe @('İa')
     if ($aot.Out -cne $expected -or $orc.Out -cne $aot.Out -or $aot.Error -or $orc.Error) { throw "AOT/ORC String/array/GC parity failed: $($aot.Out) / $($orc.Out) / $($orc.Error)" }
     $count += 2
     Write-Host "AOT/ORC collectible String/array parity passed (static runtime: $static)."
@@ -93,7 +98,7 @@ $library = Join-Path $scratch 'Library.sol'
 $consumer = Join-Path $scratch 'Consumer.c'
 [IO.File]::WriteAllText($consumer, 'extern int add(int, int); extern void sol_library_shutdown(void); int main(void) { int result = add(20, 22); sol_library_shutdown(); return result == 42 ? 0 : 99; }')
 $object = Join-Path $scratch 'Consumer.obj'
-$null = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/clang-cl.exe') @('/nologo', '/c', '/MT', '/TC', $consumer, "/Fo$object")
+$null = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/clang-cl.exe') @('/nologo', '/c', '/MD', '/TC', $consumer, "/Fo$object")
 $paths = Get-Content (Join-Path $backend 'link-paths.txt') | ForEach-Object { "/libpath:$_" }
 foreach ($kind in @('cdylib', 'staticlib', 'solib')) {
     foreach ($static in @($false, $true)) {
@@ -111,7 +116,7 @@ foreach ($kind in @('cdylib', 'staticlib', 'solib')) {
             $exe = Join-Path $directory 'Consumer.exe'
             $link = @('/nologo', '/machine:x64', '/subsystem:console', "/out:$exe", $object, (Join-Path $directory 'Library.lib'))
             if ($kind -eq 'staticlib' -and -not $static) { $link += Join-Path $directory 'SolRT.lib' }
-            $link += @('libcmt.lib', 'libcpmt.lib', 'libvcruntime.lib', 'libucrt.lib', 'oldnames.lib', 'kernel32.lib')
+            $link += @('msvcrt.lib', 'msvcprt.lib', 'vcruntime.lib', 'ucrt.lib', 'oldnames.lib', 'kernel32.lib')
             # This is an independent C/C++ consumer toolchain, not Solc's embedded linker.
             $null = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/lld-link.exe') ($link + $paths)
             $null = InvokeChecked $exe @()
@@ -121,9 +126,9 @@ foreach ($kind in @('cdylib', 'staticlib', 'solib')) {
     }
 }
 
-foreach ($file in @('sol-exec-host.exe', 'sol-exec-host-static.exe', 'OpenDot.Sol.LlvmBridge.dll', 'OpenDot.Sol.LlvmNative.dll')) {
+foreach ($file in @('OpenDot.Sol.LlvmBridge.dll', 'OpenDot.Sol.LlvmNative.dll')) {
     $imports = InvokeChecked (Join-Path $env:LLVM_ROOT 'bin/llvm-readobj.exe') @('--coff-imports', (Join-Path $backend $file))
-    if (($file -like 'sol-exec-host*' -or $file -eq 'OpenDot.Sol.LlvmNative.dll') -and $imports.Out -match '(?i)mscoree|hostfxr|coreclr|ijwhost') { throw 'Guest ORC host imports the managed runtime.' }
+    if (($file -eq 'OpenDot.Sol.LlvmNative.dll') -and $imports.Out -match '(?i)mscoree|hostfxr|coreclr|ijwhost') { throw 'Guest ORC host imports the managed runtime.' }
     if ($file -like 'OpenDot.Sol.Llvm*' -and $imports.Out -match '(?i)Name: SolRT.dll') { throw 'Host compiler bridge imports the guest runtime.' }
     [IO.File]::WriteAllText((Join-Path $scratch "$file.imports.txt"), $imports.Out)
 }

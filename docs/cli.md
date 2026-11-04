@@ -2,17 +2,18 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
 # Solc command-line reference
 
-This page describes Sol 0.1.0. Solc has one compilation command; it has no `run`, `check`, or
+This page describes the development compiler. Solc has one compilation command; it has no `run`, `check`, or
 `explain` subcommands and no `--entry` option. `--explain CODE` is an information flag. The CLI
 parser belongs to Solc; Solfmt, Sol-Tidy, Shake, and Solup have independent command-line contracts.
 
 ```text
 solc <SOURCE.sol>... [OPTIONS]
-solc <SOURCE.sol>... -C llvm-compiler=orc --emit=jit [OPTIONS] -- [PROGRAM-ARG...]
+solc <SOURCE.sol>... -C llvm-compiler=orc -o app.exe [OPTIONS]
+.\app.exe [PROGRAM-ARG...]
 ```
 
 The default backend is AOT and the default emission is a linked artifact. Selecting the ORC backend
-defaults to JIT execution of a bin in a separate native guest process. The frontend component
+produces a native executable containing bitcode, with functions compiled on first call. The frontend component
 supports source inspection and verified FIR emission; it cannot perform LLVM lowering, linking, or
 ORC execution. Native outputs require the native component.
 
@@ -34,14 +35,14 @@ request by itself.
 
 | Option | Accepted values and behavior |
 |---|---|
-| `--emit` | `cst`, `ast`, `fir`, `llvm-ir`, `link`, or `jit`. Default is `link` with AOT and `jit` with ORC. `cst`/`ast` write JSON; `fir` writes independently verified FIR JSON; `llvm-ir` writes printer output from a constructed native module; `link` creates the selected native artifact; `jit` runs a bin through ORC. |
+| `--emit` | `cst`, `ast`, `fir`, `llvm-ir`, or `link`. Default is `link` with both backends. `cst`/`ast` write JSON; `fir` writes independently verified FIR JSON; `llvm-ir` writes printer output from a constructed native module; `link` creates the selected native artifact. `--emit=jit` is rejected. |
 | `-o PATH` | Select one output path. CST/AST require exactly one source. FIR, LLVM IR, and linked native output can combine an explicit source set into one output. |
 | `--out-dir DIR` | Set the directory for the default output name; default is the current directory. |
 | `--edition=2026` | Select the only supported source edition. |
 | `--target TRIPLE` | Select the only supported target, `x86_64-pc-windows-msvc`. |
-| `--artifact-type TYPE` | Select `bin`, `cdylib`, `staticlib`, or `solib`; default `bin`. Applies to AOT-linked output, not ORC JIT execution. |
+| `--artifact-type TYPE` | Select `bin`, `cdylib`, `staticlib`, or `solib`; default `bin`. AOT supports all four kinds; ORC supports only `bin`. |
 | `--static-solrt-lib` | Select static SolRT linkage. Dynamic SolRT linkage is the default. |
-| `-C llvm-compiler=VALUE` | Select `aot` or `orc`; default `aot`. ORC defaults to `--emit=jit`. |
+| `-C llvm-compiler=VALUE` | Select `aot` or `orc`; default `aot`. Both backends default to `--emit=link`. |
 | `--error-format` | Select `human` or `json` source diagnostics; default `human`. |
 | `--error-limit N` | Set a positive diagnostic limit; default 100 per source. |
 | `--color` | Select `auto`, `always`, or `never`; default `auto`. |
@@ -53,12 +54,13 @@ a separate option followed by its value, not a `-oPATH` shorthand.
 ```powershell
 solc first.sol second.sol --emit=cst --out-dir out/cst --color=never
 solc spec/examples/native/FirstProgram.sol -C llvm-compiler=aot --artifact-type=bin -o out/Hello.exe
-solc spec/examples/native/FirstProgram.sol -C llvm-compiler=orc -- Alice 20
+solc spec/examples/native/FirstProgram.sol -C llvm-compiler=orc -o out/HelloOrc.exe
+.\out\HelloOrc.exe Alice 20
 ```
 
-The second example emits an executable; the third executes the program with `Alice` and `20` as its
-arguments. Program arguments after `--` are meaningful only for ORC JIT. For compilation, `--` stops
-option parsing so subsequent `.sol` paths are treated as inputs. ORC JIT rejects `-o` and `--out-dir`.
+Both backends emit executables. Solc never runs the program. Pass application arguments to the
+produced executable. In Solc, `--` stops option parsing; subsequent paths remain source inputs.
+ORC publishes `SolJit.dll` beside the executable, and dynamic linkage also publishes `SolRT.dll`.
 
 Sources must use the `.sol` extension. Duplicate source paths are rejected case-insensitively on
 Windows. CST/AST outputs default to `<source-basename>.cst.json` or `<source-basename>.ast.json`.

@@ -37,6 +37,7 @@ public static class SolLibraryArchive
     {
         ArgumentNullException.ThrowIfNull(program); ArgumentNullException.ThrowIfNull(llvmBitcode); ArgumentNullException.ThrowIfNull(objectBytes);
         if (!program.Program.IsLibrary) { throw new ArgumentException("A Sol library cannot contain a program entry.", nameof(program)); }
+        var symbols = NativeCallableSymbols.Build(program.Program);
         var entries = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
         byte[] fir = Encoding.UTF8.GetBytes(FirJson.Serialize(program));
         string firPath = "fir/" + Digest(fir) + ".bin", objectPath = "objects/" + Target + "/" + Digest(objectBytes) + ".obj";
@@ -53,14 +54,14 @@ public static class SolLibraryArchive
             {
                 module = id,
                 exports = program.Program.Functions.Where(f => f.ExportName is not null && module.Any(s => s.Root.Origin.Source == f.Origin.Source))
-                    .Select(f => new { name = f.ExportName, native_symbol = "sol_fn_" + f.Id, result = f.ReturnType.Name, parameters = f.Parameters.Select(p => new { p.Name, type = p.Type.Name, mode = p.Mode.ToString() }) })
+                    .Select(f => new { name = f.ExportName, native_symbol = symbols[f.Id], result = f.ReturnType.Name, parameters = f.Parameters.Select(p => new { p.Name, type = p.Type.Name, mode = p.Mode.ToString() }) })
                     .OrderBy(e => e.name, StringComparer.Ordinal),
             }));
         }
         entries.Add("provenance.json", JsonSerializer.SerializeToUtf8Bytes(new { compiler = CompilerId, llvm = "23.1.3", runtime_abi = 0, runtime_contract = RuntimeContract.Id, fir_encoding = "utf8-json", subset = "closed-nongeneric" }));
         entries.Add("manifest.json", JsonSerializer.SerializeToUtf8Bytes(new
         {
-            schema = 2, compiler = CompilerId, edition = 2026, target = Target, llvm = "23.1.3", runtime_abi = 0, runtime_contract = RuntimeContract.Id,
+            schema = 3, compiler = CompilerId, edition = 2026, target = Target, llvm = "23.1.3", runtime_abi = 0, runtime_contract = RuntimeContract.Id,
             runtime_linkage = staticRuntime ? "static" : "dynamic", modules = modules.Select(m => m.Key),
             files = entries.Select(e => new { path = e.Key, size = e.Value.Length, sha256 = Digest(e.Value) }).ToArray(),
         }));
@@ -127,7 +128,7 @@ public static class SolLibraryArchive
             }
             else if (element.ValueKind == JsonValueKind.Array) { foreach (var child in element.EnumerateArray()) { pending.Push(child); } }
         }
-        if (root.GetProperty("schema").GetInt32() != 2 || root.GetProperty("compiler").GetString() != CompilerId
+        if (root.GetProperty("schema").GetInt32() != 3 || root.GetProperty("compiler").GetString() != CompilerId
             || root.GetProperty("target").GetString() != Target || root.GetProperty("llvm").GetString() != "23.1.3"
             || root.GetProperty("runtime_abi").GetInt32() != 0 || root.GetProperty("runtime_contract").GetUInt64() != RuntimeContract.Id || root.GetProperty("edition").GetInt32() != 2026)
         { throw new InvalidDataException("Incompatible library schema, compiler, runtime, or target."); }

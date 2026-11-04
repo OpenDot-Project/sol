@@ -36,7 +36,7 @@ public sealed class FunctionValueArrayTests
         var call = Assert.IsType<FirIndirectCall>(indirect.Initializer);
         Assert.IsType<FirArrayIndex>(call.Function);
         Assert.Equal("int", call.Type.Name);
-        Assert.Contains("IndirectCall", LoweringTrace.Inspect(compilation.Program,
+        Assert.Contains("IndirectInvoke", LoweringTrace.Inspect(compilation.Program,
             cancellationToken: TestContext.Current.CancellationToken));
     }
 

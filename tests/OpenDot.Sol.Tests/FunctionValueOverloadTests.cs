@@ -409,7 +409,7 @@ public sealed class FunctionValueOverloadTests
 
         string lowering = LoweringTrace.Inspect(compilation.Program, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Contains("FunctionType", lowering, System.StringComparison.Ordinal);
-        Assert.Contains("IndirectCall", lowering, System.StringComparison.Ordinal);
+        Assert.Contains("IndirectInvoke", lowering, System.StringComparison.Ordinal);
     }
 
     [Fact]
@@ -457,7 +457,7 @@ public sealed class FunctionValueOverloadTests
         Assert.Null(callSite.Target);
         Assert.Equal("std.stdio.IOException", Assert.Single(callSite.Effects).Name);
         using var json = JsonDocument.Parse(FirJson.Serialize(verified, TestContext.Current.CancellationToken));
-        Assert.Equal(7, json.RootElement.GetProperty("schema").GetInt32());
+        Assert.Equal(8, json.RootElement.GetProperty("schema").GetInt32());
         Assert.Contains("\"kind\": \"FirIndirectCall\"", json.RootElement.GetRawText(), System.StringComparison.Ordinal);
         Assert.Contains("\"target\": null", json.RootElement.GetRawText(), System.StringComparison.Ordinal);
         Assert.DoesNotContain("\"Target\"", json.RootElement.GetRawText(), System.StringComparison.Ordinal);
@@ -625,7 +625,7 @@ public sealed class FunctionValueOverloadTests
         var call = Assert.IsType<FirIndirectCall>(returned.Value);
         Assert.Equal(ResolvedTypeKind.Bottom, call.Type.Kind);
         string trace = LoweringTrace.Inspect(verified, cancellationToken: TestContext.Current.CancellationToken);
-        Assert.Contains("IndirectCall", trace, System.StringComparison.Ordinal);
+        Assert.Contains("IndirectInvoke", trace, System.StringComparison.Ordinal);
         Assert.Contains("Unreachable", trace, System.StringComparison.Ordinal);
     }
 }

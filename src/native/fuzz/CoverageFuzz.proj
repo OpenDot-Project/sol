@@ -42,6 +42,7 @@
   </ItemGroup>
   <ItemGroup Condition="'$(FuzzTarget)' == 'backend'">
     <FuzzSource Include="$(FuzzRoot)\BackendCases.cpp" />
+    <FuzzSource Include="$(FuzzRoot)\CoffExecution.cpp" />
     <FuzzSource Include="$(FuzzRoot)\CoverageMain.cpp" />
   </ItemGroup>
   <ItemGroup Condition="'$(FuzzTarget)' == 'gc'">

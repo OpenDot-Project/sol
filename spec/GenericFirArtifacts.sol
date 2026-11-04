@@ -142,14 +142,14 @@ module source.spec.generic_fir_artifacts
 // | Backend      | Operation           | Permitted output                              |
 // +--------------+---------------------+-----------------------------------------------+
 // | aot          | Native link         | bin, cdylib, staticlib, solib when gated      |
-// | orc          | JIT execution       | bin only; no persistent artifact path        |
+// | orc          | Lazy executable     | bin with embedded bitcode and SolJit.dll     |
 // +--------------+---------------------+-----------------------------------------------+
 //
-// ORC defaults to --emit=jit, with program arguments following --. JIT has no output path, so -o
-// and --out-dir are invalid. ORC with a library artifact or link emission is an option error; it
-// does not secretly switch to AOT.
+// Both backends default to --emit=link. ORC honors -o and --out-dir and rejects --emit=jit.
+// Application arguments belong to the produced executable. ORC with a library artifact is an
+// option error; it does not switch to AOT.
 //
-// ORC owns a separate native guest process containing LLVM JIT state and guest runtime state.
+// The ORC executable owns its native process, LLVM JIT state and guest runtime state.
 // Solc MUST NOT invoke guest function pointers inside the .NET process. Compiler CLR objects are
 // not guest roots, and Yellow Tea objects are not CLR objects.
 //
@@ -158,8 +158,7 @@ module source.spec.generic_fir_artifacts
 // availability cannot grant a source feature rejected by ORC's shared verifier.
 //
 // A process boundary is not an OS security sandbox. This contract does not authorize arbitrary
-// guest imports or remove validation of pipe framing, child handles, cancellation, output size, or
-// exit status.
+// runtime imports or remove envelope, digest, cancellation, output-size or exit-status validation.
 
 // 5. Output paths and commit
 // --------------------------
@@ -427,7 +426,7 @@ module source.spec.generic_fir_artifacts
 //
 // Native readers validate untrusted names, lengths, counts, hashes, and schemas before extraction.
 // Windows case-insensitive collisions are rejected, and extraction remains beneath its destination.
-// ORC process separation does not remove IPC framing, handle, cancellation, size, or exit checks.
+// ORC process separation does not remove envelope, digest, cancellation, size or exit checks.
 //
 // Solib data cannot authorize arbitrary native imports. A malformed generic record cannot request
 // pointer reinterpretation or bypass FIR verification. Host paths and usernames are not generic

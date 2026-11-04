@@ -10,14 +10,9 @@ namespace OpenDot.Sol.Analysis;
 
 internal sealed partial class BodyBindingBuilder
 {
-    private sealed record DelegateContract(ResolvedType ValueType, ImmutableArray<ResolvedType> GetEffects,
-        ImmutableArray<ResolvedType> SetEffects, ImmutableArray<ResolvedType> InitEffects,
-        ImmutableArray<ResolvedType> ProvideEffects, bool HasProvider,
-        ProtocolSelection Getter, ProtocolSelection? Setter, ProtocolSelection? Provider);
-    private readonly record struct ProtocolSelection(ResolvedType Type, ImmutableArray<ResolvedType> Effects,
-        AstFunction Function, ResolvedType Owner);
     private readonly Dictionary<AstProperty, DelegateContract?> _delegates = [];
     private readonly HashSet<AstProperty> _activeDelegates = [];
+    internal ImmutableArray<DelegateContract> DelegateContracts => _delegates.Values.OfType<DelegateContract>().ToImmutableArray();
 
     private DelegateContract? Delegate(AstProperty property, State? initializationState = null,
         Context? initializationContext = null)
@@ -72,7 +67,7 @@ internal sealed partial class BodyBindingBuilder
             if (setter is { } write && write.Type != Empty) { Report("SOL2281", "Delegated setter must return ().", property); }
             if (property.Initializer is not null || property.Accessors.Any(a => a.Body.Kind != AstBodyKind.Missing) || property.Modifiers.Contains("ref"))
             { Report("SOL2282", "Delegation cannot be combined with an initializer, custom accessor, or ref property.", property); }
-            var contract = new DelegateContract(propertyType, getter.Value.Effects,
+            var contract = new DelegateContract(property, owner, actual, propertyType, getter.Value.Effects,
                 setter?.Effects ?? [], state.Effects.ToImmutableArray(),
                 provider?.Effects ?? [], provider is not null, getter.Value, setter, provider);
             _delegates[property] = contract;

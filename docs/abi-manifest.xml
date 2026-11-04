@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 OpenDot Project <opendotproject.opendot@gmail.com> -->
+<!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception -->
+<!-- Validated contract documentation, not an input to code generation. Planned conventions do not grant native admission. Effect flags are conservative native effects, not source checked-effect budgets. -->
+<sol-abi schema="1" family="0" revision="2" contract="0x534F4C0000000002" fir="8" solib="3" bridgeProtocol="0x534F4C4C00000003">
+  <target triple="x86_64-pc-windows-msvc" endianness="little" pointerSize="8" allocationAlignment="16" callingConvention="win64" />
+  <layouts>
+    <layout name="Header" size="16" alignment="8" naturalAlignment="8">
+      <field name="Type" offset="0" size="8" gcReference="false" />
+      <field name="Flags" offset="8" size="4" gcReference="false" />
+      <field name="Reserved" offset="12" size="4" gcReference="false" />
+    </layout>
+    <layout name="TypeDescriptor" size="80" alignment="16" naturalAlignment="8">
+      <field name="Size" offset="0" size="8" gcReference="false" />
+      <field name="Alignment" offset="8" size="8" gcReference="false" />
+      <field name="TypeId" offset="16" size="8" gcReference="false" />
+      <field name="Kind" offset="24" size="4" gcReference="false" />
+      <field name="LayoutVersion" offset="28" size="4" gcReference="false" />
+      <field name="Base" offset="32" size="8" gcReference="false" />
+      <field name="ScanShape" offset="40" size="8" gcReference="false" />
+      <field name="MethodTable" offset="48" size="8" gcReference="false" />
+      <field name="GenericIdentity" offset="56" size="8" gcReference="false" />
+      <field name="ExceptionMetadata" offset="64" size="8" gcReference="false" />
+      <field name="Reserved" offset="72" size="8" gcReference="false" />
+    </layout>
+    <layout name="RootFrame" size="24" alignment="8" naturalAlignment="8">
+      <field name="Previous" offset="0" size="8" gcReference="false" />
+      <field name="Slots" offset="8" size="8" gcReference="false" />
+      <field name="Count" offset="16" size="4" gcReference="false" />
+      <field name="Reserved" offset="20" size="4" gcReference="false" />
+    </layout>
+    <layout name="InterfaceValue" size="16" alignment="8" naturalAlignment="8">
+      <field name="Object" offset="0" size="8" gcReference="true" />
+      <field name="Table" offset="8" size="8" gcReference="false" />
+    </layout>
+    <layout name="InterfaceCell" size="32" alignment="8" naturalAlignment="8">
+      <field name="Object" offset="0" size="16" gcReference="false" />
+      <field name="Value" offset="16" size="8" gcReference="true" />
+      <field name="Table" offset="24" size="8" gcReference="false" />
+    </layout>
+    <layout name="ReferenceLocation" size="32" alignment="8" naturalAlignment="8">
+      <field name="Kind" offset="0" size="4" gcReference="false" />
+      <field name="Flags" offset="4" size="4" gcReference="false" />
+      <field name="Owner" offset="8" size="8" gcReference="true" />
+      <field name="AddressOrOffset" offset="16" size="8" gcReference="false" />
+      <field name="CallerRoot" offset="24" size="8" gcReference="false" />
+    </layout>
+  </layouts>
+  <orc-envelope schema="1" headerSize="88" maximumPayloadSize="67108864" magic="SOLJIT01" checksum="SHA-256-payload" loaderStatus="implemented" jitProtocol="0x534F4C4A00000001">
+    <field name="Magic" offset="0" size="8" />
+    <field name="Schema" offset="8" size="4" />
+    <field name="HeaderSize" offset="12" size="4" />
+    <field name="PayloadLength" offset="16" size="8" />
+    <field name="RuntimeContract" offset="24" size="8" />
+    <field name="FirSchema" offset="32" size="4" />
+    <field name="LlvmMajor" offset="36" size="4" />
+    <field name="LlvmMinor" offset="40" size="4" />
+    <field name="LlvmPatch" offset="44" size="4" />
+    <field name="Target" offset="48" size="4" />
+    <field name="Flags" offset="52" size="4" />
+    <field name="PayloadHash" offset="56" size="32" />
+  </orc-envelope>
+  <conventions>
+    <convention name="receiver" status="planned">Class and interface member bodies take a hidden object receiver.</convention>
+    <convention name="interface-parameters" status="planned">Caller-owned 16-byte copy, passed indirectly; only Object is a GC reference.</convention>
+    <convention name="interface-results" status="planned">Hidden caller-owned result slot; null requires both words to be null.</convention>
+    <convention name="interface-publication" status="planned">Heap fields and array elements hold one cell reference, published through the reference barrier. Cells are immutable after publication.</convention>
+    <convention name="ref-out" status="planned">Scoped 32-byte location; Owner is rooted and CallerRoot identifies an existing caller object-root slot. Locations cannot escape to the heap.</convention>
+    <convention name="roots" status="implemented">Zero-initialize root slots before frame push; pop exactly once. Interior pointers are not roots.</convention>
+    <convention name="barriers" status="implemented">Heap reference writes use sol_gc_store_ref; metadata and scalar pointers are not traced.</convention>
+    <convention name="crt" status="implemented">Generated code and both SolRT linkage variants use the qualified dynamic CRT (/MD). LLVM components isolate their static CRT behind the C ABI.</convention>
+    <convention name="windows-eh" status="planned">Windows funclets and matching vcruntime carrier; no source unwind through the LLVM compilation DLL.</convention>
+    <convention name="orc-executable" status="implemented">Native bootstrap plus embedded verified bitcode, SHA-256-matched SolJit.dll and dynamic SolRT.dll, stable per-function lazy stubs and registered Windows unwind tables. Solc produces the executable without running it; source admission remains independently verified.</convention>
+  </conventions>
+  <runtime-exports callingConvention="win64" ownership="borrowed-unless-stated" threading="attached-runtime-thread-unless-stated">
+    <export name="sol_rt_throwable_type" kind="data" header="Core.h" signature="const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_throwable_type" status="implemented" />
+    <export name="sol_rt_exception_type" kind="data" header="Core.h" signature="const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_exception_type" status="implemented" />
+    <export name="sol_rt_runtime_exception_type" kind="data" header="Core.h" signature="const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_runtime_exception_type" status="implemented" />
+    <export name="sol_rt_reference_array_type" kind="data" header="Core.h" signature="const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_reference_array_type" status="implemented" />
+    <export name="sol_rt_string_create" kind="function" header="Core.h" signature="OpenDot::Sol::Runtime::String *sol_rt_string_create(const char *bytes, int length)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_string_length" kind="function" header="Core.h" signature="int sol_rt_string_length(OpenDot::Sol::Runtime::String *value)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_string_compare" kind="function" header="Core.h" signature="int sol_rt_string_compare(const OpenDot::Sol::Runtime::String *left, const OpenDot::Sol::Runtime::String *right)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="false" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_string_concat" kind="function" header="Core.h" signature="OpenDot::Sol::Runtime::String *sol_rt_string_concat(OpenDot::Sol::Runtime::String *left, OpenDot::Sol::Runtime::String *right)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_string_substring" kind="function" header="Core.h" signature="OpenDot::Sol::Runtime::String *sol_rt_string_substring(OpenDot::Sol::Runtime::String *value, int start, int length)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_string_index_of" kind="function" header="Core.h" signature="int sol_rt_string_index_of(OpenDot::Sol::Runtime::String *value, const OpenDot::Sol::Runtime::String *needle, int start)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_string_rune_at" kind="function" header="Core.h" signature="std::uint32_t sol_rt_string_rune_at(OpenDot::Sol::Runtime::String *value, int index)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_string_hash" kind="function" header="Core.h" signature="int sol_rt_string_hash(const OpenDot::Sol::Runtime::String *value)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="false" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_array_create" kind="function" header="Core.h" signature="OpenDot::Sol::Runtime::StringArray *sol_rt_array_create(int length, std::uint32_t stride, const OpenDot::Sol::Runtime::TypeDescriptor *element, const OpenDot::Sol::Runtime::TypeDescriptor * arrayType)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_array_new" kind="function" header="Core.h" signature="OpenDot::Sol::Runtime::StringArray *sol_rt_array_new(int length, int elementKind)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_array_address" kind="function" header="Core.h" signature="void *sol_rt_array_address(OpenDot::Sol::Runtime::StringArray *array, int index, int expectedStride)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_exception_create" kind="function" header="Core.h" signature="OpenDot::Sol::Runtime::Throwable *sol_rt_exception_create(const OpenDot::Sol::Runtime::TypeDescriptor *type, OpenDot::Sol::Runtime::String *message, OpenDot::Sol::Runtime::Throwable *cause)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_is_instance" kind="function" header="Core.h" signature="bool sol_rt_is_instance(const OpenDot::Sol::Runtime::Header *value, const OpenDot::Sol::Runtime::TypeDescriptor *type)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="false" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_exception_add_suppressed" kind="function" header="Core.h" signature="void sol_rt_exception_add_suppressed(OpenDot::Sol::Runtime::Throwable *primary, OpenDot::Sol::Runtime::Throwable *secondary)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_throw" kind="function" header="Core.h" signature="void sol_rt_throw(OpenDot::Sol::Runtime::Throwable *value) noexcept(false)" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="source-carrier" />
+    <export name="sol_gc_attach" kind="function" header="Gc.h" signature="void sol_gc_attach()" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_detach" kind="function" header="Gc.h" signature="void sol_gc_detach()" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_push_frame" kind="function" header="Gc.h" signature="void sol_gc_push_frame(OpenDot::Sol::Runtime::RootFrame *frame)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="false" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_pop_frame" kind="function" header="Gc.h" signature="void sol_gc_pop_frame(OpenDot::Sol::Runtime::RootFrame *frame)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="false" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_poll" kind="function" header="Gc.h" signature="void sol_gc_poll()" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_enter_native" kind="function" header="Gc.h" signature="void sol_gc_enter_native()" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="false" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_leave_native" kind="function" header="Gc.h" signature="void sol_gc_leave_native()" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_enter_export" kind="function" header="Gc.h" signature="int sol_gc_enter_export()" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_leave_export" kind="function" header="Gc.h" signature="void sol_gc_leave_export(int transition)" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_alloc" kind="function" header="Gc.h" signature="OpenDot::Sol::Runtime::Header *sol_gc_alloc(const OpenDot::Sol::Runtime::TypeDescriptor *type, std::uint64_t totalBytes)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_store_ref" kind="function" header="Gc.h" signature="void sol_gc_store_ref(OpenDot::Sol::Runtime::Header **destination, OpenDot::Sol::Runtime::Header *value)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_request_collection" kind="function" header="Gc.h" signature="std::uint64_t sol_gc_request_collection()" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_wait" kind="function" header="Gc.h" signature="void sol_gc_wait(std::uint64_t epoch)" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_collect" kind="function" header="Gc.h" signature="void sol_gc_collect()" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_stats" kind="function" header="Gc.h" signature="OpenDot::Sol::Runtime::GcStats sol_gc_stats()" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_allocator_stats" kind="function" header="Gc.h" signature="OpenDot::Sol::Runtime::AllocatorStats sol_gc_allocator_stats()" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_handle_stats" kind="function" header="Gc.h" signature="OpenDot::Sol::Runtime::HandleStats sol_gc_handle_stats()" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_thread_allocation_stats" kind="function" header="Gc.h" signature="OpenDot::Sol::Runtime::ThreadAllocationStats sol_gc_thread_allocation_stats()" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_create_handle" kind="function" header="Gc.h" signature="OpenDot::Sol::Runtime::RuntimeHandle *sol_gc_create_handle(OpenDot::Sol::Runtime::Header *value, bool weak)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_resolve_handle" kind="function" header="Gc.h" signature="bool sol_gc_resolve_handle(OpenDot::Sol::Runtime::RuntimeHandle *handle, OpenDot::Sol::Runtime::Header **root)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_release_handle" kind="function" header="Gc.h" signature="void sol_gc_release_handle(OpenDot::Sol::Runtime::RuntimeHandle *handle)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_diagnostics" kind="function" header="GcDiagnostics.h" signature="bool sol_gc_diagnostics(OpenDot::Sol::Runtime::GcDiagnosticSnapshot *snapshot, std::uint64_t bytes)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_gc_read_events" kind="function" header="GcDiagnostics.h" signature="std::uint32_t sol_gc_read_events(std::uint64_t after, OpenDot::Sol::Runtime::GcEvent *events, std::uint32_t capacity)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_check_abi" kind="function" header="SolRT.h" signature="void sol_rt_check_abi(std::uint64_t contract)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="false" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_string_type" kind="data" header="SolRT.h" signature="const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_string_type" status="implemented" />
+    <export name="sol_rt_object_type" kind="data" header="SolRT.h" signature="const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_object_type" status="implemented" />
+    <export name="sol_rt_string_array_type" kind="data" header="SolRT.h" signature="const OpenDot::Sol::Runtime::TypeDescriptor sol_rt_string_array_type" status="implemented" />
+    <export name="sol_rt_literal" kind="function" header="SolRT.h" signature="OpenDot::Sol::Runtime::String *sol_rt_literal(OpenDot::Sol::Runtime::String *value)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_arguments" kind="function" header="SolRT.h" signature="OpenDot::Sol::Runtime::StringArray *sol_rt_arguments(int argc, const wchar_t *const *argv)" status="implemented" mayAllocate="true" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_shutdown" kind="function" header="SolRT.h" signature="void sol_rt_shutdown()" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_fail" kind="function" header="SolRT.h" signature="void sol_rt_fail(int code)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="false" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_write_string" kind="function" header="SolRT.h" signature="void sol_rt_write_string(const OpenDot::Sol::Runtime::String *value, int channel)" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_write_integer" kind="function" header="SolRT.h" signature="void sol_rt_write_integer(std::uint64_t value, int kind, int channel)" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_write_float" kind="function" header="SolRT.h" signature="void sol_rt_write_float(double value, int width, int channel)" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_newline" kind="function" header="SolRT.h" signature="void sol_rt_newline(int channel)" status="implemented" mayAllocate="false" maySafepoint="true" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_array_length" kind="function" header="SolRT.h" signature="int sol_rt_array_length(const OpenDot::Sol::Runtime::StringArray *array)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_array_get" kind="function" header="SolRT.h" signature="OpenDot::Sol::Runtime::String *sol_rt_array_get(const OpenDot::Sol::Runtime::StringArray *array, int index)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="controlled-abort-or-native-failure" />
+    <export name="sol_rt_current_exception" kind="function" header="Core.h" signature="OpenDot::Sol::Runtime::Throwable *sol_rt_current_exception() noexcept" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="false" failure="controlled-abort" />
+    <export name="sol_rt_rethrow" kind="function" header="Core.h" signature="void sol_rt_rethrow() noexcept(false)" status="implemented" mayAllocate="false" maySafepoint="false" mayThrow="true" failure="source-carrier" />
+  </runtime-exports>
+</sol-abi>

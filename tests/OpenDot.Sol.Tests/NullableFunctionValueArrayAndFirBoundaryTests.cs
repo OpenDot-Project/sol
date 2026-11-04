@@ -206,9 +206,9 @@ public sealed class NullableFunctionValueArrayAndFirBoundaryTests
             cancellationToken: TestContext.Current.CancellationToken));
         var operations = trace.RootElement.EnumerateArray().ToArray();
         var byResult = operations.ToDictionary(operation => operation.GetProperty("result").GetInt64());
-        return operations.Where(operation => operation.GetProperty("operation").GetString() == "Call"
+        return operations.Where(operation => operation.GetProperty("operation").GetString() == "Invoke"
                 && operation.GetProperty("callee").GetString() == "sol_rt_array_new")
-            .Select(call => byResult[call.GetProperty("operands")[2].GetInt64()]
+            .Select(call => byResult[call.GetProperty("operands")[4].GetInt64()]
                 .GetProperty("text").GetString()!)
             .Select(text => int.Parse(text, CultureInfo.InvariantCulture))
             .ToArray();

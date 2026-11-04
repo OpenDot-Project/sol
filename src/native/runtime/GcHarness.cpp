@@ -212,7 +212,8 @@ int ExceptionRoots()
         sol_rt_exception_add_suppressed(error, secondary);
         roots.Store(3, nullptr);
         sol_gc_collect();
-        if (copied.Value() != error || !sol_rt_is_instance(&error->Object, &sol_rt_exception_type)
+        if (sol_rt_current_exception() != error || copied.Value() != error
+            || !sol_rt_is_instance(&error->Object, &sol_rt_exception_type)
             || sol_rt_is_instance(&cause->Object, &sol_rt_runtime_exception_type)
             || error->Cause != cause || error->Message->ByteLength != 8 || !error->Suppressed
             || Detail::StorageCast<Throwable>(sol_rt_array_get(error->Suppressed, 0)) != secondary)

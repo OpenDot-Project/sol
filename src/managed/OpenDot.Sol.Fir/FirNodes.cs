@@ -68,6 +68,7 @@ public sealed record FirFunction(int Id, string Name, ImmutableArray<FirSlot> Pa
 public sealed record FirProgram(BodyAnalysis Analysis, RuntimeCatalog Catalog, ImmutableArray<FirFunction> Functions, int Entry)
 {
     public bool IsLibrary { get; init; }
+    internal ImmutableArray<FirNativeTypeLayout> NativeLayouts { get; init; } = [];
 }
 
 /// <summary>A capability minted only by the FIR verifier. Consumers cannot construct one directly.</summary>

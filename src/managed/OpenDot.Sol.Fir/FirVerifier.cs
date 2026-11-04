@@ -23,6 +23,12 @@ public static partial class FirVerifier
     {
         ArgumentNullException.ThrowIfNull(program);
         cancellationToken.ThrowIfCancellationRequested();
+        try { new FirNativeLayoutVerifier(program.Analysis, cancellationToken).Verify(program.NativeLayouts); }
+        catch (FirNativeLayoutException error)
+        {
+            var origin = program.Analysis.Sources.Declarations.Files[0].Root.Origin;
+            return new(null, [new(error.Code, error.Message, origin.Source, origin.Span)]);
+        }
         var checker = new Checker(program, cancellationToken);
         checker.Check();
         return new(checker.Errors.Count == 0 ? new VerifiedFirProgram(program, checker.Graphs.ToImmutableArray()) : null, checker.Errors.ToImmutableArray());

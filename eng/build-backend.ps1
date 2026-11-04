@@ -39,8 +39,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Dynamic SolRT build failed.' }
 & $msbuild (Join-Path $root 'src/native/runtime/runtime.vcxproj') @properties /p:StaticRuntime=true
 if ($LASTEXITCODE -ne 0) { throw 'Static SolRT build failed.' }
 foreach ($static in @('false', 'true')) {
-    & $msbuild (Join-Path $root 'src/native/exec-host/exec-host.vcxproj') @properties "/p:LLVMRoot=$LlvmRoot" "/p:StaticRuntime=$static"
-    if ($LASTEXITCODE -ne 0) { throw 'Native ORC host build failed.' }
+    & $msbuild (Join-Path $root 'src/native/orc-bootstrap/orc-bootstrap.vcxproj') @properties "/p:StaticRuntime=$static"
+    if ($LASTEXITCODE -ne 0) { throw 'Native ORC bootstrap build failed.' }
 }
 $output = Join-Path $root 'out/native/backend'
 New-Item -ItemType Directory -Path $output -Force | Out-Null
@@ -49,14 +49,15 @@ if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy }
 Copy-Item -LiteralPath (Join-Path $root 'out/native/llvm-bridge/OpenDot.Sol.LlvmBridge.dll') -Destination $output
 Copy-Item -LiteralPath (Join-Path $root 'out/native/llvm-native/OpenDot.Sol.LlvmNative.dll') -Destination $output
 Copy-Item -LiteralPath (Join-Path $packs "Microsoft.NETCore.App.Host.win-x64/$($reference.Name)/runtimes/win-x64/native/ijwhost.dll") -Destination $output
-foreach ($name in @('lld-link.exe', 'llvm-lib.exe')) {
+foreach ($name in @('lld-link.exe', 'llvm-lib.exe', 'sol-exec-host.exe', 'sol-exec-host-static.exe')) {
     $obsolete = Join-Path $output $name
     if (Test-Path -LiteralPath $obsolete) { Remove-Item -LiteralPath $obsolete }
 }
-Copy-Item -LiteralPath (Join-Path $root 'out/native/exec-host/dynamic/sol-exec-host.exe') -Destination $output
-Copy-Item -LiteralPath (Join-Path $root 'out/native/exec-host/static/sol-exec-host.exe') -Destination (Join-Path $output 'sol-exec-host-static.exe')
 foreach ($name in @('SolRT.dll', 'SolRT.lib')) { Copy-Item -LiteralPath (Join-Path $root "out/native/runtime/dynamic/$name") -Destination $output }
 Copy-Item -LiteralPath (Join-Path $root 'out/native/runtime/static/SolRT.lib') -Destination (Join-Path $output 'SolRT-static.lib')
+Copy-Item -LiteralPath (Join-Path $root 'out/native/orc-bootstrap/dynamic/SolOrcBootstrap.lib') -Destination $output
+Copy-Item -LiteralPath (Join-Path $root 'out/native/orc-bootstrap/static/SolOrcBootstrap.lib') -Destination (Join-Path $output 'SolOrcBootstrap-static.lib')
+Copy-Item -LiteralPath (Join-Path $root 'docs/abi-manifest.xml') -Destination $output
 $toolsVersion = (Get-Content (Join-Path $vs 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
 $sdkRoot = (Get-ItemProperty 'HKLM:/SOFTWARE/Microsoft/Windows Kits/Installed Roots').KitsRoot10
 $sdk = Get-ChildItem (Join-Path $sdkRoot 'Lib') -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'um/x64/kernel32.lib') } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
@@ -71,3 +72,11 @@ $binding = Get-NativeBuildBinding $output (Join-Path $root 'out/native/llvm-nati
     dependency_binding = $binding } | ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath (Join-Path $output 'build-info.json') -Encoding utf8NoBOM
 Write-Host "Qualified native backend: $output"
+foreach ($static in @('false', 'true')) {
+    & $msbuild (Join-Path $root 'src/native/jit-probe/jit-probe.vcxproj') @properties "/p:StaticRuntime=$static"
+    if ($LASTEXITCODE -ne 0) { throw 'Native JIT conformance probe build failed.' }
+    $flavor = if ($static -eq 'true') { 'static' } else { 'dynamic' }
+    $probe = Join-Path $root "out/native/jit-probe/$flavor"
+    Copy-Item -LiteralPath (Join-Path $output 'OpenDot.Sol.LlvmNative.dll') -Destination $probe
+    if ($static -eq 'false') { Copy-Item -LiteralPath (Join-Path $output 'SolRT.dll') -Destination $probe }
+}

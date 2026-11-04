@@ -24,6 +24,8 @@ public sealed partial class LlvmEmitter
         Declare("sol_rt_array_new", "ptr", ["i32", "i32"]);
         Declare("sol_rt_array_address", "ptr", ["ptr", "i32", "i32"]);
         Declare("sol_gc_push_frame", "void", ["ptr"]);
+        Declare("sol_gc_attach", "void", []);
+        Declare("__CxxFrameHandler3", "i32", []);
         Declare("sol_gc_pop_frame", "void", ["ptr"]);
         Declare("sol_gc_store_ref", "void", ["ptr", "ptr"]);
         Declare("sol_gc_poll", "void", []);

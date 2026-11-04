@@ -25,7 +25,7 @@ public sealed class NativeRuntimeIntegrationTests
         {
             string? root = Environment.GetEnvironmentVariable("SOLC_NATIVE_ROOT");
             Assert.NotNull(root); Assert.NotEmpty(root);
-            Assert.True(File.Exists(Path.Combine(root, "sol-exec-host.exe")), "The required ORC backend is missing.");
+            Assert.True(File.Exists(Path.Combine(root, "SolOrcBootstrap.lib")), "The required ORC backend is missing.");
             Assert.False(File.Exists(Path.Combine(root, "lld-link.exe")), "Solc must use embedded LLD.");
             Assert.False(File.Exists(Path.Combine(root, "llvm-lib.exe")), "Archive production must use embedded LLD.");
             return root;
@@ -89,7 +89,7 @@ public sealed class NativeRuntimeIntegrationTests
     public void OrcRunsInTheGuestAndPreservesIndependentUtf8Streams(bool staticRuntime)
     {
         using var stdout = new MemoryStream(); using var stderr = new MemoryStream();
-        int code = OrcExecutor.Execute(Build("println(args[0] + \"🙂\"); errorln(\"error\"); Gc.collect()"),
+        int code = NativeOrcExecutable.Execute(Build("println(args[0] + \"🙂\"); errorln(\"error\"); Gc.collect()"),
             ["İstanbul"], staticRuntime, Backend, TestContext.Current.CancellationToken, stdout, stderr);
         Assert.Equal(0, code);
         Assert.Equal("İstanbul🙂\n", Encoding.UTF8.GetString(stdout.ToArray()));
@@ -119,7 +119,7 @@ public sealed class NativeRuntimeIntegrationTests
 
         using var output = new MemoryStream();
         using var error = new MemoryStream();
-        int exitCode = OrcExecutor.Execute(compilation.Program, [], false, Backend,
+        int exitCode = NativeOrcExecutable.Execute(compilation.Program, [], false, Backend,
             TestContext.Current.CancellationToken, output, error);
 
         Assert.Equal(0, exitCode);
@@ -147,7 +147,7 @@ public sealed class NativeRuntimeIntegrationTests
 
         using var output = new MemoryStream();
         using var error = new MemoryStream();
-        int exitCode = OrcExecutor.Execute(compilation.Program, [], false, Backend,
+        int exitCode = NativeOrcExecutable.Execute(compilation.Program, [], false, Backend,
             TestContext.Current.CancellationToken, output, error);
 
         Assert.Equal(0, exitCode);
@@ -181,7 +181,7 @@ public sealed class NativeRuntimeIntegrationTests
 
         using var output = new MemoryStream();
         using var error = new MemoryStream();
-        int exitCode = OrcExecutor.Execute(compilation.Program, ["root"], false, Backend,
+        int exitCode = NativeOrcExecutable.Execute(compilation.Program, ["root"], false, Backend,
             TestContext.Current.CancellationToken, output, error);
 
         Assert.Equal(0, exitCode);
@@ -210,7 +210,7 @@ public sealed class NativeRuntimeIntegrationTests
 
         using var output = new MemoryStream();
         using var error = new MemoryStream();
-        int exitCode = OrcExecutor.Execute(compilation.Program, ["nested"], false, Backend,
+        int exitCode = NativeOrcExecutable.Execute(compilation.Program, ["nested"], false, Backend,
             TestContext.Current.CancellationToken, output, error);
 
         Assert.Equal(0, exitCode);
@@ -239,7 +239,7 @@ public sealed class NativeRuntimeIntegrationTests
 
         using var output = new MemoryStream();
         using var error = new MemoryStream();
-        int exitCode = OrcExecutor.Execute(compilation.Program, ["text"], false, Backend,
+        int exitCode = NativeOrcExecutable.Execute(compilation.Program, ["text"], false, Backend,
             TestContext.Current.CancellationToken, output, error);
 
         Assert.Equal(0, exitCode);
@@ -253,7 +253,7 @@ public sealed class NativeRuntimeIntegrationTests
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         using var output = new SignalStream(fail: false); using var error = new MemoryStream();
         var program = Build("for { println(\"running\") }");
-        Task<int> execution = Task.Run(() => OrcExecutor.Execute(program, [], backendDirectory: Backend,
+        Task<int> execution = Task.Run(() => NativeOrcExecutable.Execute(program, [], backendDirectory: Backend,
             cancellationToken: cancellation.Token, standardOutput: output, standardError: error), TestContext.Current.CancellationToken);
         try { await output.Started.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken); }
         finally { cancellation.Cancel(); }
@@ -267,7 +267,7 @@ public sealed class NativeRuntimeIntegrationTests
         cancellation.CancelAfter(TimeSpan.FromSeconds(10));
         using var output = new SignalStream(fail: true); using var error = new MemoryStream();
         var program = Build("for { println(\"output\") }");
-        await Assert.ThrowsAsync<IOException>(() => Task.Run(() => OrcExecutor.Execute(program, [], backendDirectory: Backend,
+        await Assert.ThrowsAsync<IOException>(() => Task.Run(() => NativeOrcExecutable.Execute(program, [], backendDirectory: Backend,
             cancellationToken: cancellation.Token, standardOutput: output, standardError: error), TestContext.Current.CancellationToken));
     }
 
@@ -276,10 +276,10 @@ public sealed class NativeRuntimeIntegrationTests
     [InlineData(true)]
     public void InvalidOutputStreamCannotLeaveANewGuestRunning(bool staticRuntime)
     {
-        string name = staticRuntime ? "sol-exec-host-static" : "sol-exec-host";
+        const string name = "sol-orc-test";
         var before = GuestIds(name);
         using var output = new MemoryStream([], writable: false); using var error = new MemoryStream();
-        Assert.Throws<NotSupportedException>(() => OrcExecutor.Execute(Build("for { }"), [], staticRuntime,
+        Assert.Throws<NotSupportedException>(() => NativeOrcExecutable.Execute(Build("for { }"), [], staticRuntime,
             Backend, TestContext.Current.CancellationToken, output, error));
         Assert.All(GuestIds(name), id => Assert.Contains(id, before));
     }

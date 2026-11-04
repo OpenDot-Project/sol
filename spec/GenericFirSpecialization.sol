@@ -539,8 +539,8 @@ module source.spec.generic_fir_specialization
 //
 // AOT object emission, embedded LLD linking, SolRT dynamic/static linkage, and ORC bitcode transfer
 // retain their existing transactions and validation. A failure before successful artifact commit
-// leaves any previous destination untouched. ORC continues to execute in the separate native
-// `sol-exec-host.exe` process. Generic specialization cannot introduce an in-process guest call.
+// leaves any previous destination untouched. ORC emits a native executable with embedded bitcode
+// and SolJit.dll. Generic specialization cannot introduce a guest call in the compiler process.
 //
 // `--artifact-type=bin|cdylib|staticlib|solib`, `--static-solrt-lib`, and `-C llvm-compiler=aot|orc`
 // keep their independent meanings. This contract defines no additional CLI option. If selected

@@ -43,6 +43,7 @@ struct Session final
     std::int64_t Apply(Operation op, std::int64_t type, const std::vector<std::int64_t> &args, std::int64_t data,
                        const char *text);
     std::vector<unsigned char> Output(int kind);
+    std::int64_t ApplyEh(Operation op, const std::vector<std::int64_t> &args, std::int64_t data);
 };
 
 void Verify(const llvm::Module &module);

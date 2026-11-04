@@ -69,7 +69,7 @@ public sealed class NativeNestedNullableFunctionArrayTests
 
             using var output = new MemoryStream();
             using var error = new MemoryStream();
-            int exitCode = OrcExecutor.Execute(verified, [], backendDirectory: backend,
+            int exitCode = NativeOrcExecutable.Execute(verified, [], backendDirectory: backend,
                 cancellationToken: TestContext.Current.CancellationToken,
                 standardOutput: output, standardError: error);
             Assert.Equal(0, exitCode);

@@ -33,9 +33,11 @@ public sealed partial class LlvmEmitter
             Start(NewBlock("entry"));
             Call("sol_rt_check_abi", Int(unchecked((long)RuntimeContract.Id), "i64"));
             long transition = Call("sol_gc_enter_export");
-            long result = Call("sol_fn_" + function.Id, function.Parameters.Select((p, i) => Op(LlvmOperation.Parameter, args: [_nativeFunction], data: i)).ToArray());
+            BeginUnwind("export.unwind");
+            long result = Call(_symbols[function.Id], function.Parameters.Select((p, i) => Op(LlvmOperation.Parameter, args: [_nativeFunction], data: i)).ToArray());
             Call("sol_gc_leave_export", transition);
             Op(LlvmOperation.Return, args: Type(function.ReturnType) == "void" ? [] : [result]);
+            EmitUnwind("sol_gc_leave_export", transition);
         }
         _nativeFunction = Declare("sol_library_shutdown", "void", [], 2);
         Start(NewBlock("entry")); Call("sol_rt_shutdown"); Op(LlvmOperation.Return);

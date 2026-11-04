@@ -55,8 +55,6 @@ try {
     $env:SOLC_NATIVE_ROOT = ''
     foreach ($static in @($false, $true)) {
         $flags = if ($static) { @('--static-solrt-lib') } else { @() }
-        $result = Run $launcher (@($program, '-Cllvm-compiler=orc') + $flags + @('--', 'İa'))
-        if ($result.Out -ne "İa🙂:3`n" -or $result.Error) { throw 'Relocated ORC output mismatch.' }
         Remove-Item -LiteralPath Env:SOLC_NATIVE_ROOT -ErrorAction SilentlyContinue
         foreach ($kind in @('staticlib', 'solib')) {
             $extension = if ($kind -eq 'solib') { 'solib' } else { 'lib' }
@@ -73,6 +71,13 @@ try {
     foreach ($static in @($false, $true)) {
         $flags = if ($static) { @('--static-solrt-lib') } else { @() }
         $output = Join-Path $scratch "Main-$static.exe"
+        $orcDirectory = Join-Path $scratch "orc-$static"
+        New-Item -ItemType Directory $orcDirectory -Force | Out-Null
+        $orcExe = Join-Path $orcDirectory 'Main.exe'
+        $compiled = Run $launcher (@($program, '-Cllvm-compiler=orc', '-o', $orcExe) + $flags)
+        if ($compiled.Out -or $compiled.Error) { throw 'ORC compilation executed application code.' }
+        $result = Run $orcExe @('İa')
+        if ($result.Out -ne "İa🙂:3`n" -or $result.Error) { throw 'Relocated ORC executable output mismatch.' }
         $null = Run $launcher (@($program, '-o', $output) + $flags)
         $result = Run $output @('İa')
         if ($result.Out -ne "İa🙂:3`n" -or $result.Error) { throw 'Relocated AOT output mismatch.' }

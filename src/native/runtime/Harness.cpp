@@ -15,6 +15,7 @@
 
 using namespace OpenDot::Sol::Runtime;
 int RunGcTests() noexcept(false);
+int RunAbiLayoutProbe() noexcept;
 int RunGcModelTests();
 int RunSpanTests() noexcept(false);
 int RunSpanPoisonTest(bool freed) noexcept(false);
@@ -43,6 +44,10 @@ int wmain(int argc, wchar_t **argv)
         return 7;
     }
     const std::span commandArguments(argv, argc);
+    if (argc == 2 && std::wcscmp(Detail::CheckedAt(commandArguments, 1), L"abi-layout") == 0)
+    {
+        return RunAbiLayoutProbe();
+    }
     if (argc == 2)
     {
         const std::wstring_view mode(Detail::CheckedAt(commandArguments, 1));

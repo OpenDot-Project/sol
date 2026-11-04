@@ -37,6 +37,8 @@ internal sealed partial class BodyBindingBuilder
     private ConstructionSession? _constructionSession;
     internal Func<ResolvedType, AstConstructor?, BodyBindingStatus?>? ConstructionSourceStatus { get; set; }
     internal readonly Dictionary<(AstNode Site, int Owner, AstConstructor? Constructor), ConstructionProof> ConstructionProofs = [];
+    internal readonly Dictionary<(AstNode Site, int Owner, AstConstructor Constructor), ConstructorDefaultAnalysis> ConstructionDefaults = [];
+    internal readonly Dictionary<(AstNode Site, int Owner, AstConstructor? Constructor), ConstructionProof> ConstructionEdges = [];
 
     private BodyBindingBuilder ConstructionWorker(ResolvedType owner, ConstructionFrame? frame, ConstructionSession session)
     {
@@ -75,6 +77,8 @@ internal sealed partial class BodyBindingBuilder
         }
         foreach (var gap in worker._deferred) { Defer(dependencySite ?? gap); }
         foreach (var pair in worker.ConstructionProofs) { ConstructionProofs[pair.Key] = pair.Value; }
+        foreach (var pair in worker.ConstructionDefaults) { ConstructionDefaults[pair.Key] = pair.Value; }
+        foreach (var pair in worker.ConstructionEdges) { ConstructionEdges[pair.Key] = pair.Value; }
     }
 
     private static IEnumerable<AstConstructor> Constructors(ResolvedType owner) =>
@@ -105,7 +109,8 @@ internal sealed partial class BodyBindingBuilder
     }
 
     private ConstructionProof ProveConstruction(ResolvedType owner, AstConstructor? constructor, AstNode site,
-        ImmutableArray<CallArgumentBinding> arguments, ImmutableArray<int> defaults, State caller, int? originStart = null)
+        ImmutableArray<CallArgumentBinding> arguments, ImmutableArray<int> defaults, State caller, int? originStart = null,
+        Action<BodyBindingBuilder, ConstructionProof>? capture = null)
     {
         _cancellation.ThrowIfCancellationRequested();
         Types.ValidateOwnership(owner);
@@ -138,6 +143,7 @@ internal sealed partial class BodyBindingBuilder
             { status = BodyBindingStatus.Invalid; }
             var proof = new ConstructionProof(selection, status, state.Reachable, state.Construction.Slots,
                 session.Origins.Skip(originStart.Value).ToImmutableArray(), state.Effects.ToImmutableArray(), status == BodyBindingStatus.Bound ? null : "Construction proof is incomplete or invalid.");
+            capture?.Invoke(worker, proof);
             if (site == constructor || site is AstTypeDeclaration)
             {
                 foreach (var pair in worker.Expressions) { Expressions[pair.Key] = pair.Value; }
@@ -157,6 +163,16 @@ internal sealed partial class BodyBindingBuilder
             return proof;
         }
         finally { session.Allocations.Remove((owner.Id, constructor)); }
+    }
+
+    internal ConstructorBodyAnalysis BuildConstructorBody(ResolvedType owner, AstConstructor? constructor)
+    {
+        _cancellation.ThrowIfCancellationRequested();
+        ConstructorBodyAnalysis? result = null;
+        var site = (AstNode?)constructor ?? owner.Declaration!.Parts[0];
+        var proof = ProveConstruction(owner, constructor, site, [], [], new State(),
+            capture: (worker, completed) => result = new(worker, completed));
+        return result ?? new(this, proof);
     }
 
     private void ExecuteConstructor(ResolvedType owner, AstConstructor? constructor, AstNode site, State state, int depth)

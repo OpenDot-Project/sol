@@ -87,7 +87,7 @@ public sealed class NativeAnonymousFunctionAbiMatrixTests
 
             using var output = new MemoryStream();
             using var error = new MemoryStream();
-            int orcExitCode = OrcExecutor.Execute(verified, [], backendDirectory: backend,
+            int orcExitCode = NativeOrcExecutable.Execute(verified, [], backendDirectory: backend,
                 cancellationToken: TestContext.Current.CancellationToken,
                 standardOutput: output, standardError: error);
             Assert.Equal(0, orcExitCode);

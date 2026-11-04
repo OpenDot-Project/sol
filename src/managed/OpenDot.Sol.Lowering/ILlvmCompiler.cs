@@ -13,6 +13,12 @@ public enum LlvmOperation
     Add, Sub, Mul, SDiv, UDiv, SRem, URem, And, Or, Xor, Shl, LShr, AShr,
     FAdd, FSub, FMul, FDiv, FRem, FNeg, ICmp, FCmp, ZExt, SExt, Trunc, FPExt,
     FunctionType, IndirectCall,
+    // Target-data queries return a byte count, not an opaque handle. They need no insertion block.
+    TypeSize, TypeAlignment, ElementOffset,
+    ExternalGlobal,
+    Personality, Invoke, CatchSwitch, CatchPad, CleanupPad, CatchReturn, CleanupReturn, FuncletCall,
+    ModuleFlag,
+    IndirectInvoke,
 }
 
 /// <summary>Owns native LLVM objects. Handles are session-scoped opaque identities, never pointers.</summary>
@@ -20,6 +26,7 @@ public interface ILlvmModule : IDisposable
 {
     long Apply(LlvmOperation operation, long type, long[] operands, long data, string text);
     long CreateString(byte[] utf8);
+    long CreateData(byte[] bytes, string name);
     void Verify();
     string Print();
     byte[] Bitcode();

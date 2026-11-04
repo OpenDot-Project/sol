@@ -6,6 +6,11 @@ The Sol 0.1.0 native component produces verified FIR, LLVM IR, and Windows x86-6
 for a restricted bootstrap subset. ORC executes the same admitted subset in a separate native
 guest process. The complete language, general object model, native exception unwinding, and full
 Yellow Tea qualification remain incomplete.
+
+The downloadable [ABI manifest](abi-manifest.xml) documents experimental ABI family 0,
+runtime contract revision 2. It is checked against compiler layouts, native layout probes,
+LLVM target data, and runtime C declarations; it is not an input to code generation.
+Entries marked `planned` do not extend the admitted native subset.
 ## Build and run
 
 Use the pinned .NET 10 SDK, MSVC C++/CLI tools, a Windows x64 SDK, and LLVM 23.1.3. `LLVM_ROOT` must
@@ -32,14 +37,16 @@ applications; their import tables have no CLR dependency. Solc itself remains a 
 Dynamic linking is the default and places `SolRT.dll` beside the executable. `--static-solrt-lib`
 links the static runtime and does not copy or import that DLL. Artifact type is a separate option:
 development builds also produce scalar C-ABI `cdylib`/`staticlib` artifacts and a closed-subset `solib`
-container. ORC executes in a separate native guest process:
+container. ORC produces a separate native executable:
 
 ```powershell
-dotnet $solc spec/examples/native/FirstProgram.sol -C llvm-compiler=orc -- Alice 20
+dotnet $solc spec/examples/native/FirstProgram.sol -C llvm-compiler=orc -o out/HelloOrc.exe
+.\out\HelloOrc.exe Alice 20
 ```
 
-ORC defaults to `--emit=jit` and accepts application arguments after `--`. It does not create an
-executable with `-o`; `--emit=llvm-ir` remains an inspection operation. Both runtime linkage modes
+ORC defaults to `--emit=link`; `--emit=jit` is rejected. The executable embeds validated bitcode
+and loads the matching plain-native `SolJit.dll`. Each function compiles on first call; unused
+bodies remain bitcode. `--emit=llvm-ir` remains an inspection operation. Both runtime linkage modes
 are available. The compiler's CLR GC and guest Yellow Tea never share a process or object reference.
 See [library artifacts](library-artifacts.md) for native library restrictions and container boundaries.
 

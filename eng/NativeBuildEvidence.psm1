@@ -14,7 +14,7 @@ function Get-NativeBuildBinding {
     $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $files = @()
     foreach ($name in $PayloadNames) {
-        if ($name -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9.-]*\.(dll|exe|lib)\z' -or -not $seen.Add($name)) {
+        if (($name -cnotmatch '\A[A-Za-z0-9][A-Za-z0-9.-]*\.(dll|exe|lib)\z' -and $name -cne 'abi-manifest.xml') -or -not $seen.Add($name)) {
             throw 'Invalid or duplicate native payload name.'
         }
         $file = Get-Item -LiteralPath (Join-Path $BackendDirectory $name)

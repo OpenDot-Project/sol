@@ -11,14 +11,19 @@ namespace OpenDot.Sol.Lowering;
 
 public sealed partial class LlvmEmitter
 {
-    private long _roots, _rootFrame;
+    private long _roots, _rootFrame, _unwind;
     private int _rootCount, _rootCapacity;
     private void BeginRoots(FirFunction function)
     {
         _rootCount = 0;
         var slots = function.Slots.Where(s => IsManagedReference(s.Type)
             && !(s.IsParameter && s.Mode is AstPassingMode.Ref or AstPassingMode.Out)).ToArray();
-        _rootCapacity = Math.Max(1, checked(slots.Length + CountTemporaryRoots(function.Body!)));
+        CreateRootFrame(Math.Max(1, checked(slots.Length + CountTemporaryRoots(function.Body!))));
+        foreach (var slot in slots) { _addresses.Add(slot.Id, RootAddress(_rootCount++)); }
+    }
+    private void CreateRootFrame(int capacity)
+    {
+        _rootCapacity = capacity;
         long arrayType = Op(LlvmOperation.ArrayType, T("ptr"), data: _rootCapacity);
         _roots = Op(LlvmOperation.Alloca, arrayType, data: 8);
         Op(LlvmOperation.Store, args: [Op(LlvmOperation.Zero, arrayType), _roots]);
@@ -26,8 +31,21 @@ public sealed partial class LlvmEmitter
         _rootFrame = Op(LlvmOperation.Alloca, frameType, data: 8);
         Op(LlvmOperation.Store, args: [_roots, Field(frameType, _rootFrame, 1)]);
         Op(LlvmOperation.Store, args: [Int(_rootCapacity), Field(frameType, _rootFrame, 2)]);
-        foreach (var slot in slots) { _addresses.Add(slot.Id, RootAddress(_rootCount++)); }
         Call("sol_gc_push_frame", _rootFrame);
+    }
+    private void BeginUnwind(string name)
+    {
+        Op(LlvmOperation.Personality, args: [_nativeFunction, _functions["__CxxFrameHandler3"]]);
+        _unwind = NewBlock(name);
+    }
+    private void EmitUnwind(string cleanup, long argument)
+    {
+        Start(_unwind);
+        long pad = Op(LlvmOperation.CleanupPad);
+        Op(LlvmOperation.FuncletCall, args: [_functions[cleanup], argument], data: pad);
+        Op(LlvmOperation.CleanupReturn, args: [pad, 0]);
+        _terminated = true;
+        _unwind = 0;
     }
     private long RootAddress(int index) => Gep(T("ptr"), _roots, Int(index, "i64"));
     private Value KeepAlive(Value value)

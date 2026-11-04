@@ -34,6 +34,7 @@ internal sealed partial class SpecializedBodyAnalysis
         Sources = local.Sources;
         InterfaceUses = local.InterfaceUses;
         ConstructionProofs = local.ConstructionProofs;
+        ConstructionDefaults = local.ConstructionDefaults;
         Declaration = local.Declaration;
         OwnerTypeArguments = local.OwnerTypeArguments;
         TypeArguments = local.TypeArguments;

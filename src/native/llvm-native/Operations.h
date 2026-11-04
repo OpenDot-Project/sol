@@ -12,5 +12,10 @@ enum class Operation
     Add, Sub, Mul, SDiv, UDiv, SRem, URem, And, Or, Xor, Shl, LShr, AShr,
     FAdd, FSub, FMul, FDiv, FRem, FNeg, ICmp, FCmp, ZExt, SExt, Trunc, FPExt,
     FunctionType, IndirectCall,
+    TypeSize, TypeAlignment, ElementOffset,
+    ExternalGlobal,
+    Personality, Invoke, CatchSwitch, CatchPad, CleanupPad, CatchReturn, CleanupReturn, FuncletCall,
+    ModuleFlag,
+    IndirectInvoke,
 };
 }

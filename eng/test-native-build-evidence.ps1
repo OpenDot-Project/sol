@@ -19,7 +19,7 @@ try {
     [IO.File]::WriteAllText($catalog, '{"fixture":"catalog"}')
     $catalogHash = (Get-FileHash $catalog -Algorithm SHA256).Hash.ToLowerInvariant()
     @{ catalog_sha256 = $catalogHash } | ConvertTo-Json | Set-Content $proof -Encoding utf8NoBOM
-    $names = @('Compiler.dll', 'Runtime.lib')
+    $names = @('Compiler.dll', 'Runtime.lib', 'abi-manifest.xml')
     foreach ($name in $names) { [IO.File]::WriteAllText((Join-Path $scratch $name), 'fixture-native-payload') }
     $binding = Copy-Data (Get-NativeBuildBinding $scratch $proof $catalog $names)
     Assert-NativeBuildBinding $binding $scratch $proof $catalog $names

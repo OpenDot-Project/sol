@@ -16,6 +16,7 @@ namespace OpenDot.Sol.Lowering;
 public sealed partial class LlvmEmitter
 {
     private readonly VerifiedFirProgram _verified;
+    private readonly Dictionary<int, string> _symbols;
     private readonly ILlvmModule _module;
     private readonly CancellationToken _cancellation;
     private readonly Dictionary<string, long> _functions = new(StringComparer.Ordinal);
@@ -31,7 +32,7 @@ public sealed partial class LlvmEmitter
     private readonly Stack<CallEvaluationFrame> _callEvaluations = [];
 
     private LlvmEmitter(VerifiedFirProgram program, ILlvmModule module, CancellationToken cancellation)
-    { _verified = program; _module = module; _cancellation = cancellation; }
+    { _verified = program; _module = module; _cancellation = cancellation; _symbols = NativeCallableSymbols.Build(program.Program, cancellation); }
 
     public static ILlvmModule Build(VerifiedFirProgram program, ILlvmCompiler compiler,
         CancellationToken cancellationToken = default, bool cExports = false)
@@ -40,7 +41,12 @@ public sealed partial class LlvmEmitter
         cancellationToken.ThrowIfCancellationRequested();
         if (compiler.Version != "23.1.3") { throw new InvalidOperationException("LLVM 23.1.3 is required."); }
         var module = compiler.CreateModule();
-        try { new LlvmEmitter(program, module, cancellationToken).Build(cExports); module.Verify(); return module; }
+        try
+        {
+            module.Apply(LlvmOperation.ModuleFlag, 0, [], (long)RuntimeContract.Id, "sol.runtime.contract");
+            module.Apply(LlvmOperation.ModuleFlag, 0, [], 8, "sol.fir.schema");
+            new LlvmEmitter(program, module, cancellationToken).Build(cExports); module.Verify(); return module;
+        }
         catch { module.Dispose(); throw; }
     }
 
@@ -76,7 +82,16 @@ public sealed partial class LlvmEmitter
         long function = Op(LlvmOperation.Function, result, parameters, linkage, name);
         _functions.Add(name, function); return function;
     }
-    private long Call(string name, params long[] values) => Op(LlvmOperation.Call, args: [_functions[name], .. values]);
+    private long Call(string name, params long[] values)
+    {
+        bool noUnwind = name.StartsWith("llvm.", StringComparison.Ordinal)
+            || name is "sol_gc_push_frame" or "sol_gc_pop_frame" or "sol_gc_store_ref" or "sol_gc_leave_export" or "sol_rt_shutdown";
+        if (_unwind == 0 || noUnwind) { return Op(LlvmOperation.Call, args: [_functions[name], .. values]); }
+        long normal = NewBlock("call.continue");
+        long result = Op(LlvmOperation.Invoke, args: [_functions[name], normal, _unwind, .. values]);
+        Start(normal);
+        return result;
+    }
     private long NewBlock(string name = "") => Op(LlvmOperation.Block, args: [_nativeFunction], text: name);
     private void Start(long block) { Op(LlvmOperation.Position, args: [block]); _block = block; _terminated = false; }
     private void Branch(long target) => Op(LlvmOperation.Branch, args: [target]);
@@ -89,26 +104,33 @@ public sealed partial class LlvmEmitter
         DeclareRuntime();
         foreach (var function in _verified.Program.Functions.Where(f => f.RuntimeFunction == FirRuntimeFunction.None))
         {
-            Declare("sol_fn_" + function.Id, Type(function.ReturnType), function.Parameters.Select(p =>
+            Declare(_symbols[function.Id], Type(function.ReturnType), function.Parameters.Select(p =>
                 p.Mode is AstPassingMode.Ref or AstPassingMode.Out ? "ptr" : Type(p.Type)).ToArray(), cExports ? 1 : 0);
         }
         foreach (var function in _verified.Program.Functions.Where(f => f.RuntimeFunction == FirRuntimeFunction.None)) { EmitFunction(function); }
         if (cExports) { EmitExports(); }
         if (!_verified.Program.IsLibrary)
         {
+            _unwind = 0;
             _nativeFunction = Declare("wmain", "i32", ["i32", "ptr"]); Start(NewBlock("entry"));
             Call("sol_rt_check_abi", Int(unchecked((long)RuntimeContract.Id), "i64"));
+            Call("sol_gc_attach");
+            CreateRootFrame(1); BeginUnwind("roots.unwind");
             long args = Call("sol_rt_arguments", Op(LlvmOperation.Parameter, args: [_nativeFunction], data: 0), Op(LlvmOperation.Parameter, args: [_nativeFunction], data: 1));
-            Call("sol_fn_" + _verified.Program.Entry, args); Call("sol_rt_shutdown"); Op(LlvmOperation.Return, args: [Int(0)]);
+            Call("sol_gc_store_ref", RootAddress(0), args);
+            Call(_symbols[_verified.Program.Entry], args); EndRoots(); Call("sol_rt_shutdown"); Op(LlvmOperation.Return, args: [Int(0)]);
+            EmitUnwind("sol_gc_pop_frame", _rootFrame);
         }
     }
 
     private void EmitFunction(FirFunction function)
     {
-        _function = function; _nativeFunction = _functions["sol_fn_" + function.Id]; _addresses.Clear(); _parameters.Clear(); Start(NewBlock("entry"));
+        _unwind = 0;
+        _function = function; _nativeFunction = _functions[_symbols[function.Id]]; _addresses.Clear(); _parameters.Clear(); Start(NewBlock("entry"));
         for (int index = 0; index < function.Parameters.Length; ++index)
         { _parameters.Add(function.Parameters[index].Id, Op(LlvmOperation.Parameter, args: [_nativeFunction], data: index)); }
         BeginRoots(function);
+        BeginUnwind("roots.unwind");
         foreach (var slot in function.Slots)
         {
             if (slot.IsParameter && slot.Mode is AstPassingMode.Ref or AstPassingMode.Out) { _addresses.Add(slot.Id, _parameters[slot.Id]); }
@@ -119,6 +141,7 @@ public sealed partial class LlvmEmitter
         { Store(new(Type(parameter.Type), _parameters[parameter.Id], parameter.Type), Address(parameter.Id)); }
         Call("sol_gc_poll"); Statement(function.Body!);
         if (!_terminated) { Op(LlvmOperation.Unreachable); }
+        EmitUnwind("sol_gc_pop_frame", _rootFrame);
     }
 
     private void Statement(FirStatement statement)
@@ -171,7 +194,7 @@ public sealed partial class LlvmEmitter
             case FirConstant constant: return Constant(constant);
             case FirRead read: return new(type, Op(LlvmOperation.Load, T(type), [Address(read.Slot)], type == "ptr" ? 1 : 0), read.Type);
             case FirFunctionReference reference:
-                return new("ptr", _functions["sol_fn_" + reference.Target], reference.Type);
+                return new("ptr", _functions[_symbols[reference.Target]], reference.Type);
             case FirCallValueReference reference:
                 if (!_callEvaluations.TryPeek(out var frame) || reference.EvaluationIndex < 0
                     || reference.EvaluationIndex >= frame.Values.Length || !frame.Captured[reference.EvaluationIndex])
@@ -247,7 +270,7 @@ public sealed partial class LlvmEmitter
             if (target.RuntimeFunction is FirRuntimeFunction.Println or FirRuntimeFunction.Errorln) { Call("sol_rt_newline", Int(channel)); }
             return new("void", 0, call.Type);
         }
-        long result = Call("sol_fn_" + target.Id, arguments);
+        long result = Call(_symbols[target.Id], arguments);
         if (call.Type.Kind == ResolvedTypeKind.Bottom) { Op(LlvmOperation.Unreachable); _terminated = true; }
         return new(Type(call.Type), result, call.Type);
     }

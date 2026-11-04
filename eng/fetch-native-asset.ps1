@@ -23,6 +23,9 @@ if ($Url.Host -eq 'github.com' -and $Url.IsDefaultPort -and -not $Url.UserInfo -
     $commit = $Matches.commit
     $candidates += [uri]"https://codeload.github.com/$owner/$repository/tar.gz/$commit"
 }
+$Destination = [IO.Path]::GetFullPath($Destination)
+$parent = Split-Path -Path $Destination -Parent
+New-Item -ItemType Directory -Path $parent -Force | Out-Null
 $temporary = "$Destination.$([guid]::NewGuid().ToString('N')).partial"
 try {
     foreach ($candidate in $candidates) {

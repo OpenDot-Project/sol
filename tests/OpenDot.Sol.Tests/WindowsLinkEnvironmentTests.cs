@@ -15,9 +15,9 @@ public sealed class WindowsLinkEnvironmentTests : IDisposable
 
     private string Libraries()
     {
-        string path = Path.Combine(root, "libraries space İ");
+        string path = Path.Combine(root, "libraries space Ä°");
         Directory.CreateDirectory(path);
-        foreach (string name in new[] { "libcmt.lib", "libvcruntime.lib", "libucrt.lib", "oldnames.lib", "kernel32.lib" })
+        foreach (string name in new[] { "msvcrt.lib", "vcruntime.lib", "ucrt.lib", "oldnames.lib", "kernel32.lib" })
         { File.WriteAllBytes(Path.Combine(path, name), []); }
         return path;
     }
@@ -44,7 +44,7 @@ public sealed class WindowsLinkEnvironmentTests : IDisposable
     public void MissingEnvironmentReportsRequiredLibraries(string? environment)
     {
         var error = Assert.Throws<IOException>(() => WindowsLinkEnvironment.Resolve(root, environment));
-        Assert.Contains("libcmt.lib", error.Message);
+        Assert.Contains("msvcrt.lib", error.Message);
         Assert.Contains("x64 Visual Studio developer shell", error.Message);
     }
 
@@ -55,7 +55,7 @@ public sealed class WindowsLinkEnvironmentTests : IDisposable
         File.Delete(Path.Combine(libraries, "kernel32.lib"));
         var error = Assert.Throws<IOException>(() => WindowsLinkEnvironment.Resolve(root, libraries));
         Assert.Contains("kernel32.lib", error.Message);
-        Assert.DoesNotContain("libcmt.lib,", error.Message);
+        Assert.DoesNotContain("msvcrt.lib,", error.Message);
     }
 
     [Theory]

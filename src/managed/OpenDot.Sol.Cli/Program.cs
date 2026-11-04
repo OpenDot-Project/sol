@@ -57,7 +57,7 @@ internal static class Program
                     --verbose                 Show build capabilities with --version
                     --print KEY               edition-list or target-list
                     --explain CODE            Explain a frontend diagnostic
-                    --emit=cst|ast|fir|llvm-ir|jit Source inspection or native ORC execution
+                    --emit=cst|ast|fir|llvm-ir|link Source inspection or native artifact (default link)
                     -o PATH                   Output for one source
                     --out-dir DIR             Output directory; defaults to the current directory
                     --edition=2026            Source edition
@@ -94,12 +94,6 @@ internal static class Program
                 }
                 throw new CommandLineException("Unknown diagnostic code.");
         }
-        if (options.Emit == EmitKind.Link && options.Backend != CompilerBackend.Aot)
-        {
-            WriteError("SOL0001", "ORC executes bin output with --emit=jit; linked artifacts use the AOT backend.", options);
-            return 1;
-        }
-
         var sources = new List<SourceText>();
         var outputs = new List<(string Path, byte[] Bytes)>();
         var inputPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -114,17 +108,11 @@ internal static class Program
         var compilation = FrontendCompilation.Parse(sources, options.ErrorLimit, cancellation);
         foreach (Diagnostic diagnostic in compilation.Diagnostics) { WriteDiagnostic(diagnostic, options); }
         if (compilation.HasErrors) { return 1; }
-        if (options.Emit is EmitKind.Link or EmitKind.Fir or EmitKind.LlvmIr or EmitKind.Jit)
+        if (options.Emit is EmitKind.Link or EmitKind.Fir or EmitKind.LlvmIr)
         {
             var fir = FirCompilation.Create(compilation.CreateAst(cancellation), cancellation, library: options.Artifact != ArtifactType.Bin);
             foreach (var diagnostic in fir.Diagnostics) { WriteDiagnostic(diagnostic, options); }
             if (fir.Program is null) { return 1; }
-            if (options.Emit == EmitKind.Jit)
-            {
-                foreach (var source in sources)
-                { if (!File.ReadAllBytes(source.Path).AsSpan().SequenceEqual(source.Bytes)) { throw new IOException("Source changed during compilation."); } }
-                return OrcExecutor.Execute(fir.Program, options.ProgramArguments, options.RuntimeLinkage == SolrtLinkage.Static, cancellationToken: cancellation);
-            }
             string extension = options.Emit == EmitKind.Fir ? ".fir.json" : options.Emit == EmitKind.LlvmIr ? ".ll" : options.Artifact switch
             { ArtifactType.Bin => ".exe", ArtifactType.Cdylib => ".dll", ArtifactType.Staticlib => ".lib", ArtifactType.Solib => ".solib", _ => throw new InvalidOperationException() };
             string path = Path.GetFullPath(options.Output ?? Path.Combine(options.OutputDirectory, Path.GetFileNameWithoutExtension(sources[0].Path) + extension));
@@ -135,12 +123,15 @@ internal static class Program
             else if (options.Emit == EmitKind.LlvmIr) { outputs.Add((path, System.Text.Encoding.UTF8.GetBytes(LlvmEmitter.Emit(fir.Program, options.RuntimeLinkage == SolrtLinkage.Static, cancellation)))); }
             else
             {
-                var artifact = NativeCompiler.Compile(fir.Program, options.RuntimeLinkage == SolrtLinkage.Static, cancellationToken: cancellation,
+                var artifact = options.Backend == CompilerBackend.Orc
+                    ? OrcExecutableCompiler.Compile(fir.Program, options.RuntimeLinkage == SolrtLinkage.Static, cancellationToken: cancellation)
+                    : NativeCompiler.Compile(fir.Program, options.RuntimeLinkage == SolrtLinkage.Static, cancellationToken: cancellation,
                     kind: options.Artifact switch { ArtifactType.Bin => NativeArtifactKind.Bin, ArtifactType.Cdylib => NativeArtifactKind.Cdylib,
                         ArtifactType.Staticlib => NativeArtifactKind.Staticlib, ArtifactType.Solib => NativeArtifactKind.Solib, _ => throw new InvalidOperationException() },
                     artifactName: Path.GetFileName(path));
                 outputs.Add((path, artifact.Executable));
                 if (artifact.RuntimeDll is not null) { outputs.Add((Path.Combine(Path.GetDirectoryName(path)!, "SolRT.dll"), artifact.RuntimeDll)); }
+                if (artifact.JitDll is not null) { outputs.Add((Path.Combine(Path.GetDirectoryName(path)!, "SolJit.dll"), artifact.JitDll)); }
                 if (artifact.ImportLibrary is not null) { outputs.Add((Path.ChangeExtension(path, ".lib"), artifact.ImportLibrary)); }
                 if (artifact.RuntimeLibrary is not null) { outputs.Add((Path.Combine(Path.GetDirectoryName(path)!, "SolRT.lib"), artifact.RuntimeLibrary)); }
             }

@@ -12,6 +12,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <exception>
 
 using namespace OpenDot::Sol::Runtime;
 
@@ -367,6 +368,36 @@ void sol_rt_exception_add_suppressed(Throwable *primary, Throwable *secondary)
 [[noreturn]] void sol_rt_throw(Throwable *value) noexcept(false)
 {
     throw ExceptionCarrier(value);
+}
+
+Throwable *sol_rt_current_exception() noexcept
+{
+    if (!std::current_exception())
+    {
+        sol_rt_fail(7);
+    }
+    try
+    {
+        throw;
+    }
+    catch (const ExceptionCarrier &carrier)
+    {
+        return carrier.Value();
+    }
+    catch (...)
+    {
+        // A foreign C++ exception cannot become a Sol Throwable.
+        sol_rt_fail(7);
+    }
+}
+
+[[noreturn]] void sol_rt_rethrow() noexcept(false)
+{
+    if (!std::current_exception())
+    {
+        sol_rt_fail(7);
+    }
+    throw;
 }
 }
 

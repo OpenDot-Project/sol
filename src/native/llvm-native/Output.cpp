@@ -170,12 +170,17 @@ const char *SolLlvmVersion() noexcept
     return LLVM_VERSION_STRING;
 }
 
+std::uint64_t SolLlvmProtocol() noexcept
+{
+    return 0x534F4C4C00000003ULL;
+}
+
 bool SolLlvmApply(void *pointer, int operation, std::int64_t type, const std::int64_t *operands, std::uint64_t count,
                   std::int64_t data, const char *text, std::int64_t *result) noexcept
 {
     return Protect([&] {
         if (!result || !text || count > 1000000 || (count && !operands) || operation < 0 || operation > static_cast<int>
-            (OpenDot::Sol::LlvmNative::Operation::IndirectCall))
+            (OpenDot::Sol::LlvmNative::Operation::IndirectInvoke))
         {
             throw std::invalid_argument("Malformed LLVM operation request.");
         }
@@ -216,6 +221,32 @@ bool SolLlvmString(void *pointer, const unsigned char *bytes, std::uint64_t size
                                                              constant, "sol_str");
         auto &registered = *global;
         // The module-taking constructor registered lifetime ownership; entries are non-owning.
+        std::ignore = global.release();
+        registered.setAlignment(llvm::Align(16));
+        *result = session.Add({nullptr, &registered});
+    });
+}
+
+bool SolLlvmData(void *pointer, const unsigned char *bytes, std::uint64_t size,
+                 const char *name, std::int64_t *result) noexcept
+{
+    return Protect([&] {
+        if (!result || !name || !*name || size > 64ULL * 1024 * 1024 + 88 || (size && !bytes))
+        {
+            throw std::invalid_argument("Invalid LLVM executable data.");
+        }
+        auto &session = Get(pointer);
+        session.CheckThread();
+        if (session.Module->getNamedValue(name))
+        {
+            throw std::invalid_argument("Duplicate LLVM executable data symbol.");
+        }
+        auto &data = *llvm::ConstantDataArray::get(session.Context,
+                                                   llvm::ArrayRef(
+                                                       bytes, OpenDot::Sol::CheckedInteger<std::size_t>(size)));
+        auto global = std::make_unique<llvm::GlobalVariable>(*session.Module, data.getType(), true,
+                                                             llvm::GlobalValue::ExternalLinkage, &data, name);
+        auto &registered = *global;
         std::ignore = global.release();
         registered.setAlignment(llvm::Align(16));
         *result = session.Add({nullptr, &registered});
